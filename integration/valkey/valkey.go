@@ -12,12 +12,25 @@ import (
 )
 
 /*
+Entry represents a key/value pair in Valkey.
+*/
+type Entry struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+}
+
+/*
 Valkey exposes an opinionated way to interact with Valkey, by bringing automatic
 distributed tracing as well as error recording within traces.
 */
 type Valkey interface {
 	Get(ctx context.Context, key string, opts *OptionsGet) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, opts *OptionsSet) error
+	Increment(ctx context.Context, key string, increment int64) error
+	Decrement(ctx context.Context, key string, decrement int64) error
+	Scan(ctx context.Context, pattern string) []string
+	MGet(ctx context.Context, keys []string) []Entry
+	Delete(ctx context.Context, keys []string) error
 }
 
 /*
@@ -132,6 +145,124 @@ func (conn *connection) Set(ctx context.Context, key string, value []byte, opts 
 	}
 
 	setKeyAttributes(span, key)
+
+	return err
+}
+
+/*
+Increment increments the value of a key.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Increment(ctx context.Context, key string, increment int64) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Increment", humanized))
+	defer span.End()
+
+	cmd := conn.client.B().Incrby().Key(key).Increment(increment)
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		span.RecordError("failed to increment value", err)
+	}
+
+	setKeyAttributes(span, key)
+
+	return err
+}
+
+/*
+Decrement decrements the value of a key.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Decrement(ctx context.Context, key string, decrement int64) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Decrement", humanized))
+	defer span.End()
+
+	cmd := conn.client.B().Decrby().Key(key).Decrement(decrement)
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		span.RecordError("failed to decrement value", err)
+	}
+
+	setKeyAttributes(span, key)
+
+	return err
+}
+
+/*
+Scan look for and return all keys given a pattern.
+
+It automatically handles tracing.
+*/
+func (conn *connection) Scan(ctx context.Context, pattern string) []string {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Scan", humanized))
+	defer span.End()
+
+	var cursor uint64
+	var keys []string
+	for {
+		batch := conn.client.Do(ctx, conn.client.B().Scan().Cursor(cursor).Match(pattern).Build())
+		se, _ := batch.AsScanEntry()
+
+		keys = append(keys, se.Elements...)
+
+		cursor = se.Cursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return keys
+}
+
+/*
+MGet returns key/value pairs for all keys passed.
+
+It automatically handles tracing.
+*/
+func (conn *connection) MGet(ctx context.Context, keys []string) []Entry {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: MGet", humanized))
+	defer span.End()
+
+	values := conn.client.Do(ctx, conn.client.B().Mget().Key(keys...).Build())
+	sse, _ := values.AsStrSlice()
+
+	result := make([]Entry, 0, len(keys))
+	for i, key := range keys {
+		if i >= len(sse) {
+			break
+		}
+
+		val := sse[i]
+		if val == "" {
+			continue
+		}
+
+		record := Entry{
+			Key:   key,
+			Value: []byte(val),
+		}
+
+		result = append(result, record)
+	}
+
+	return result
+}
+
+/*
+Delete deletes a set of keys.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Delete(ctx context.Context, keys []string) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Delete", humanized))
+	defer span.End()
+
+	cmd := conn.client.B().Del().Key(keys...)
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		span.RecordError("failed to delete keys", err)
+	}
 
 	return err
 }

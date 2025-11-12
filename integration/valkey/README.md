@@ -11,8 +11,10 @@ key/value database.
 ## Trace attributes
 
 The `valkey` integration sets the following trace attributes:
-- `valkey.key`
 - `span.kind`
+
+When applicable, these attributes can be set as well:
+- `valkey.key`
 
 Example:
 ```
