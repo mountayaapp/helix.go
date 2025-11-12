@@ -36,6 +36,11 @@
       "description": "as transactional database"
     },
     {
+      "id": "clickhouse",
+      "name": "ClickHouse",
+      "description": "as analytical database"
+    },
+    {
       "id": "valkey",
       "name": "Valkey",
       "description": "as key/value cache database"

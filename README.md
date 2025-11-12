@@ -270,6 +270,7 @@ Supported integrations:
 - [Temporal](./integration/temporal/README.md) for durable, fault-tolerant
   executions.
 - [PostgreSQL](./integration/postgres/README.md) as transactional database.
+- [ClickHouse](./integration/clickhouse/README.md) as analytical database.
 - [Valkey](./integration/valkey/README.md) as key/value cache database.
 - [Bucket](./integration/bucket/README.md) for standardized blob storage.
 

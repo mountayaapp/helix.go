@@ -1,5 +1,6 @@
 /*
-Package postgres exposes an opinionated way to interact with PostgreSQL.
+Package postgres exposes an opinionated way to interact with PostgreSQL as a
+transactional database.
 */
 package postgres
 

@@ -12,6 +12,7 @@ types:
 
 scopes:
   - "bucket"
+  - "clickhouse"
   - "cloudprovider"
   - "event"
   - "errorstack"
