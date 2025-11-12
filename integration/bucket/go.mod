@@ -3,7 +3,7 @@ module github.com/mountayaapp/helix.go/integration/bucket
 go 1.25.0
 
 require (
-	github.com/mountayaapp/helix.go v0.20.1
+	github.com/mountayaapp/helix.go v0.21.0
 	github.com/stretchr/testify v1.11.1
 	gocloud.dev v0.43.0
 )
@@ -103,5 +103,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/mountayaapp/helix.go => ../../
