@@ -224,6 +224,10 @@ func (conn *connection) MGet(ctx context.Context, keys []string) []Entry {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: MGet", humanized))
 	defer span.End()
 
+	if len(keys) == 0 {
+		return []Entry{}
+	}
+
 	values := conn.client.Do(ctx, conn.client.B().Mget().Key(keys...).Build())
 	sse, _ := values.AsStrSlice()
 
@@ -257,6 +261,10 @@ It automatically handles tracing and error recording.
 func (conn *connection) Delete(ctx context.Context, keys []string) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Delete", humanized))
 	defer span.End()
+
+	if len(keys) == 0 {
+		return nil
+	}
 
 	cmd := conn.client.B().Del().Key(keys...)
 	err := conn.client.Do(ctx, cmd.Build()).Error()
