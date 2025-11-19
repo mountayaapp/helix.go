@@ -44,10 +44,14 @@ type clickhouseEntry struct {
 }
 
 cfg := clickhouse.Config{
-  Address:  "127.0.0.1:9000",
+  Address:  "endpoint.clickhouse.cloud:9440",
   Database: "default",
   User:     "default",
   Password: "default",
+  TLS: integration.ConfigTLS{
+    Enabled:            true,
+    InsecureSkipVerify: true,
+  },
 }
 
 db, err := clickhouse.Connect(cfg)

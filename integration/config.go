@@ -62,17 +62,10 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Validation {
 		return validations
 	}
 
-	if cfg.CertFile == "" {
+	if (cfg.CertFile != "" && cfg.KeyFile == "") || (cfg.CertFile == "" && cfg.KeyFile != "") {
 		validations = append(validations, errorstack.Validation{
-			Message: "CertFile must be set and not be empty",
-			Path:    []string{"Config", "TLS", "CertFile"},
-		})
-	}
-
-	if cfg.KeyFile == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "KeyFile must be set and not be empty",
-			Path:    []string{"Config", "TLS", "KeyFile"},
+			Message: "CertFile and KeyFile must be set together or neither must be set",
+			Path:    []string{"Config", "TLS"},
 		})
 	}
 
@@ -91,19 +84,27 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 		return nil, validations
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-	if err != nil {
-		validations = append(validations, errorstack.Validation{
-			Message: err.Error(),
-		})
+	var cert tls.Certificate
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		var err error
 
-		return nil, validations
+		cert, err = tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			validations = append(validations, errorstack.Validation{
+				Message: err.Error(),
+			})
+
+			return nil, validations
+		}
 	}
 
 	tlsConfig := &tls.Config{
 		ServerName:         cfg.ServerName,
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
-		Certificates:       []tls.Certificate{cert},
+	}
+
+	if len(cert.Certificate) > 0 {
+		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
 	if len(cfg.RootCAFiles) == 0 {
@@ -124,7 +125,7 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 		ok := caCertPool.AppendCertsFromPEM(caCert)
 		if !ok {
 			validations = append(validations, errorstack.Validation{
-				Message: "Failed to append root certificate from pem",
+				Message: "Failed to append root certificate from PEM",
 			})
 		}
 	}
