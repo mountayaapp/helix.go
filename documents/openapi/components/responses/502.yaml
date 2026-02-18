@@ -1,0 +1,6 @@
+description: Bad Gateway
+
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/rest/502.yaml

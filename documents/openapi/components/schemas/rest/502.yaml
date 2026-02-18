@@ -1,0 +1,21 @@
+type: object
+x-go-type: rest.Response
+x-go-type-import:
+  path: github.com/mountayaapp/helix.go/integration/rest
+
+properties:
+  status:
+    type: string
+    default: Bad Gateway
+  error:
+    $ref: ../Error.yaml
+  metadata:
+    type:
+      - undefined
+      - object
+required:
+  - status
+  - error
+
+example:
+  status: Bad Gateway
