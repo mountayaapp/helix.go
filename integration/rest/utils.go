@@ -52,6 +52,7 @@ description can not be loaded or if it's not valid.
 */
 func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Validation) {
 	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
 
 	// Load the description from file or from a URL, depending on the path defined
 	// in the Config.
