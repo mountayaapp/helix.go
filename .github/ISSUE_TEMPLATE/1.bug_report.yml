@@ -9,7 +9,6 @@ body:
       label: What helix version are you using?
       options:
         - 0.21.x
-        - 0.20.x
     validations:
       required: true
   - type: dropdown
