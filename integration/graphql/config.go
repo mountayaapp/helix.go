@@ -44,8 +44,8 @@ type Config struct {
 	GraphiQL ConfigGraphiQL `json:"graphiql"`
 
 	// APQ configures Automatic Persisted Queries (APQ) caching backed by Valkey.
-  // When enabled, clients can send a query hash instead of the full query string,
-  // reducing bandwidth on subsequent requests.
+	// When enabled, clients can send a query hash instead of the full query string,
+	// reducing bandwidth on subsequent requests.
 	APQ ConfigAPQ `json:"apq"`
 
 	// Healthcheck allows to define custom logic for the healthcheck endpoint at:

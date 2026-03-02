@@ -19,7 +19,7 @@ type responseSuccessBody struct {
 responseErrorBody is the JSON body returned for error HTTP responses.
 */
 type responseErrorBody struct {
-	Status string           `json:"status"`
+	Status string            `json:"status"`
 	Error  *errorstack.Error `json:"error,omitempty"`
 }
 

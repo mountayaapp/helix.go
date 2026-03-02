@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/99designs/gqlgen v0.17.73
-	github.com/mountayaapp/helix.go v0.21.3
-	github.com/mountayaapp/helix.go/integration/valkey v0.21.3
+	github.com/mountayaapp/helix.go v0.22.0
+	github.com/mountayaapp/helix.go/integration/valkey v0.22.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
 	golang.org/x/text v0.34.0
@@ -47,7 +47,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace (
-	github.com/mountayaapp/helix.go => ../../
-	github.com/mountayaapp/helix.go/integration/valkey => ../valkey
-)
+replace github.com/mountayaapp/helix.go => ../../
+
+replace github.com/mountayaapp/helix.go/integration/valkey => ../valkey
