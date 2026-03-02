@@ -96,13 +96,16 @@ getPreferredLanguage returns the preferred language requested by the client. It
 relies on the cookie, then on the "Accept-Language" header (order matters).
 */
 func getPreferredLanguage(req *http.Request) language.Tag {
-	var cookie *http.Cookie
+	var cookieValue string
 	var header string
 	if req != nil {
-		cookie, _ = req.Cookie("lang")
+		if cookie, err := req.Cookie("lang"); err == nil {
+			cookieValue = cookie.Value
+		}
+
 		header = req.Header.Get("Accept-Language")
 	}
 
-	tag, _ := language.MatchStrings(language.NewMatcher(supportedLanguages), cookie.String(), header)
+	tag, _ := language.MatchStrings(language.NewMatcher(supportedLanguages), cookieValue, header)
 	return tag
 }

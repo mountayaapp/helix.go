@@ -74,6 +74,7 @@ func (res *ResponseSuccess[Metadata, Data]) Write(rw http.ResponseWriter) {
 		return
 	}
 
+	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(res.statusCode)
 	rw.Write(b)
 }
