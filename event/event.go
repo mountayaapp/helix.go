@@ -78,7 +78,7 @@ func injectEventToFlatMap(e Event, flatten map[string]string) {
 		for k, v := range e.Params {
 			split := strings.Split(k, ".")
 			for i, s := range v {
-				flatten[fmt.Sprintf("event.params.%s[%d]", split[0], i)] = s
+				flatten[fmt.Sprintf("event.params.%s.%d", split[0], i)] = s
 			}
 		}
 	}
@@ -144,7 +144,14 @@ func extractEventFromBaggage(b baggage.Baggage) Event {
 			keyWithIndex := strings.TrimPrefix(m.Key(), "event.params.")
 			if idx := strings.Index(keyWithIndex, "."); idx != -1 {
 				paramKey := keyWithIndex[:idx]
-				e.Params.Add(paramKey, m.Value())
+				indexStr := keyWithIndex[idx+1:]
+				i, _ := strconv.Atoi(indexStr)
+
+				for len(e.Params[paramKey]) <= i {
+					e.Params[paramKey] = append(e.Params[paramKey], "")
+				}
+
+				e.Params[paramKey][i] = m.Value()
 			} else {
 				e.Params.Add(keyWithIndex, m.Value())
 			}

@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventReferrerToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Referrer
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Referrer{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Referrer{
 				Type: "referrer_type_test",
 				Name: "referrer_name_test",
@@ -34,21 +37,25 @@ func TestInjectEventReferrerToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventReferrerToFlatMap(tc.input, tc.expected)
+			injectEventReferrerToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.referrer.unknown", "anything")
 				return m
@@ -58,6 +65,7 @@ func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "type",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.referrer.type", "referrer_type_test")
 				return m
@@ -69,6 +77,7 @@ func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "name",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.referrer.name", "referrer_name_test")
 				return m
@@ -80,6 +89,7 @@ func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "url",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.referrer.url", "referrer_url_test")
 				return m
@@ -91,6 +101,7 @@ func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "link",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.referrer.link", "referrer_link_test")
 				return m
@@ -104,9 +115,11 @@ func TestApplyEventReferrerFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventReferrerFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventReferrerFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

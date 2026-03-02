@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventCampaignToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Campaign
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Campaign{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Campaign{
 				Name:    "campaign_name_test",
 				Source:  "campaign_source_test",
@@ -36,21 +39,25 @@ func TestInjectEventCampaignToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventCampaignToFlatMap(tc.input, tc.expected)
+			injectEventCampaignToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.unknown", "anything")
 				return m
@@ -60,6 +67,7 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "name",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.name", "campaign_name_test")
 				return m
@@ -71,6 +79,7 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "source",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.source", "campaign_source_test")
 				return m
@@ -82,6 +91,7 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "medium",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.medium", "campaign_medium_test")
 				return m
@@ -93,6 +103,7 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "term",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.term", "campaign_term_test")
 				return m
@@ -104,6 +115,7 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "content",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.campaign.content", "campaign_content_test")
 				return m
@@ -117,9 +129,11 @@ func TestApplyEventCampaignFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventCampaignFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventCampaignFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

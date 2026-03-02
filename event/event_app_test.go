@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventAppToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    App
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    App{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: App{
 				Name:    "app_name_test",
 				Version: "app_version_test",
@@ -32,21 +35,25 @@ func TestInjectEventAppToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventAppToFlatMap(tc.input, tc.expected)
+			injectEventAppToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventAppFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.app.unknown", "anything")
 				return m
@@ -56,6 +63,7 @@ func TestApplyEventAppFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "name",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.app.name", "app_name_test")
 				return m
@@ -67,6 +75,7 @@ func TestApplyEventAppFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "version",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.app.version", "app_version_test")
 				return m
@@ -78,6 +87,7 @@ func TestApplyEventAppFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "build_id",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.app.build_id", "app_buildid_test")
 				return m
@@ -91,9 +101,11 @@ func TestApplyEventAppFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventAppFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventAppFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

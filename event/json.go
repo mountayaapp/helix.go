@@ -76,14 +76,14 @@ Example:
 Will produce:
 
 	map[string]string = {
-	  "event.name"                         = "subscribed",
-	  "event.user_id"                      = "user_2N6YZQLcYy2SPtmHiII69yHp0WE,
-	  "event.params.filters[0]"            = "a",
-	  "event.params.filters[1]"            = "b",
-	  "event.params.filters[2]"            = "c",
-	  "event.subscriptions[0].id"          = "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
-	  "event.subscriptions[0].customer_id" = "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
-	  "event.subscriptions[0].product_id"  = "prod_2N6YZSE1SkWT9DrlXlswLhJ5K5Q",
+	  "event.name"                        = "subscribed",
+	  "event.user_id"                     = "user_2N6YZQLcYy2SPtmHiII69yHp0WE,
+	  "event.params.filters.0"            = "a",
+	  "event.params.filters.1"            = "b",
+	  "event.params.filters.2"            = "c",
+	  "event.subscriptions.0.id"          = "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
+	  "event.subscriptions.0.customer_id" = "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
+	  "event.subscriptions.0.product_id"  = "prod_2N6YZSE1SkWT9DrlXlswLhJ5K5Q",
 	}
 */
 func ToFlatMap(e Event) map[string]string {

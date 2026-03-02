@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventPageToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Page
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Page{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Page{
 				Path:     "page_path_test",
 				Referrer: "page_referrer_test",
@@ -36,21 +39,25 @@ func TestInjectEventPageToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventPageToFlatMap(tc.input, tc.expected)
+			injectEventPageToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventPageFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.unknown", "anything")
 				return m
@@ -60,6 +67,7 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "path",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.path", "page_path_test")
 				return m
@@ -71,6 +79,7 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "referrer",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.referrer", "page_referrer_test")
 				return m
@@ -82,6 +91,7 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "search",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.search", "page_search_test")
 				return m
@@ -93,6 +103,7 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "title",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.title", "page_title_test")
 				return m
@@ -104,6 +115,7 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "url",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.page.url", "page_url_test")
 				return m
@@ -117,9 +129,11 @@ func TestApplyEventPageFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventPageFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventPageFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

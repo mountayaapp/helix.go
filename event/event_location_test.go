@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventLocationToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Location
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Location{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Location{
 				City:      "location_city_test",
 				Country:   "location_country_test",
@@ -38,21 +41,25 @@ func TestInjectEventLocationToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventLocationToFlatMap(tc.input, tc.expected)
+			injectEventLocationToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.unknown", "anything")
 				return m
@@ -62,6 +69,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "city",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.city", "location_city_test")
 				return m
@@ -73,6 +81,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "country",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.country", "location_country_test")
 				return m
@@ -84,6 +93,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "region",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.region", "location_region_test")
 				return m
@@ -95,6 +105,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "latitude",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.latitude", "45.916000")
 				return m
@@ -106,6 +117,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "longitude",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.longitude", "6.133000")
 				return m
@@ -117,6 +129,7 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "speed",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.location.speed", "50.000000")
 				return m
@@ -130,9 +143,11 @@ func TestApplyEventLocationFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventLocationFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventLocationFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

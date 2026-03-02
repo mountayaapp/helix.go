@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventNetworkToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Network
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Network{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Network{
 				Bluetooth: true,
 				Cellular:  false,
@@ -33,21 +36,25 @@ func TestInjectEventNetworkToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventNetworkToFlatMap(tc.input, tc.expected)
+			injectEventNetworkToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.network.unknown", "anything")
 				return m
@@ -57,6 +64,7 @@ func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "bluetooth",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.network.bluetooth", "true")
 				return m
@@ -68,6 +76,7 @@ func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "cellular",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.network.cellular", "true")
 				return m
@@ -79,6 +88,7 @@ func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "wifi",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.network.wifi", "true")
 				return m
@@ -90,6 +100,7 @@ func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "carrier",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.network.carrier", "network_carrier_test")
 				return m
@@ -103,9 +114,11 @@ func TestApplyEventNetworkFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventNetworkFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventNetworkFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

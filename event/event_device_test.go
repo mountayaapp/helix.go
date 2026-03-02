@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventDeviceToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Device
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Device{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Device{
 				Id:            "device_id_test",
 				Manufacturer:  "device_manufacturer_test",
@@ -40,21 +43,25 @@ func TestInjectEventDeviceToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventDeviceToFlatMap(tc.input, tc.expected)
+			injectEventDeviceToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.unknown", "anything")
 				return m
@@ -64,6 +71,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "id",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.id", "device_id_test")
 				return m
@@ -75,6 +83,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "manufacturer",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.manufacturer", "device_manufacturer_test")
 				return m
@@ -86,6 +95,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "model",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.model", "device_model_test")
 				return m
@@ -97,6 +107,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "name",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.name", "device_name_test")
 				return m
@@ -108,6 +119,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "type",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.type", "device_type_test")
 				return m
@@ -119,6 +131,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "version",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.version", "device_version_test")
 				return m
@@ -130,6 +143,7 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "advertising_id",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.device.advertising_id", "device_advertisingid_test")
 				return m
@@ -143,9 +157,11 @@ func TestApplyEventDeviceFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventDeviceFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventDeviceFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

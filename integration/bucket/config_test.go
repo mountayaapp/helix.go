@@ -10,11 +10,13 @@ import (
 
 func TestConfig_Sanitize(t *testing.T) {
 	testcases := []struct {
+		name   string
 		before Config
 		after  Config
 		err    error
 	}{
 		{
+			name: "valid driver and bucket is valid",
 			before: Config{
 				Driver: DriverLocal,
 				Bucket: "anything",
@@ -26,6 +28,7 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "missing bucket returns error",
 			before: Config{
 				Driver: DriverLocal,
 			},
@@ -44,6 +47,7 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
+			name:   "empty config returns driver and bucket errors",
 			before: Config{},
 			after:  Config{},
 			err: &errorstack.Error{
@@ -62,6 +66,7 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
+			name: "subfolder without trailing slash returns error",
 			before: Config{
 				Driver:    DriverLocal,
 				Bucket:    "anything",
@@ -83,12 +88,61 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "subfolder with trailing slash is valid",
+			before: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "valid/path/",
+			},
+			after: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "valid/path/",
+			},
+			err: nil,
+		},
+		{
+			name: "missing driver returns error",
+			before: Config{
+				Bucket: "anything",
+			},
+			after: Config{
+				Bucket: "anything",
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Driver must be set and not be nil",
+						Path:    []string{"Config", "Driver"},
+					},
+				},
+			},
+		},
+		{
+			name: "subfolder as root slash is valid",
+			before: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "/",
+			},
+			after: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "/",
+			},
+			err: nil,
+		},
 	}
 
 	for _, tc := range testcases {
-		err := tc.before.sanitize()
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.before.sanitize()
 
-		assert.Equal(t, tc.before, tc.after)
-		assert.Equal(t, tc.err, err)
+			assert.Equal(t, tc.after, tc.before)
+			assert.Equal(t, tc.err, err)
+		})
 	}
 }

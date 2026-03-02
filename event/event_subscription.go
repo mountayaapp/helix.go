@@ -34,36 +34,36 @@ func injectEventSubscriptionsToFlatMap(subs []Subscription, flatten map[string]s
 
 	for i, sub := range subs {
 		if sub.Id != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].id", i)] = sub.Id
+			flatten[fmt.Sprintf("event.subscriptions.%d.id", i)] = sub.Id
 		}
 
 		if sub.TenantId != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].tenant_id", i)] = sub.TenantId
+			flatten[fmt.Sprintf("event.subscriptions.%d.tenant_id", i)] = sub.TenantId
 		}
 
 		if sub.CustomerId != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].customer_id", i)] = sub.CustomerId
+			flatten[fmt.Sprintf("event.subscriptions.%d.customer_id", i)] = sub.CustomerId
 		}
 
 		if sub.ProductId != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].product_id", i)] = sub.ProductId
+			flatten[fmt.Sprintf("event.subscriptions.%d.product_id", i)] = sub.ProductId
 		}
 
 		if sub.PriceId != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].price_id", i)] = sub.PriceId
+			flatten[fmt.Sprintf("event.subscriptions.%d.price_id", i)] = sub.PriceId
 		}
 
 		if sub.Usage != "" {
-			flatten[fmt.Sprintf("event.subscriptions[%d].usage", i)] = sub.Usage
+			flatten[fmt.Sprintf("event.subscriptions.%d.usage", i)] = sub.Usage
 		}
 
 		if sub.IncrementBy != 0 {
-			flatten[fmt.Sprintf("event.subscriptions[%d].increment_by", i)] = fmt.Sprintf("%f", sub.IncrementBy)
+			flatten[fmt.Sprintf("event.subscriptions.%d.increment_by", i)] = fmt.Sprintf("%f", sub.IncrementBy)
 		}
 
 		if sub.Metadata != nil {
 			for k, v := range sub.Metadata {
-				flatten[fmt.Sprintf("event.subscriptions[%d].metadata.%s", i, k)] = v
+				flatten[fmt.Sprintf("event.subscriptions.%d.metadata.%s", i, k)] = v
 			}
 		}
 	}

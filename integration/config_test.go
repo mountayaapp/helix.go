@@ -11,22 +11,26 @@ import (
 
 func TestConfigTLS_Sanitize(t *testing.T) {
 	testcases := []struct {
+		name        string
 		cfg         ConfigTLS
 		validations []errorstack.Validation
 	}{
 		{
+			name: "disabled TLS has no validations",
 			cfg: ConfigTLS{
 				Enabled: false,
 			},
 			validations: nil,
 		},
 		{
+			name: "enabled TLS without certs has no validations",
 			cfg: ConfigTLS{
 				Enabled: true,
 			},
 			validations: nil,
 		},
 		{
+			name: "enabled TLS with both CertFile and KeyFile has no validations",
 			cfg: ConfigTLS{
 				Enabled:  true,
 				CertFile: "cert.crt",
@@ -35,6 +39,7 @@ func TestConfigTLS_Sanitize(t *testing.T) {
 			validations: nil,
 		},
 		{
+			name: "TLS with only CertFile returns error",
 			cfg: ConfigTLS{
 				Enabled:  true,
 				CertFile: "cert.crt",
@@ -48,6 +53,7 @@ func TestConfigTLS_Sanitize(t *testing.T) {
 			},
 		},
 		{
+			name: "TLS with only KeyFile returns error",
 			cfg: ConfigTLS{
 				Enabled:  true,
 				CertFile: "",
@@ -63,24 +69,29 @@ func TestConfigTLS_Sanitize(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		validations := tc.cfg.Sanitize()
-		assert.Equal(t, tc.validations, validations)
+		t.Run(tc.name, func(t *testing.T) {
+			validations := tc.cfg.Sanitize()
+			assert.Equal(t, tc.validations, validations)
+		})
 	}
 }
 
 func TestConfigTLS_ToStandardTLS(t *testing.T) {
 	testcases := []struct {
+		name                   string
 		cfg                    ConfigTLS
 		expectedSkipVerifyFlag bool
 		expectNilConfig        bool
 	}{
 		{
+			name: "disabled TLS returns nil config",
 			cfg: ConfigTLS{
 				Enabled: false,
 			},
 			expectNilConfig: true,
 		},
 		{
+			name: "enabled TLS without InsecureSkipVerify",
 			cfg: ConfigTLS{
 				Enabled:            true,
 				InsecureSkipVerify: false,
@@ -89,6 +100,7 @@ func TestConfigTLS_ToStandardTLS(t *testing.T) {
 			expectNilConfig:        false,
 		},
 		{
+			name: "enabled TLS with InsecureSkipVerify",
 			cfg: ConfigTLS{
 				Enabled:            true,
 				InsecureSkipVerify: true,
@@ -99,16 +111,18 @@ func TestConfigTLS_ToStandardTLS(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		tlsConfig, validations := tc.cfg.ToStandardTLS()
+		t.Run(tc.name, func(t *testing.T) {
+			tlsConfig, validations := tc.cfg.ToStandardTLS()
 
-		require.Empty(t, validations, "ToStandardTLS should not return validations in this test setup.")
+			require.Empty(t, validations)
 
-		if tc.expectNilConfig {
-			assert.Nil(t, tlsConfig, "Config should be nil when disabled.")
-		} else {
-			require.NotNil(t, tlsConfig, "Config should not be nil when enabled.")
-			assert.Equal(t, tc.expectedSkipVerifyFlag, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify flag mismatch.")
-		}
+			if tc.expectNilConfig {
+				assert.Nil(t, tlsConfig)
+			} else {
+				require.NotNil(t, tlsConfig)
+				assert.Equal(t, tc.expectedSkipVerifyFlag, tlsConfig.InsecureSkipVerify)
+			}
+		})
 	}
 }
 
@@ -120,12 +134,62 @@ func TestConfigTLS_ToStandardTLS_FullInsecureSkipVerify(t *testing.T) {
 
 	tlsConfig, validations := cfg.ToStandardTLS()
 
-	require.Empty(t, validations, "Expected no validation errors.")
-	require.NotNil(t, tlsConfig, "Expected a non-nil *tls.Config.")
+	require.Empty(t, validations)
+	require.NotNil(t, tlsConfig)
 
-	assert.True(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must be true.")
+	assert.True(t, tlsConfig.InsecureSkipVerify)
 
-	assert.Empty(t, tlsConfig.ServerName, "ServerName must be empty (zero value).")
-	assert.Nil(t, tlsConfig.Certificates, "Certificates slice must be nil (no client cert provided).")
-	assert.Nil(t, tlsConfig.RootCAs, "RootCAs pool must be nil (no RootCAFiles provided).")
+	assert.Empty(t, tlsConfig.ServerName)
+	assert.Nil(t, tlsConfig.Certificates)
+	assert.Nil(t, tlsConfig.RootCAs)
+}
+
+func TestConfigTLS_Sanitize_DisabledIgnoresInvalidFields(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled:  false,
+		CertFile: "cert.crt",
+		KeyFile:  "",
+	}
+
+	validations := cfg.Sanitize()
+
+	assert.Empty(t, validations)
+}
+
+func TestConfigTLS_ToStandardTLS_WithServerName(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled:    true,
+		ServerName: "api.example.com",
+	}
+
+	tlsConfig, validations := cfg.ToStandardTLS()
+
+	require.Empty(t, validations)
+	require.NotNil(t, tlsConfig)
+	assert.Equal(t, "api.example.com", tlsConfig.ServerName)
+}
+
+func TestConfigTLS_ToStandardTLS_InvalidCertFile(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled:  true,
+		CertFile: "/nonexistent/cert.crt",
+		KeyFile:  "/nonexistent/cert.key",
+	}
+
+	tlsConfig, validations := cfg.ToStandardTLS()
+
+	assert.Nil(t, tlsConfig)
+	assert.NotEmpty(t, validations)
+}
+
+func TestConfigTLS_ToStandardTLS_InvalidRootCAFile(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled:     true,
+		RootCAFiles: []string{"/nonexistent/ca.crt"},
+	}
+
+	tlsConfig, validations := cfg.ToStandardTLS()
+
+	assert.Nil(t, tlsConfig)
+	assert.NotEmpty(t, validations)
 }

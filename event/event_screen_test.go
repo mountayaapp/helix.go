@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventScreenToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    Screen
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    Screen{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: Screen{
 				Density: 2,
 				Width:   12,
@@ -32,21 +35,25 @@ func TestInjectEventScreenToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventScreenToFlatMap(tc.input, tc.expected)
+			injectEventScreenToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventScreenFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.screen.unknown", "anything")
 				return m
@@ -56,6 +63,7 @@ func TestApplyEventScreenFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "density",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.screen.density", "2")
 				return m
@@ -67,6 +75,7 @@ func TestApplyEventScreenFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "width",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.screen.width", "12")
 				return m
@@ -78,6 +87,7 @@ func TestApplyEventScreenFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "height",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.screen.height", "20")
 				return m
@@ -91,9 +101,11 @@ func TestApplyEventScreenFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventScreenFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventScreenFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }

@@ -10,14 +10,17 @@ import (
 
 func TestInjectEventOSToFlatMap(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    OS
 		expected map[string]string
 	}{
 		{
+			name:     "empty struct",
 			input:    OS{},
 			expected: map[string]string{},
 		},
 		{
+			name: "all fields populated",
 			input: OS{
 				Name:    "app_name_test",
 				Arch:    "app_arch_test",
@@ -32,21 +35,25 @@ func TestInjectEventOSToFlatMap(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		var actual = make(map[string]string)
-		maps.Copy(actual, tc.expected)
+		t.Run(tc.name, func(t *testing.T) {
+			var actual = make(map[string]string)
+			maps.Copy(actual, tc.expected)
 
-		injectEventOSToFlatMap(tc.input, tc.expected)
+			injectEventOSToFlatMap(tc.input, tc.expected)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
 
 func TestApplyEventOSFromBaggageMember(t *testing.T) {
 	testcases := []struct {
+		name     string
 		input    func() baggage.Member
 		expected *Event
 	}{
 		{
+			name: "unknown field",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.os.unknown", "anything")
 				return m
@@ -56,6 +63,7 @@ func TestApplyEventOSFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "name",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.os.name", "app_name_test")
 				return m
@@ -67,6 +75,7 @@ func TestApplyEventOSFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "arch",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.os.arch", "app_arch_test")
 				return m
@@ -78,6 +87,7 @@ func TestApplyEventOSFromBaggageMember(t *testing.T) {
 			},
 		},
 		{
+			name: "version",
 			input: func() baggage.Member {
 				m, _ := baggage.NewMember("event.os.version", "app_version_test")
 				return m
@@ -91,9 +101,11 @@ func TestApplyEventOSFromBaggageMember(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		actual := new(Event)
-		applyEventOSFromBaggageMember(tc.input(), actual)
+		t.Run(tc.name, func(t *testing.T) {
+			actual := new(Event)
+			applyEventOSFromBaggageMember(tc.input(), actual)
 
-		assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, actual)
+		})
 	}
 }
