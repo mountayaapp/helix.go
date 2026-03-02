@@ -26,6 +26,11 @@
       "description": "for building REST APIs"
     },
     {
+      "id": "graphql",
+      "name": "GraphQL API",
+      "description": "for building GraphQL APIs"
+    },
+    {
       "id": "temporal",
       "name": "Temporal",
       "description": "for durable, fault-tolerant executions"

@@ -141,6 +141,8 @@ registered per service.
 
 - **[REST API](./integration/rest/README.md)** — HTTP router with OpenAPI
   validation, typed responses, and path parameters.
+- **[GraphQL API](./integration/graphql/README.md)** — GraphQL server with
+  schema-first design, optional GraphiQL playground and automatic persisted queries.
 - **[Temporal worker](./integration/temporal/README.md)** — Workflow and activity
   worker with automatic tracing across workflow executions.
 

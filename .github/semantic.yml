@@ -16,6 +16,7 @@ scopes:
   - "cloudprovider"
   - "event"
   - "errorstack"
+  - "graphql"
   - "internal"
   - "logger"
   - "postgres"
