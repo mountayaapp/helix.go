@@ -8,23 +8,15 @@ import (
 )
 
 /*
-Ensure *connection complies to the integration.Integration type.
+Ensure *connection complies to the integration.Dependency type.
 */
-var _ integration.Integration = (*connection)(nil)
+var _ integration.Dependency = (*connection)(nil)
 
 /*
 String returns the string representation of the Valkey integration.
 */
 func (conn *connection) String() string {
 	return identifier
-}
-
-/*
-Start does nothing since the Valkey integration only exposes a client to communicate
-with a Valkey database.
-*/
-func (conn *connection) Start(ctx context.Context) error {
-	return nil
 }
 
 /*

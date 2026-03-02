@@ -19,10 +19,6 @@ type Config struct {
 	//   ":8080"
 	Address string `json:"address"`
 
-	// Middleware allows to wrap the built-in HTTP handler with a custom one, for
-	// adding a chain of middlewares.
-	Middleware func(next http.Handler) http.Handler `json:"-"`
-
 	// Healthcheck allows to define custom logic for the healthcheck endpoint at:
 	//
 	//   GET /health
@@ -30,6 +26,10 @@ type Config struct {
 	// It should return 200 if service is healthy, or 5xx if an error occurred.
 	// Returns 200 by default.
 	Healthcheck func(req *http.Request) int `json:"-"`
+
+	// Middleware allows to wrap the built-in HTTP handler with a custom one, for
+	// adding a chain of middlewares.
+	Middleware func(next http.Handler) http.Handler `json:"-"`
 
 	// OpenAPI configures OpenAPI behavior within the REST API.
 	OpenAPI ConfigOpenAPI `json:"openapi"`

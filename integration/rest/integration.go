@@ -12,9 +12,9 @@ import (
 )
 
 /*
-Ensure *rest complies to the integration.Integration type.
+Ensure *rest complies to the integration.Server type.
 */
-var _ integration.Integration = (*rest)(nil)
+var _ integration.Server = (*rest)(nil)
 
 /*
 String returns the string representation of the HTTP REST integration.
@@ -68,10 +68,10 @@ func (r *rest) Start(ctx context.Context) error {
 }
 
 /*
-Close tries to gracefully close the HTTP server.
+Stop tries to gracefully stop the HTTP server.
 */
-func (r *rest) Close(ctx context.Context) error {
-	stack := errorstack.New("Failed to gracefully close HTTP server", errorstack.WithIntegration(identifier))
+func (r *rest) Stop(ctx context.Context) error {
+	stack := errorstack.New("Failed to gracefully stop HTTP server", errorstack.WithIntegration(identifier))
 
 	err := r.server.Shutdown(ctx)
 	if err != nil {

@@ -26,7 +26,7 @@ type PostgreSQL interface {
 
 /*
 connection represents the postgres integration. It respects the
-integration.Integration and PostgreSQL interfaces.
+integration.Dependency and PostgreSQL interfaces.
 */
 type connection struct {
 

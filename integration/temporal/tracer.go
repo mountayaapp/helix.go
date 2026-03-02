@@ -17,9 +17,9 @@ import (
 )
 
 /*
-buildTracer tries to build the Temporal custom tracer from Config.
+buildTracer tries to build the Temporal custom tracer from ConfigClient.
 */
-func buildTracer(cfg Config) (interceptor.Tracer, error) {
+func buildTracer(cfg ConfigClient) (interceptor.Tracer, error) {
 	return opentelemetry.NewTracer(opentelemetry.TracerOptions{
 		Tracer:            tracer.Tracer(),
 		TextMapPropagator: otel.GetTextMapPropagator(),

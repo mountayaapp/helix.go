@@ -18,9 +18,8 @@ func setDefaultAttributes(span *trace.Span, cfg *Config) {
 
 /*
 normalizeErrorMessage normalizes an error returned by the ClickHouse client to
-match the format of helix.go. This is only used inside Start and Close for a
-better readability in the terminal. Otherwise, functions return native ClickHouse
-errors.
+match the format of helix.go. This is only used inside Connect for a better
+readability in the terminal. Otherwise, functions return native ClickHouse errors.
 
 Example:
 

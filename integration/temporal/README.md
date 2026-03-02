@@ -8,12 +8,21 @@
 The Temporal integration provides an opinionated way to interact with Temporal
 for durable, fault-tolerant executions.
 
+The integration has two constructors depending on the service's role:
+
+- `temporal.Connect()` creates a **client-only** connection registered as a
+  **dependency** via `service.Attach()`. Use this for services that need to start
+  or schedule workflows without processing them.
+
+- `temporal.New()` creates a **worker** along with a client, registered as a
+  **server** via `service.Serve()`. Use this for worker services that process
+  workflows and activities.
+
 ## Trace attributes
 
 The `temporal` integration sets the following trace attributes:
 - `temporal.server.address`
 - `temporal.namespace`
-- `span.kind`
 
 When applicable, these attributes can be set as well:
 - `temporal.worker.taskqueue`
@@ -21,9 +30,11 @@ When applicable, these attributes can be set as well:
 - `temporal.workflow.run_id`
 - `temporal.workflow.namespace`
 - `temporal.workflow.type`
+- `temporal.workflow.attempt`
 - `temporal.activity.id`
 - `temporal.activity.type`
 - `temporal.activity.attempt`
+- `temporal.update.id`
 
 Example:
 ```
@@ -32,7 +43,7 @@ temporal.namespace: "default"
 temporal.worker.taskqueue: "demo"
 temporal.workflow.namespace: "default"
 temporal.workflow.type: "hello_world"
-span.kind: "internal"
+temporal.workflow.attempt: 1
 ```
 
 ## Usage
@@ -50,85 +61,57 @@ import (
 )
 
 var MyWorkflow = temporal.NewWorkflow[
-  types.WorkflowInput,
-  types.WorkflowResult,
+  WorkflowInput,
+  WorkflowResult,
 ]("workflow-name")
 
 var MyActivity = temporal.NewActivity[
-  types.ActivityInput,
-  types.ActivityResult,
+  ActivityInput,
+  ActivityResult,
 ]("activity-name")
 ```
 
-### Register workflows
+### Client mode (dependency)
 
-Register type-safe workflows and activities in a worker:
+Use `temporal.Connect()` with `ConfigClient` when the service only needs to start
+or schedule workflows. This registers a client-only connection as a dependency.
+
+#### Execute workflows
 
 ```go
 import (
   "github.com/mountayaapp/helix.go/integration/temporal"
 )
 
-cfg := temporal.Config{
-  Address:   "localhost:7233",
-  Namespace: "default",
-  Worker: temporal.ConfigWorker{
-    Enabled:   true,
-    TaskQueue: "demo",
-  },
-}
-
-_, worker, err := temporal.Connect(cfg)
-if err != nil {
-  // ...
-}
-
-MyWorkflow.Register(worker, TypeSafeFunction)
-MyActivity.Register(worker, TypeSafeFunction)
-```
-
-### Execute workflows
-
-Execute type-safe workflows from a client:
-
-```go
-import (
-  "github.com/mountayaapp/helix.go/integration/temporal"
-  "github.com/mountayaapp/helix.go/service"
-)
-
-cfg := temporal.Config{
+cfg := temporal.ConfigClient{
   Address:   "localhost:7233",
   Namespace: "default",
 }
 
-client, _, err := temporal.Connect(cfg)
+client, err := temporal.Connect(cfg)
 if err != nil {
   // ...
 }
 
-result, err := MyWorkflow.Execute(ctx, client, opts, TypeSafeInput)
+run, err := MyWorkflow.Execute(ctx, client, opts, input)
 if err != nil {
   // ...
 }
 ```
 
-### Schedule workflows
-
-Schedule type-safe workflows from a client:
+#### Schedule workflows
 
 ```go
 import (
   "github.com/mountayaapp/helix.go/integration/temporal"
-  "github.com/mountayaapp/helix.go/service"
 )
 
-cfg := temporal.Config{
+cfg := temporal.ConfigClient{
   Address:   "localhost:7233",
   Namespace: "default",
 }
 
-client, _, err := temporal.Connect(cfg)
+client, err := temporal.Connect(cfg)
 if err != nil {
   // ...
 }
@@ -140,18 +123,50 @@ opts := temporal.ScheduleOptions{
   },
 }
 
-err = MyWorkflow.Schedule(ctx, client, opts)
+err = MyWorkflow.CreateSchedule(ctx, client, opts)
 if err != nil {
   // ...
 }
 ```
 
-### Execute activities
+### Worker mode (server)
+
+Use `temporal.New()` with `ConfigWorker` when the service processes workflows
+and activities. This registers a worker as a server and also returns a client.
+
+#### Register workflows and activities
+
+```go
+import (
+  "github.com/mountayaapp/helix.go/integration/temporal"
+)
+
+cfg := temporal.ConfigWorker{
+  Client: temporal.ConfigClient{
+    Address:   "localhost:7233",
+    Namespace: "default",
+  },
+  TaskQueue: "demo",
+}
+
+client, worker, err := temporal.New(cfg)
+if err != nil {
+  // ...
+}
+
+MyWorkflow.Register(worker, myWorkflowImpl)
+MyActivity.Register(worker, myActivityImpl)
+```
+
+The `client` returned by `temporal.New()` can be used to start or schedule
+additional workflows from within the same worker service.
+
+#### Execute activities
 
 Execute type-safe activities from a workflow:
 
 ```go
-err := MyActivity.Execute(ctx, payload).GetResult(ctx, &result)
+err := MyActivity.Execute(ctx, input).GetResult(ctx, &result)
 if err != nil {
   // ...
 }

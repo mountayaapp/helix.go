@@ -6,13 +6,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The bucket integration provides an opinionated and standardized way to interact
-with bucket providers through drivers.
+with bucket providers through drivers. It is a **dependency** integration
+registered via `service.Attach()`.
 
 The integration supports the following drivers:
 - [AWS S3](https://aws.amazon.com/s3/)
 - [Azure Blob Storage](https://azure.microsoft.com/products/storage/blobs)
 - [Google Cloud Storage](https://cloud.google.com/storage)
-- [MinIO](https://www.min.io/)
 - Local files
 
 ## Trace attributes
@@ -21,7 +21,6 @@ The `bucket` integration sets the following trace attributes:
 - `bucket.bucket`
 - `bucket.driver`
 - `bucket.key`
-- `span.kind`
 
 When applicable, these attributes can be set as well:
 - `bucket.subfolder`
@@ -32,7 +31,6 @@ bucket.driver: "aws"
 bucket.bucket: "my-bucket"
 bucket.key: "blob.json"
 bucket.subfolder: "path/to/subfolder/"
-span.kind: "client"
 ```
 
 ## Usage
@@ -69,8 +67,8 @@ if err != nil {
   // ...
 }
 
-var anything types.AnyType
-err = json.Unmarshal(blob, &anything)
+var data map[string]any
+err = json.Unmarshal(blob, &data)
 if err != nil {
   // ...
 }

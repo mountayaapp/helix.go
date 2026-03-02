@@ -5,21 +5,18 @@
 [![GitHub Release](https://img.shields.io/github/v/release/mountayaapp/helix.go)](https://github.com/mountayaapp/helix.go/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-The Valkey integration provides an opinionated way to interact with Valkey as
-key/value database.
+The Valkey integration provides an opinionated way to interact with Valkey as a
+key/value database. It is a **dependency** integration registered via
+`service.Attach()`.
 
 ## Trace attributes
 
-The `valkey` integration sets the following trace attributes:
-- `span.kind`
-
-When applicable, these attributes can be set as well:
+When applicable, these trace attributes can be set:
 - `valkey.key`
 
 Example:
 ```
 valkey.key: "helloworld"
-span.kind: "client"
 ```
 
 ## Usage
@@ -34,6 +31,7 @@ Simple example on how to import, configure, and use the integration:
 ```go
 import (
   "context"
+  "encoding/json"
 
   "github.com/mountayaapp/helix.go/integration/valkey"
 )
@@ -53,8 +51,8 @@ if err != nil {
   // ...
 }
 
-var anything types.AnyType
-err = json.Unmarshal(value, &anything)
+var data map[string]any
+err = json.Unmarshal(value, &data)
 if err != nil {
   // ...
 }

@@ -23,7 +23,7 @@ type Bucket interface {
 }
 
 /*
-connection represents the bucket integration. It respects the integration.Integration
+connection represents the bucket integration. It respects the integration.Dependency
 and Bucket interfaces.
 */
 type connection struct {
@@ -57,7 +57,7 @@ func Connect(cfg Config) (Bucket, error) {
 	conn.client, err = blob.OpenBucket(context.Background(), cfg.Driver.url(&cfg))
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
+			Message: normalizeErrorMessage(err),
 		})
 
 		return nil, stack

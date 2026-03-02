@@ -21,7 +21,7 @@ type ClickHouse interface {
 
 /*
 connection represents the clickhouse integration. It respects the
-integration.Integration and ClickHouse interfaces.
+integration.Dependency and ClickHouse interfaces.
 */
 type connection struct {
 

@@ -6,7 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The ClickHouse integration provides an opinionated way to interact with ClickHouse
-as OLAP database. As of today, at [Mountaya](https://mountaya.com/), our Go
+as an OLAP database. It is a **dependency** integration registered via
+`service.Attach()`. As of today, at [Mountaya](https://mountaya.com/), our Go
 services only perform batch writes to ClickHouse. Reading is done solely for
 analytical purposes by third-party applications.
 
@@ -14,12 +15,10 @@ analytical purposes by third-party applications.
 
 The `clickhouse` integration sets the following trace attributes:
 - `clickhouse.database`
-- `span.kind`
 
 Example:
 ```
 clickhouse.database: "my_db"
-span.kind: "client"
 ```
 
 ## Usage
@@ -36,6 +35,7 @@ import (
   "context"
   "time"
 
+  "github.com/mountayaapp/helix.go/integration"
   "github.com/mountayaapp/helix.go/integration/clickhouse"
 )
 

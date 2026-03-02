@@ -2,58 +2,21 @@ package temporal
 
 import (
 	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-
-	"go.temporal.io/sdk/converter"
 )
 
 /*
-Config is used to configure the Temporal integration.
-*/
-type Config struct {
-
-	// Address is the Temporal server address to connect to.
-	//
-	// Default:
-	//
-	//   "127.0.0.1:7233"
-	Address string `json:"address"`
-
-	// Namespace sets the namespace to connect to.
-	//
-	// Default:
-	//
-	//   "default"
-	Namespace string `json:"namespace"`
-
-	// DataConverter customizes serialization/deserialization of arguments in
-	// Temporal.
-	DataConverter converter.DataConverter `json:"-"`
-
-	// Worker configures a Temporal worker if the helix service should run as worker
-	// for Temporal.
-	Worker ConfigWorker `json:"worker"`
-
-	// TLSConfig configures TLS to communicate with the Temporal server.
-	TLS integration.ConfigTLS `json:"tls"`
-}
-
-/*
-ConfigWorker configures a Temporal worker for the helix service running. When
-enabled, this starts a Temporal worker for the given task queue and namespace
-(set in Config).
+ConfigWorker is used to configure a Temporal worker connection registered as a
+server.
 */
 type ConfigWorker struct {
 
-	// Enabled creates a Temporal worker, to run workflows and activities.
-	Enabled bool `json:"enabled"`
+	// Client holds the shared Temporal client configuration.
+	Client ConfigClient `json:"client"`
 
 	// TaskQueue is the task queue name you use to identify your client worker,
 	// also identifies group of workflow and activity implementations that are hosted
 	// by a single worker process.
-	//
-	// Required when enabled.
-	TaskQueue string `json:"taskqueue,omitempty"`
+	TaskQueue string `json:"taskqueue"`
 
 	// WorkerActivitiesPerSecond sets the rate limiting on number of activities that
 	// can be executed per second per worker. This can be used to limit resources
@@ -85,30 +48,32 @@ type ConfigWorker struct {
 }
 
 /*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
+sanitize validates the worker configuration by first sanitizing the embedded
+client configuration, then validating worker-specific fields. Returns an error
+if configuration is not valid.
 */
-func (cfg *Config) sanitize() error {
+func (cfg *ConfigWorker) sanitize() error {
 	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
 
-	if cfg.Address == "" {
-		cfg.Address = "127.0.0.1:7233"
+	if cfg.TaskQueue == "" {
+		stack.WithValidations(errorstack.Validation{
+			Message: "TaskQueue must be set and not be empty",
+			Path:    []string{"Config", "Worker", "TaskQueue"},
+		})
 	}
 
-	if cfg.Namespace == "" {
-		cfg.Namespace = "default"
-	}
-
-	if cfg.Worker.Enabled {
-		if cfg.Worker.TaskQueue == "" {
+	// Sanitize the client configuration.
+	err := cfg.Client.sanitize()
+	if err != nil {
+		if errstack, ok := err.(*errorstack.Error); ok {
+			stack.WithValidations(errstack.Validations...)
+		} else {
 			stack.WithValidations(errorstack.Validation{
-				Message: "TaskQueue must be set and not be empty",
-				Path:    []string{"Config", "Worker", "TaskQueue"},
+				Message: err.Error(),
 			})
 		}
 	}
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
 	if stack.HasValidations() {
 		return stack
 	}

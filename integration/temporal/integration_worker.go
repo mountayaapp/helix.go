@@ -11,46 +11,49 @@ import (
 )
 
 /*
-Ensure *connection complies to the integration.Integration type.
+Ensure *serverConnection complies to the integration.Server type.
 */
-var _ integration.Integration = (*connection)(nil)
+var _ integration.Server = (*serverConnection)(nil)
+
+/*
+serverConnection represents a Temporal worker connection registered as a server.
+*/
+type serverConnection struct {
+	client client.Client
+	worker worker.Worker
+}
 
 /*
 String returns the string representation of the Temporal integration.
 */
-func (conn *connection) String() string {
+func (conn *serverConnection) String() string {
 	return identifier
 }
 
 /*
-Start starts the Temporal worker, if applicable.
+Start starts the Temporal worker.
 */
-func (conn *connection) Start(ctx context.Context) error {
+func (conn *serverConnection) Start(ctx context.Context) error {
 	stack := errorstack.New("Failed to start worker", errorstack.WithIntegration(identifier))
 
-	if conn.worker != nil {
-		err := conn.worker.Run(worker.InterruptCh())
-		if err != nil {
-			stack.WithValidations(errorstack.Validation{
-				Message: err.Error(),
-			})
+	err := conn.worker.Run(worker.InterruptCh())
+	if err != nil {
+		stack.WithValidations(errorstack.Validation{
+			Message: err.Error(),
+		})
 
-			return stack
-		}
+		return stack
 	}
 
 	return nil
 }
 
 /*
-Close gracefully stops the Temporal worker (if applicable) and closes the client's
-connection with the server.
+Stop gracefully stops the Temporal worker and closes the client's connection
+with the server.
 */
-func (conn *connection) Close(ctx context.Context) error {
-	if conn.worker != nil {
-		conn.worker.Stop()
-	}
-
+func (conn *serverConnection) Stop(ctx context.Context) error {
+	conn.worker.Stop()
 	conn.client.Close()
 	return nil
 }
@@ -59,7 +62,7 @@ func (conn *connection) Close(ctx context.Context) error {
 Status indicates if the integration is able to connect to the Temporal server or
 not. Returns `200` if connection is working, `503` otherwise.
 */
-func (conn *connection) Status(ctx context.Context) (int, error) {
+func (conn *serverConnection) Status(ctx context.Context) (int, error) {
 	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
 
 	_, err := conn.client.CheckHealth(ctx, &client.CheckHealthRequest{})

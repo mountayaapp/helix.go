@@ -22,7 +22,7 @@
   "integrations": [
     {
       "id": "rest",
-      "name": "REST router",
+      "name": "REST API",
       "description": "for building REST APIs"
     },
     {

@@ -6,7 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The PostgreSQL integration provides an opinionated way to interact with PostgreSQL
-as OLTP database.
+as an OLTP database. It is a **dependency** integration registered via
+`service.Attach()`.
 
 The integration works with all PostgreSQL-compatible databases, such as:
 - [Citus](https://www.citusdata.com/)
@@ -21,19 +22,15 @@ The integration works with all PostgreSQL-compatible databases, such as:
 
 The `postgres` integration sets the following trace attributes:
 - `postgres.database`
-- `span.kind`
 
 When applicable, these attributes can be set as well:
 - `postgres.query`
-- `postgres.batch.length`
 - `postgres.transaction.query`
-- `postgres.transaction.batch.length`
 
 Example:
 ```
 postgres.database: "my_db"
 postgres.query: "SELECT id, username FROM users;"
-span.kind: "server"
 ```
 
 ## Usage

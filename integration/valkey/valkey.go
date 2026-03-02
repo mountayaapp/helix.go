@@ -34,7 +34,7 @@ type Valkey interface {
 }
 
 /*
-connection represents the valkey integration. It respects the integration.Integration
+connection represents the valkey integration. It respects the integration.Dependency
 and Valkey interfaces.
 */
 type connection struct {
@@ -85,7 +85,7 @@ func Connect(cfg Config) (Valkey, error) {
 	conn.client, err = valkey.NewClient(opts)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
+			Message: normalizeErrorMessage(err),
 		})
 	}
 

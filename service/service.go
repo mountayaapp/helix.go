@@ -39,14 +39,19 @@ type service struct {
 	// with no error.
 	isStopped bool
 
-	// integrations is the list of integrations attached to the service.
-	integrations []integration.Integration
+	// server is the server integration registered via Serve. Only one server can
+	// be registered per service.
+	server integration.Server
+
+	// dependencies is the list of dependency integrations attached via Attach.
+	dependencies []integration.Dependency
 }
 
 /*
-Start initializes the helix service, and starts each integration attached by
-executing their Start function. This returns as soon as an interrupting signal
-is catched or when an integration returns an error while starting it.
+Start initializes the helix service and starts the server integration registered
+via Serve. Dependencies are not started — they connect eagerly in their constructors.
+This returns as soon as an interrupting signal is catched or when the server returns
+an error while starting.
 */
 func Start(ctx context.Context) error {
 	svc.mutex.Lock()
@@ -69,9 +74,17 @@ func Start(ctx context.Context) error {
 		return stack
 	}
 
+	if svc.server == nil {
+		stack.WithValidations(errorstack.Validation{
+			Message: "Service must have a server registered via Serve before starting",
+		})
+
+		return stack
+	}
+
 	// Create a channel for receiving interrupting signals, and another one for
-	// catching integration errors. The function will then return as soon as one
-	// of the channel receives a value.
+	// catching server errors. The function will then return as soon as one of
+	// the channel receives a value.
 	done := make(chan os.Signal, 1)
 	failed := make(chan error, 1)
 
@@ -81,19 +94,17 @@ func Start(ctx context.Context) error {
 		<-done
 	}()
 
-	// For each integration attached, execute its Start function. If an error is
-	// encountered, send the error as a child error to the channel.
-	for _, inte := range svc.integrations {
-		go func() {
-			err := inte.Start(ctx)
-			if err != nil {
-				failed <- stack.WithChildren(err)
-			}
-		}()
-	}
+	// Start the server integration. Its Start function is blocking — it listens
+	// for and processes incoming work until the service stops.
+	go func() {
+		err := svc.server.Start(ctx)
+		if err != nil {
+			failed <- stack.WithChildren(err)
+		}
+	}()
 
-	// Return as soon as an interrupting signal is catched or when an integration
-	// returns an error while starting it.
+	// Return as soon as an interrupting signal is catched or when the server
+	// returns an error while starting.
 	svc.isInitialized = true
 	select {
 	case <-done:
@@ -104,8 +115,10 @@ func Start(ctx context.Context) error {
 }
 
 /*
-Stop tries to gracefully close connections with all integrations. It then tries
-to drain/close the tracer and logger.
+Stop tries to gracefully stop the server and close all dependency connections.
+The server is stopped first to drain in-flight requests, then dependencies are
+closed concurrently once idle. It then tries to drain/close the tracer and
+logger.
 */
 func Stop(ctx context.Context) error {
 	svc.mutex.Lock()
@@ -128,10 +141,20 @@ func Stop(ctx context.Context) error {
 		return stack
 	}
 
+	// Stop the server first to drain in-flight requests. Dependencies remain
+	// available during this phase.
+	if svc.server != nil {
+		err := svc.server.Stop(ctx)
+		if err != nil {
+			stack.WithChildren(err)
+		}
+	}
+
+	// Close all dependencies concurrently — connections are now idle.
 	var wg sync.WaitGroup
-	for _, inte := range svc.integrations {
+	for _, dep := range svc.dependencies {
 		wg.Go(func() {
-			err := inte.Close(ctx)
+			err := dep.Close(ctx)
 			if err != nil {
 				stack.WithChildren(err)
 			}

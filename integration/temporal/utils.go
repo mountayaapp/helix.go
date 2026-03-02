@@ -39,7 +39,7 @@ func setActivityAttributes(span oteltrace.Span, info activity.Info) {
 
 /*
 normalizeErrorMessage normalizes an error returned by the Temporal client to match
-the format of helix.go. This is only used inside Start and Close for a better
+the format of helix.go. This is only used inside Connect and New for a better
 readability in the terminal. Otherwise, functions return native Temporal errors.
 
 Example:

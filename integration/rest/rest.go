@@ -22,8 +22,8 @@ type REST interface {
 }
 
 /*
-rest represents the rest integration. It respects the integration.Integration
-and REST interfaces.
+rest represents the rest integration. It respects the integration.Server and
+REST interfaces.
 */
 type rest struct {
 
@@ -80,8 +80,8 @@ func New(cfg Config) (REST, error) {
 		return nil, stack
 	}
 
-	// Otherwise, try to attach the integration to the service.
-	if err := service.Attach(r); err != nil {
+	// Otherwise, try to register the server integration to the service.
+	if err := service.Serve(r); err != nil {
 		return nil, err
 	}
 

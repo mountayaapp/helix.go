@@ -8,23 +8,15 @@ import (
 )
 
 /*
-Ensure *connection complies to the integration.Integration type.
+Ensure *connection complies to the integration.Dependency type.
 */
-var _ integration.Integration = (*connection)(nil)
+var _ integration.Dependency = (*connection)(nil)
 
 /*
 String returns the string representation of the ClickHouse integration.
 */
 func (conn *connection) String() string {
 	return identifier
-}
-
-/*
-Start does nothing since the ClickHouse integration only exposes a client to
-communicate with a ClickHouse database.
-*/
-func (conn *connection) Start(ctx context.Context) error {
-	return nil
 }
 
 /*

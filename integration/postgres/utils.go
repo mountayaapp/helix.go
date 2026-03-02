@@ -5,8 +5,6 @@ import (
 	"unicode"
 
 	"github.com/mountayaapp/helix.go/telemetry/trace"
-
-	"github.com/jackc/pgx/v5"
 )
 
 /*
@@ -34,25 +32,9 @@ func setTransactionQueryAttributes(span *trace.Span, query string) {
 }
 
 /*
-setBatchAttributes sets batch attributes to a trace span.
-*/
-func setBatchAttributes(span *trace.Span, batch *pgx.Batch) {
-	span.SetIntAttribute(fmt.Sprintf("%s.batch.length", identifier), int64(batch.Len()))
-}
-
-/*
-setTransactionBatchAttributes sets batch attributes of a transaction to a trace
-span.
-*/
-func setTransactionBatchAttributes(span *trace.Span, batch *pgx.Batch) {
-	span.SetIntAttribute(fmt.Sprintf("%s.transaction.batch.length", identifier), int64(batch.Len()))
-}
-
-/*
 normalizeErrorMessage normalizes an error returned by the PostgreSQL client to
-match the format of helix.go. This is only used inside Start and Close for a
-better readability in the terminal. Otherwise, functions return native PostgreSQL
-errors.
+match the format of helix.go. This is only used inside Connect for a better
+readability in the terminal. Otherwise, functions return native PostgreSQL errors.
 
 Example:
 
