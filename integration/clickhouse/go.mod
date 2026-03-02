@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
-	github.com/mountayaapp/helix.go v0.21.3
+	github.com/mountayaapp/helix.go v0.22.0
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -46,5 +46,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/mountayaapp/helix.go => ../../
