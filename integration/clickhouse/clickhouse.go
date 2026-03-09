@@ -5,11 +5,17 @@ import (
 	"fmt"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const spanBatchBegin = humanized + ": Batch / Begin"
 
 /*
 ClickHouse exposes an opinionated way to interact with ClickHouse, by bringing
@@ -36,7 +42,7 @@ type connection struct {
 Connect tries to connect to the ClickHouse database given the Config. Returns an
 error if Config is not valid or if the connection failed.
 */
-func Connect(cfg Config) (ClickHouse, error) {
+func Connect(svc *service.Service, cfg Config) (ClickHouse, error) {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -70,11 +76,11 @@ func Connect(cfg Config) (ClickHouse, error) {
 		}
 	}
 
-	// Try to connect to the PostgreSQL database.
+	// Try to connect to the ClickHouse database.
 	conn.client, err = clickhouse.Open(opts)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: normalizeErrorMessage(err),
+			Message: integration.NormalizeErrorMessage(err),
 		})
 	}
 
@@ -84,7 +90,7 @@ func Connect(cfg Config) (ClickHouse, error) {
 	}
 
 	// Try to attach the integration to the service.
-	if err := service.Attach(conn); err != nil {
+	if err := service.Attach(svc, conn); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +103,7 @@ NewBatchInsert starts a new transaction for inserting batch data into a table.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Batch / Begin", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBatchBegin)
 
 	client, err := conn.client.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", table))
 	if err != nil {

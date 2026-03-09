@@ -7,14 +7,8 @@ properties:
   status:
     type: string
     default: Created
-  metadata:
-    type:
-      - undefined
-      - object
-  data:
-    type:
-      - undefined
-      - object
+  metadata: {}
+  data: {}
 required:
   - status
 

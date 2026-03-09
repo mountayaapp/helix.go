@@ -1,14 +1,7 @@
 package event
 
 import (
-	"fmt"
-	"net"
-	"net/url"
-	"strconv"
-	"strings"
 	"time"
-
-	"go.opentelemetry.io/otel/baggage"
 )
 
 /*
@@ -16,8 +9,8 @@ Event is a dictionary of information that provides useful context about an event
 An Event shall be present as much as possible when passing data across services,
 allowing to better understand the origin of an event.
 
-Event should be used for data that you’re okay with potentially exposing to anyone
-who inspects your network traffic. This is because it’s stored in HTTP headers
+Event should be used for data that you're okay with potentially exposing to anyone
+who inspects your network traffic. This is because it's stored in HTTP headers
 for distributed tracing. If your relevant network traffic is entirely within your
 own network, then this caveat may not apply.
 
@@ -30,182 +23,146 @@ fit this ecosystem:
     https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html
 */
 type Event struct {
-	Id             string            `json:"id,omitempty"`
-	Name           string            `json:"name,omitempty"`
-	Meta           map[string]string `json:"meta,omitempty"`
-	Params         url.Values        `json:"params,omitempty"`
-	IsAnonymous    bool              `json:"is_anonymous"`
-	UserId         string            `json:"user_id,omitempty"`
-	OrganizationId string            `json:"organization_id,omitempty"`
-	TenantId       string            `json:"tenant_id,omitempty"`
-	IP             net.IP            `json:"ip,omitempty"`
-	UserAgent      string            `json:"user_agent,omitempty"`
-	Locale         string            `json:"locale,omitempty"`
-	Timezone       string            `json:"timezone,omitempty"`
-	Timestamp      time.Time         `json:"timestamp,omitzero"`
-	App            App               `json:"app,omitzero"`
-	Campaign       Campaign          `json:"campaign,omitzero"`
-	Device         Device            `json:"device,omitzero"`
-	Location       Location          `json:"location,omitzero"`
-	Network        Network           `json:"network,omitzero"`
-	OS             OS                `json:"os,omitzero"`
-	Page           Page              `json:"page,omitzero"`
-	Referrer       Referrer          `json:"referrer,omitzero"`
-	Screen         Screen            `json:"screen,omitzero"`
-	Subscriptions  []Subscription    `json:"subscriptions,omitempty"`
+	ID             string            `json:"id,omitempty"              baggage:"id"`
+	Name           string            `json:"name,omitempty"            baggage:"name"`
+	Meta           map[string]string `json:"meta,omitempty"            baggage:"meta"`
+	IsAnonymous    *bool             `json:"is_anonymous,omitempty"    baggage:"is_anonymous"`
+	UserID         string            `json:"user_id,omitempty"         baggage:"user_id"`
+	OrganizationID string            `json:"organization_id,omitempty" baggage:"organization_id"`
+	TenantID       string            `json:"tenant_id,omitempty"       baggage:"tenant_id"`
+	IP             string            `json:"ip,omitempty"              baggage:"ip"`
+	UserAgent      string            `json:"user_agent,omitempty"      baggage:"user_agent"`
+	Locale         string            `json:"locale,omitempty"          baggage:"locale"`
+	Timezone       string            `json:"timezone,omitempty"        baggage:"timezone"`
+	Timestamp      time.Time         `json:"timestamp,omitzero"        baggage:"timestamp"`
+	App            App               `json:"app,omitzero"              baggage:"app"`
+	Campaign       Campaign          `json:"campaign,omitzero"         baggage:"campaign"`
+	Device         Device            `json:"device,omitzero"           baggage:"device"`
+	Location       Location          `json:"location,omitzero"         baggage:"location"`
+	Network        Network           `json:"network,omitzero"          baggage:"network"`
+	OS             OS                `json:"os,omitzero"               baggage:"os"`
+	Page           Page              `json:"page,omitzero"             baggage:"page"`
+	Referrer       Referrer          `json:"referrer,omitzero"         baggage:"referrer"`
+	Screen         Screen            `json:"screen,omitzero"           baggage:"screen"`
+	Subscriptions  []Subscription    `json:"subscriptions,omitempty"   baggage:"subscriptions"`
 }
 
 /*
-injectEventToFlatMap injects values found in an Event object to a flat map
-representation of an Event. Top-level keys are handled here, while objects
-are handled in their own functions for better clarity and maintainability.
+BoolPtr returns a pointer to the given bool value. This is a convenience helper
+for setting Event.IsAnonymous.
 */
-func injectEventToFlatMap(e Event, flatten map[string]string) {
-	if flatten == nil {
-		flatten = make(map[string]string)
-	}
-
-	flatten["event.id"] = e.Id
-	flatten["event.name"] = e.Name
-
-	if e.Meta != nil {
-		for k, v := range e.Meta {
-			flatten[fmt.Sprintf("event.meta.%s", k)] = v
-		}
-	}
-
-	if e.Params != nil {
-		for k, v := range e.Params {
-			split := strings.Split(k, ".")
-			for i, s := range v {
-				flatten[fmt.Sprintf("event.params.%s.%d", split[0], i)] = s
-			}
-		}
-	}
-
-	flatten["event.is_anonymous"] = strconv.FormatBool(e.IsAnonymous)
-	flatten["event.user_id"] = e.UserId
-	flatten["event.organization_id"] = e.OrganizationId
-	flatten["event.tenant_id"] = e.TenantId
-	flatten["event.ip"] = e.IP.String()
-	flatten["event.user_agent"] = e.UserAgent
-	flatten["event.locale"] = e.Locale
-	flatten["event.timezone"] = e.Timezone
-	if !e.Timestamp.IsZero() {
-		flatten["event.timestamp"] = e.Timestamp.Format(time.RFC3339Nano)
-	}
-
-	injectEventAppToFlatMap(e.App, flatten)
-	injectEventCampaignToFlatMap(e.Campaign, flatten)
-	injectEventDeviceToFlatMap(e.Device, flatten)
-	injectEventLocationToFlatMap(e.Location, flatten)
-	injectEventNetworkToFlatMap(e.Network, flatten)
-	injectEventOSToFlatMap(e.OS, flatten)
-	injectEventPageToFlatMap(e.Page, flatten)
-	injectEventReferrerToFlatMap(e.Referrer, flatten)
-	injectEventScreenToFlatMap(e.Screen, flatten)
-	injectEventSubscriptionsToFlatMap(e.Subscriptions, flatten)
-
-	for k, v := range flatten {
-		if v == "" || v == "false" || v == "0" || v == "0E+00" || v == "0.000000" || v == "<nil>" {
-			delete(flatten, k)
-		}
-	}
+func BoolPtr(v bool) *bool {
+	return &v
 }
 
 /*
-extractEventFromBaggage extracts the value of a Baggage and returns the Event
-found. This assumes the Baggage members' key starts with "event.". Top-level keys
-are handled here, while objects are handled in their own functions for better
-clarity and maintainability.
+App holds the details about the client application executing the event.
 */
-func extractEventFromBaggage(b baggage.Baggage) Event {
-	var e Event
+type App struct {
+	Name    string `json:"name,omitempty"     baggage:"name"`
+	Version string `json:"version,omitempty"  baggage:"version"`
+	BuildID string `json:"build_id,omitempty" baggage:"build_id"`
+}
 
-	for _, m := range b.Members() {
-		if !strings.HasPrefix(m.Key(), "event.") {
-			continue
-		}
+/*
+Campaign holds the details about the marketing campaign from which a client is
+executing the event from.
+*/
+type Campaign struct {
+	Name    string `json:"name,omitempty"    baggage:"name"`
+	Source  string `json:"source,omitempty"  baggage:"source"`
+	Medium  string `json:"medium,omitempty"  baggage:"medium"`
+	Term    string `json:"term,omitempty"    baggage:"term"`
+	Content string `json:"content,omitempty" baggage:"content"`
+}
 
-		if strings.HasPrefix(m.Key(), "event.meta.") {
-			if e.Meta == nil {
-				e.Meta = make(map[string]string)
-			}
+/*
+Device holds the details about the user's device.
+*/
+type Device struct {
+	ID            string `json:"id,omitempty"             baggage:"id"`
+	Manufacturer  string `json:"manufacturer,omitempty"   baggage:"manufacturer"`
+	Model         string `json:"model,omitempty"          baggage:"model"`
+	Name          string `json:"name,omitempty"           baggage:"name"`
+	Type          string `json:"type,omitempty"           baggage:"type"`
+	Version       string `json:"version,omitempty"        baggage:"version"`
+	AdvertisingID string `json:"advertising_id,omitempty" baggage:"advertising_id"`
+}
 
-			e.Meta[strings.TrimPrefix(m.Key(), "event.meta.")] = m.Value()
-			continue
-		}
+/*
+Location holds the details about the user's location.
+*/
+type Location struct {
+	City      string  `json:"city,omitempty"      baggage:"city"`
+	Country   string  `json:"country,omitempty"   baggage:"country"`
+	Region    string  `json:"region,omitempty"    baggage:"region"`
+	Latitude  float64 `json:"latitude,omitempty"  baggage:"latitude"`
+	Longitude float64 `json:"longitude,omitempty" baggage:"longitude"`
+	Speed     float64 `json:"speed,omitempty"     baggage:"speed"`
+}
 
-		if strings.HasPrefix(m.Key(), "event.params.") {
-			if e.Params == nil {
-				e.Params = make(url.Values)
-			}
+/*
+Network holds the details about the user's network.
+*/
+type Network struct {
+	Bluetooth bool   `json:"bluetooth,omitempty" baggage:"bluetooth"`
+	Cellular  bool   `json:"cellular,omitempty"  baggage:"cellular"`
+	WIFI      bool   `json:"wifi,omitempty"      baggage:"wifi"`
+	Carrier   string `json:"carrier,omitempty"   baggage:"carrier"`
+}
 
-			keyWithIndex := strings.TrimPrefix(m.Key(), "event.params.")
-			if idx := strings.Index(keyWithIndex, "."); idx != -1 {
-				paramKey := keyWithIndex[:idx]
-				indexStr := keyWithIndex[idx+1:]
-				i, _ := strconv.Atoi(indexStr)
+/*
+OS holds the details about the user's OS.
+*/
+type OS struct {
+	Name    string `json:"name,omitempty"    baggage:"name"`
+	Arch    string `json:"arch,omitempty"    baggage:"arch"`
+	Version string `json:"version,omitempty" baggage:"version"`
+}
 
-				for len(e.Params[paramKey]) <= i {
-					e.Params[paramKey] = append(e.Params[paramKey], "")
-				}
+/*
+Page holds the details about the webpage from which the event is triggered from.
+*/
+type Page struct {
+	Path     string `json:"path,omitempty"     baggage:"path"`
+	Referrer string `json:"referrer,omitempty" baggage:"referrer"`
+	Search   string `json:"search,omitempty"   baggage:"search"`
+	Title    string `json:"title,omitempty"    baggage:"title"`
+	URL      string `json:"url,omitempty"      baggage:"url"`
+}
 
-				e.Params[paramKey][i] = m.Value()
-			} else {
-				e.Params.Add(keyWithIndex, m.Value())
-			}
+/*
+Referrer holds the details about the marketing referrer from which a client is
+executing the event from.
+*/
+type Referrer struct {
+	Type string `json:"type,omitempty" baggage:"type"`
+	Name string `json:"name,omitempty" baggage:"name"`
+	URL  string `json:"url,omitempty"  baggage:"url"`
+	Link string `json:"link,omitempty" baggage:"link"`
+}
 
-			continue
-		}
+/*
+Screen holds the details about the app's screen from which the event is triggered
+from.
+*/
+type Screen struct {
+	Density int64 `json:"density,omitempty" baggage:"density"`
+	Width   int64 `json:"width,omitempty"   baggage:"width"`
+	Height  int64 `json:"height,omitempty"  baggage:"height"`
+}
 
-		split := strings.Split(m.Key(), ".")
-		switch split[1] {
-		case "id":
-			e.Id = b.Member("event.id").Value()
-		case "name":
-			e.Name = b.Member("event.name").Value()
-		case "is_anonymous":
-			e.IsAnonymous, _ = strconv.ParseBool(b.Member("event.is_anonymous").Value())
-		case "user_id":
-			e.UserId = b.Member("event.user_id").Value()
-		case "organization_id":
-			e.OrganizationId = b.Member("event.organization_id").Value()
-		case "tenant_id":
-			e.TenantId = b.Member("event.tenant_id").Value()
-		case "ip":
-			e.IP = net.ParseIP(b.Member("event.ip").Value())
-		case "user_agent":
-			e.UserAgent = b.Member("event.user_agent").Value()
-		case "locale":
-			e.Locale = b.Member("event.locale").Value()
-		case "timezone":
-			e.Timezone = b.Member("event.timezone").Value()
-		case "timestamp":
-			e.Timestamp, _ = time.Parse(time.RFC3339Nano, b.Member("event.timestamp").Value())
-
-		case "app":
-			applyEventAppFromBaggageMember(m, &e)
-		case "campaign":
-			applyEventCampaignFromBaggageMember(m, &e)
-		case "device":
-			applyEventDeviceFromBaggageMember(m, &e)
-		case "location":
-			applyEventLocationFromBaggageMember(m, &e)
-		case "network":
-			applyEventNetworkFromBaggageMember(m, &e)
-		case "os":
-			applyEventOSFromBaggageMember(m, &e)
-		case "page":
-			applyEventPageFromBaggageMember(m, &e)
-		case "referrer":
-			applyEventReferrerFromBaggageMember(m, &e)
-		case "screen":
-			applyEventScreenFromBaggageMember(m, &e)
-		case "subscriptions":
-			applyEventSubscriptionsFromBaggageMember(m, &e)
-		}
-	}
-
-	return e
+/*
+Subscription holds the details about the account/customer from which the event
+has been triggered. It's useful for tracking customer usages.
+*/
+type Subscription struct {
+	ID          string            `json:"id,omitempty"           baggage:"id"`
+	TenantID    string            `json:"tenant_id,omitempty"    baggage:"tenant_id"`
+	CustomerID  string            `json:"customer_id,omitempty"  baggage:"customer_id"`
+	ProductID   string            `json:"product_id,omitempty"   baggage:"product_id"`
+	PriceID     string            `json:"price_id,omitempty"     baggage:"price_id"`
+	Usage       string            `json:"usage,omitempty"        baggage:"usage"`
+	IncrementBy float64           `json:"increment_by,omitempty" baggage:"increment_by"`
+	Metadata    map[string]string `json:"metadata,omitempty"     baggage:"metadata"`
 }

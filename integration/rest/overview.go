@@ -26,4 +26,4 @@ const identifier = "rest"
 /*
 humanized represents the integration's humanized name.
 */
-// const humanized = "REST"
+const humanized = "REST"

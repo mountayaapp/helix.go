@@ -6,10 +6,95 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The ClickHouse integration provides an opinionated way to interact with ClickHouse
-as an OLAP database. It is a **dependency** integration registered via
-`service.Attach()`. As of today, at [Mountaya](https://mountaya.com/), our Go
-services only perform batch writes to ClickHouse. Reading is done solely for
-analytical purposes by third-party applications.
+as an OLAP database, optimized for batch writes. It is a **dependency** integration
+— calling `clickhouse.Connect(svc, cfg)` automatically registers it via
+`service.Attach()`.
+
+## Installation
+
+```sh
+$ go get github.com/mountayaapp/helix.go/integration/clickhouse
+```
+
+## Configuration
+
+- `Address` (`string`) — ClickHouse server address. Default: `"127.0.0.1:9000"`.
+- `Database` (`string`) — Database name. Default: `"default"`.
+- `User` (`string`) — Username. Default: `"default"`.
+- `Password` (`string`) — Password. Default: `"default"`.
+- `TLS` (`integration.ConfigTLS`) — TLS settings.
+
+## Usage
+
+### Connecting
+
+```go
+import (
+  "github.com/mountayaapp/helix.go/service"
+  "github.com/mountayaapp/helix.go/integration"
+  "github.com/mountayaapp/helix.go/integration/clickhouse"
+)
+
+svc, err := service.New()
+if err != nil {
+  panic(err)
+}
+
+db, err := clickhouse.Connect(svc, clickhouse.Config{
+  Address:  "endpoint.clickhouse.cloud:9440",
+  Database: "analytics",
+  User:     "default",
+  Password: "secret",
+  TLS: integration.ConfigTLS{
+    Enabled:            true,
+    InsecureSkipVerify: true,
+  },
+})
+if err != nil {
+  panic(err)
+}
+```
+
+### Batch inserts
+
+```go
+import (
+  "context"
+  "time"
+)
+
+type Event struct {
+  Date   time.Time `ch:"date"`
+  Name   string    `ch:"name"`
+  UserID string    `ch:"user_id"`
+}
+
+ctx := context.Background()
+
+// Create a batch insert for a table.
+batch, err := db.NewBatchInsert(ctx, "events")
+if err != nil {
+  // ...
+}
+
+// Append rows to the batch using struct tags.
+for i := 0; i < 10_000; i++ {
+  err = batch.AppendStruct(ctx, &Event{
+    Date:   time.Now().UTC(),
+    Name:   "page_view",
+    UserID: "usr_123",
+  })
+  if err != nil {
+    // ...
+  }
+}
+
+// Send the batch to ClickHouse.
+err = batch.Send(ctx)
+if err != nil {
+  // ...
+}
+```
 
 ## Trace attributes
 
@@ -18,66 +103,5 @@ The `clickhouse` integration sets the following trace attributes:
 
 Example:
 ```
-clickhouse.database: "my_db"
-```
-
-## Usage
-
-Install the Go module with:
-```sh
-$ go get github.com/mountayaapp/helix.go/integration/clickhouse
-```
-
-Simple example on how to import, configure, and use the integration:
-
-```go
-import (
-  "context"
-  "time"
-
-  "github.com/mountayaapp/helix.go/integration"
-  "github.com/mountayaapp/helix.go/integration/clickhouse"
-)
-
-type clickhouseEntry struct {
-  Date time.Time `ch:"date"`
-}
-
-cfg := clickhouse.Config{
-  Address:  "endpoint.clickhouse.cloud:9440",
-  Database: "default",
-  User:     "default",
-  Password: "default",
-  TLS: integration.ConfigTLS{
-    Enabled:            true,
-    InsecureSkipVerify: true,
-  },
-}
-
-db, err := clickhouse.Connect(cfg)
-if err != nil {
-  return err
-}
-
-ctx := context.Background()
-batch, err := db.NewBatchInsert(ctx, "tablename")
-if err != nil {
-  // ...
-}
-
-for i := 0; i < 10_000; i++ {
-  data := &clickhouseEntry{
-    Date: time.Now().UTC(),
-  }
-
-  err = batch.AppendStruct(ctx, data)
-  if err != nil {
-    // ...
-  }
-}
-
-err = batch.Send(ctx)
-if err != nil {
-  // ...
-}
+clickhouse.database: "analytics"
 ```

@@ -9,10 +9,7 @@ properties:
     default: Method Not Allowed
   error:
     $ref: ../Error.yaml
-  metadata:
-    type:
-      - undefined
-      - object
+  metadata: {}
 required:
   - status
   - error

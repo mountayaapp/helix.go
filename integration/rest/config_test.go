@@ -91,6 +91,23 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "OpenAPI disabled ignores empty description",
+			before: Config{
+				OpenAPI: ConfigOpenAPI{
+					Enabled:     false,
+					Description: "",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				OpenAPI: ConfigOpenAPI{
+					Enabled:     false,
+					Description: "",
+				},
+			},
+			err: nil,
+		},
+		{
 			name: "TLS with only CertFile returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
@@ -115,6 +132,85 @@ func TestConfig_Sanitize(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "TLS with only KeyFile returns error",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with both CertFile and KeyFile is valid",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			err: nil,
+		},
+		{
+			name: "disabled TLS ignores invalid certs",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			err: nil,
+		},
+		{
+			name: "TLS with InsecureSkipVerify is valid",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
+				},
+			},
+			err: nil,
 		},
 		{
 			name: "OpenAPI and TLS both invalid returns combined errors",
@@ -163,3 +259,4 @@ func TestConfig_Sanitize(t *testing.T) {
 		})
 	}
 }
+

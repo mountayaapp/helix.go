@@ -7,8 +7,6 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 /*
@@ -33,13 +31,12 @@ func init() {
 }
 
 /*
-build populates the cloudprovider.Detected as a fallback cloud provider. If no
-cloud provider is returned it means an internal error occurred while finding the
-path to the Go executable currently being run, fallbacks to a static string if
-necessary. This should never happen.
+build creates the fallback cloud provider. It uses the executable name as the
+service name. If the executable path cannot be determined, it falls back to
+"helix". This should never happen.
 */
 func build() cloudprovider.CloudProvider {
-	var name string = "helix"
+	name := "helix"
 
 	path, err := os.Executable()
 	if err == nil {
@@ -68,34 +65,10 @@ func (u *unknown) String() string {
 }
 
 /*
-Service returns the service name detected by the cloud provider.
+Attributes returns basic OpenTelemetry attributes.
 */
-func (u *unknown) Service() string {
-	return u.name
-}
-
-/*
-LoggerFields returns basic OpenTelemetry fields for logs.
-*/
-func (u *unknown) LoggerFields() []zap.Field {
-	fields := []zap.Field{
-		zapcore.Field{
-			Key:    "service_name",
-			Type:   zapcore.StringType,
-			String: u.name,
-		},
-	}
-
-	return fields
-}
-
-/*
-TracerAttributes returns basic OpenTelemetry attributes for traces.
-*/
-func (u *unknown) TracerAttributes() []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
+func (u *unknown) Attributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
 		attribute.String("service.name", u.name),
 	}
-
-	return attrs
 }

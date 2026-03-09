@@ -2,12 +2,16 @@ package clickhouse
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const spanBatchSend = humanized + ": Batch / Send"
 
 /*
 batch implements the Batch interface and allows to wrap the ClickHouse batch
@@ -50,7 +54,7 @@ It automatically handles tracing and error recording.
 func (b *batch) Send(ctx context.Context) error {
 	defer b.parentSpan.End()
 
-	_, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Batch / Send", humanized))
+	_, span := trace.Start(ctx, trace.SpanKindClient, spanBatchSend)
 	defer span.End()
 
 	defer b.client.Close()

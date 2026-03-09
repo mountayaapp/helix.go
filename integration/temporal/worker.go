@@ -1,7 +1,6 @@
 package temporal
 
 import (
-	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/service"
 
 	"go.temporal.io/sdk/activity"
@@ -31,7 +30,7 @@ New creates a Temporal worker along with a client and registers the worker as a
 server via service.Serve. Use this for worker services that process workflows and
 activities.
 */
-func New(cfg ConfigWorker) (Client, Worker, error) {
+func New(svc *service.Service, cfg ConfigWorker) (Client, Worker, error) {
 
 	// No need to continue if ConfigWorker is not valid.
 	err := cfg.sanitize()
@@ -40,27 +39,19 @@ func New(cfg ConfigWorker) (Client, Worker, error) {
 	}
 
 	// Dial the Temporal server.
-	c, err := dialClient(&cfg.Client)
+	c, err := dialClient(svc, &cfg.Client)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Create a Temporal worker.
-	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
 	var optsWorker = worker.Options{
 		WorkerActivitiesPerSecond:    cfg.WorkerActivitiesPerSecond,
 		TaskQueueActivitiesPerSecond: cfg.TaskQueueActivitiesPerSecond,
-		EnableSessionWorker:          true,
+		EnableSessionWorker:          cfg.EnableSessionWorker,
 	}
 
 	w := worker.New(c, cfg.TaskQueue, optsWorker)
-	if w == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Failed to create worker from client",
-		})
-
-		return nil, nil, stack
-	}
 
 	sc := &serverConnection{
 		client: c,
@@ -68,7 +59,7 @@ func New(cfg ConfigWorker) (Client, Worker, error) {
 	}
 
 	// Register the worker connection as a server.
-	if err := service.Serve(sc); err != nil {
+	if err := service.Serve(svc, sc); err != nil {
 		return nil, nil, err
 	}
 

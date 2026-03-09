@@ -6,7 +6,6 @@ import (
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -17,9 +16,9 @@ Ensure *graphql complies to the integration.Server type.
 var _ integration.Server = (*graphql)(nil)
 
 /*
-String returns the string representation of the GraphQL integration.
+Name returns the string representation of the GraphQL integration.
 */
-func (g *graphql) String() string {
+func (g *graphql) Name() string {
 	return identifier
 }
 
@@ -37,8 +36,11 @@ func (g *graphql) Start(ctx context.Context) error {
 
 	// Wrap the handler previously built with the one designed for OpenTelemetry
 	// traces.
-	h = otelhttp.NewHandler(h, cloudprovider.Detected.Service(),
+	h = otelhttp.NewHandler(h, "",
 		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
 	)
 
 	// Create the HTTP server with the given configuration and the handler built.

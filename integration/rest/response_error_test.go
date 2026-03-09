@@ -157,3 +157,92 @@ func TestResponseError_Write_InternalServerError(t *testing.T) {
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
 	assert.JSONEq(t, `{"status":"Internal Server Error","error":{"message":"We have been notified of this unexpected internal error"}}`, rw.Body.String())
 }
+
+func TestResponseError_ChainedCalls(t *testing.T) {
+	type metadata struct {
+		TraceID string `json:"trace_id"`
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/users", nil)
+	res := NewResponseError[metadata](req).
+		SetStatus(http.StatusBadRequest).
+		SetMetadata(metadata{TraceID: "trace_123"}).
+		SetErrorValidations([]errorstack.Validation{
+			{
+				Message: "email is required",
+				Path:    []string{"body", "email"},
+			},
+		})
+
+	b, err := json.Marshal(res)
+
+	require.NoError(t, err)
+
+	var result map[string]any
+	json.Unmarshal(b, &result)
+	assert.Equal(t, "Bad Request", result["status"])
+	assert.NotNil(t, result["metadata"])
+	assert.NotNil(t, result["error"])
+}
+
+func TestResponseError_MarshalJSON_StatusText(t *testing.T) {
+	testcases := []struct {
+		name           string
+		status         int
+		expectedStatus string
+	}{
+		{name: "400", status: http.StatusBadRequest, expectedStatus: "Bad Request"},
+		{name: "404", status: http.StatusNotFound, expectedStatus: "Not Found"},
+		{name: "500", status: http.StatusInternalServerError, expectedStatus: "Internal Server Error"},
+		{name: "503", status: http.StatusServiceUnavailable, expectedStatus: "Service Unavailable"},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			res := NewResponseError[NoMetadata](req).SetStatus(tc.status)
+
+			b, err := json.Marshal(res)
+
+			require.NoError(t, err)
+
+			var result map[string]any
+			json.Unmarshal(b, &result)
+			assert.Equal(t, tc.expectedStatus, result["status"])
+		})
+	}
+}
+
+func TestResponseError_SetErrorValidations_Empty(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	res := NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusBadRequest).
+		SetErrorValidations([]errorstack.Validation{})
+
+	b, err := json.Marshal(res)
+
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "validations")
+}
+
+func TestFallbackErrorResponse_ValidJSON(t *testing.T) {
+	var result map[string]any
+	err := json.Unmarshal(fallbackErrorResponse, &result)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Internal Server Error", result["status"])
+	errObj := result["error"].(map[string]any)
+	assert.NotEmpty(t, errObj["message"])
+}
+
+func TestResponseError_Write_SetsHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+
+	NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusBadRequest).
+		Write(rw)
+
+	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
+	assert.Equal(t, http.StatusBadRequest, rw.Code)
+}

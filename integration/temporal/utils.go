@@ -1,13 +1,63 @@
 package temporal
 
 import (
-	"fmt"
-	"unicode"
+	"context"
+	"time"
+
+	"github.com/mountayaapp/helix.go/errorstack"
 
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/workflow"
+)
+
+/*
+healthCheckTimeout is the maximum duration for a health check request when the
+caller's context has no deadline set.
+*/
+const healthCheckTimeout = 5 * time.Second
+
+/*
+checkHealth performs a health check against the Temporal server using the given
+client. It guards against contexts with no deadline to prevent indefinite hangs.
+Returns 200 on success, 503 with an errorstack on failure.
+*/
+func checkHealth(ctx context.Context, c client.Client) (int, error) {
+	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
+
+	// Guard against contexts with no deadline to prevent indefinite hangs.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, healthCheckTimeout)
+		defer cancel()
+	}
+
+	_, err := c.CheckHealth(ctx, &client.CheckHealthRequest{})
+	if err != nil {
+		stack.WithValidations(errorstack.Validation{
+			Message: err.Error(),
+		})
+
+		return 503, stack
+	}
+
+	return 200, nil
+}
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+var (
+	attrKeyWorkerTaskQueue   = attribute.Key(identifier + ".worker.taskqueue")
+	attrKeyWorkflowNamespace = attribute.Key(identifier + ".workflow.namespace")
+	attrKeyWorkflowType      = attribute.Key(identifier + ".workflow.type")
+	attrKeyWorkflowAttempt   = attribute.Key(identifier + ".workflow.attempt")
+	attrKeyActivityType      = attribute.Key(identifier + ".activity.type")
+	attrKeyActivityAttempt   = attribute.Key(identifier + ".activity.attempt")
+	attrKeyServerAddress     = attribute.Key(identifier + ".server.address")
+	attrKeyNamespace         = attribute.Key(identifier + ".namespace")
 )
 
 /*
@@ -17,10 +67,12 @@ we only have access via type assertion.
 */
 func setWorkflowAttributes(span oteltrace.Span, info *workflow.Info) {
 	if info != nil {
-		span.SetAttributes(attribute.String(fmt.Sprintf("%s.worker.taskqueue", identifier), info.TaskQueueName))
-		span.SetAttributes(attribute.String(fmt.Sprintf("%s.workflow.namespace", identifier), info.Namespace))
-		span.SetAttributes(attribute.String(fmt.Sprintf("%s.workflow.type", identifier), info.WorkflowType.Name))
-		span.SetAttributes(attribute.Int(fmt.Sprintf("%s.workflow.attempt", identifier), int(info.Attempt)))
+		span.SetAttributes(
+			attrKeyWorkerTaskQueue.String(info.TaskQueueName),
+			attrKeyWorkflowNamespace.String(info.Namespace),
+			attrKeyWorkflowType.String(info.WorkflowType.Name),
+			attrKeyWorkflowAttempt.Int(int(info.Attempt)),
+		)
 	}
 }
 
@@ -30,30 +82,11 @@ type from the OpenTelemetry package since this happens in the interceptor and
 we only have access via type assertion.
 */
 func setActivityAttributes(span oteltrace.Span, info activity.Info) {
-	span.SetAttributes(attribute.String(fmt.Sprintf("%s.worker.taskqueue", identifier), info.TaskQueue))
-	span.SetAttributes(attribute.String(fmt.Sprintf("%s.workflow.namespace", identifier), info.WorkflowNamespace))
-	span.SetAttributes(attribute.String(fmt.Sprintf("%s.workflow.type", identifier), info.WorkflowType.Name))
-	span.SetAttributes(attribute.String(fmt.Sprintf("%s.activity.type", identifier), info.ActivityType.Name))
-	span.SetAttributes(attribute.Int(fmt.Sprintf("%s.activity.attempt", identifier), int(info.Attempt)))
-}
-
-/*
-normalizeErrorMessage normalizes an error returned by the Temporal client to match
-the format of helix.go. This is only used inside Connect and New for a better
-readability in the terminal. Otherwise, functions return native Temporal errors.
-
-Example:
-
-	"dial tcp 127.0.0.1:7233: connect: connection refused"
-
-Becomes:
-
-	"Dial tcp 127.0.0.1:7233: connect: connection refused"
-*/
-func normalizeErrorMessage(err error) string {
-	var msg string = err.Error()
-	runes := []rune(msg)
-	runes[0] = unicode.ToUpper(runes[0])
-
-	return string(runes)
+	span.SetAttributes(
+		attrKeyWorkerTaskQueue.String(info.TaskQueue),
+		attrKeyWorkflowNamespace.String(info.Namespace),
+		attrKeyWorkflowType.String(info.WorkflowType.Name),
+		attrKeyActivityType.String(info.ActivityType.Name),
+		attrKeyActivityAttempt.Int(int(info.Attempt)),
+	)
 }

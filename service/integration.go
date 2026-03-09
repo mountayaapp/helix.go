@@ -2,187 +2,69 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"sync"
 
-	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountayaapp/helix.go/internal/telemetry/log"
+	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 /*
-Serve registers the server integration for this service. Only one server can be
-registered — calling Serve twice returns an error. Server integrations define
+Serve registers a server integration for the given Service. Only one server can
+be registered — calling Serve twice returns an error. Server integrations define
 how the service accepts work: REST API, GraphQL API, or Temporal Worker.
+
+This is part of the integration API. End-users don't call this directly;
+integration constructors (rest.New, graphql.New, temporal.New) call it.
 */
-func Serve(server integration.Server) error {
-	svc.mutex.Lock()
-	defer svc.mutex.Unlock()
-
-	stack := errorstack.New("Failed to register server integration")
-	if svc.isInitialized {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Service must not be initialized for registering a server",
-		})
-
-		return stack
-	}
-
-	if svc.isStopped {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Service must not be stopped for registering a server",
-		})
-
-		return stack
-	}
-
-	if server == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Server must not be nil",
-		})
-
-		return stack
-	}
-
-	if server.String() == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Server's name must be set and not be empty",
-			Path:    []string{"server.String()"},
-		})
-
-		return stack
-	}
-
-	if svc.server != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: fmt.Sprintf("A server integration has already been registered (%s). A service can only have one server", svc.server.String()),
-		})
-
-		return stack
-	}
-
-	svc.server = server
-	return nil
+func Serve(svc *Service, server integration.Server) error {
+	return svc.serve(server)
 }
 
 /*
-Attach registers a dependency integration to the service. Dependencies are
-connections to external systems: databases, caches, blob storage, etc. The
-dependency's Close method is automatically called when the service stops.
+Attach registers a dependency integration for the given Service. Dependencies
+are connections to external systems: databases, caches, blob storage, etc. The
+dependency's Close method is automatically called when the Service stops.
+
+This is part of the integration API. End-users don't call this directly;
+integration constructors (postgres.Connect, valkey.Connect, etc.) call it.
 */
-func Attach(dep integration.Dependency) error {
-	svc.mutex.Lock()
-	defer svc.mutex.Unlock()
-
-	stack := errorstack.New("Failed to attach dependency integration")
-	if svc.isInitialized {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Service must not be initialized for attaching a dependency",
-		})
-
-		return stack
-	}
-
-	if svc.isStopped {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Service must not be stopped for attaching a dependency",
-		})
-
-		return stack
-	}
-
-	if dep == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Dependency must not be nil",
-		})
-
-		return stack
-	}
-
-	if dep.String() == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Dependency's name must be set and not be empty",
-			Path:    []string{"dependency.String()"},
-		})
-
-		return stack
-	}
-
-	svc.dependencies = append(svc.dependencies, dep)
-	return nil
+func Attach(svc *Service, dep integration.Dependency) error {
+	return svc.attach(dep)
 }
 
 /*
-Server returns the server integration registered via Serve.
+Context returns a copy of the given context enriched with the Service's logger
+and tracer. Integrations call this to propagate observability into
+request/workflow contexts so that the telemetry/log and telemetry/trace packages
+can extract them.
+
+This is part of the integration API.
 */
-func Server() integration.Server {
-	return svc.server
+func Context(svc *Service, ctx context.Context) context.Context {
+	ctx = log.ContextWithLogger(ctx, svc.logger)
+	ctx = trace.ContextWithTracer(ctx, svc.tracer)
+	return ctx
 }
 
 /*
-Status executes a health check of the server and each dependency attached to the
-service, and returns the highest HTTP status code returned. This means if all
-integrations are healthy (status `200`) but one is temporarily unavailable
-(status `503`), the status returned would be `503`.
+TracerProvider returns the underlying OpenTelemetry TracerProvider. Integrations
+that need to wire OTEL-native interceptors (e.g., Temporal) use this.
+
+This is part of the integration API.
 */
-func Status(ctx context.Context) (int, error) {
+func TracerProvider(svc *Service) oteltrace.TracerProvider {
+	return svc.tracer.Provider()
+}
 
-	// Count total integrations: server (if any) + dependencies.
-	total := len(svc.dependencies)
-	if svc.server != nil {
-		total++
-	}
+/*
+LoggerProvider returns the underlying OpenTelemetry LoggerProvider. Integrations
+that need to wire OpenTelemetry-native log processors use this.
 
-	// Create channels for receiving health check results.
-	chStatus := make(chan int, total)
-	chError := make(chan error, total)
-
-	// Execute health checks asynchronously.
-	var wg sync.WaitGroup
-
-	if svc.server != nil {
-		wg.Go(func() {
-			status, err := svc.server.Status(ctx)
-			if err != nil {
-				chError <- err
-			}
-
-			chStatus <- status
-		})
-	}
-
-	for _, dep := range svc.dependencies {
-		wg.Go(func() {
-			status, err := dep.Status(ctx)
-			if err != nil {
-				chError <- err
-			}
-
-			chStatus <- status
-		})
-	}
-
-	wg.Wait()
-	close(chStatus)
-	close(chError)
-
-	// Define the highest status code returned, as it will be used as the main one
-	// returned by this function.
-	var max int = 200
-	for status := range chStatus {
-		if status > max {
-			max = status
-		}
-	}
-
-	// Build a list of returned errors, and returned the error stack if applicable.
-	stack := errorstack.New("Service is not in a healthy state")
-	for err := range chError {
-		stack.WithChildren(err)
-	}
-
-	if stack.HasChildren() {
-		return max, stack
-	}
-
-	return max, nil
+This is part of the integration API.
+*/
+func LoggerProvider(svc *Service) *sdklog.LoggerProvider {
+	return svc.logger.Provider()
 }

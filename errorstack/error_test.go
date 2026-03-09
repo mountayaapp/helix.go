@@ -3,6 +3,8 @@ package errorstack
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,98 +33,124 @@ func TestNew(t *testing.T) {
 				Validations: []Validation{},
 			},
 		},
+		{
+			name:  "empty integration option",
+			input: New("test", WithIntegration("")),
+			expected: &Error{
+				Message:     "test",
+				Validations: []Validation{},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.input
-
-			assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, tc.input)
 		})
 	}
 }
 
-func TestNew_AlwaysInitializesValidations(t *testing.T) {
-	err := New("test")
-
-	assert.NotNil(t, err.Validations)
-	assert.Len(t, err.Validations, 0)
-}
-
-func TestNew_MultipleOptions(t *testing.T) {
-	err := New("test", WithIntegration("rest"))
-
-	assert.Equal(t, "rest", err.Integration)
-	assert.Equal(t, "test", err.Message)
-}
-
-func TestNewFromError(t *testing.T) {
+func TestWrap(t *testing.T) {
 	testcases := []struct {
-		name     string
-		input    error
-		opts     []With
-		expected *Error
+		name            string
+		input           error
+		message         string
+		opts            []Option
+		expectedMessage string
+		expectedNil     bool
 	}{
 		{
-			name:     "nil error returns nil",
-			input:    nil,
-			expected: nil,
+			name:        "nil error returns nil",
+			input:       nil,
+			message:     "wrapper",
+			expectedNil: true,
 		},
 		{
-			name:  "standard error",
-			input: errors.New("something went wrong"),
-			expected: &Error{
-				Message:     "something went wrong",
-				Validations: []Validation{},
-			},
+			name:            "standard error",
+			input:           errors.New("something went wrong"),
+			message:         "operation failed",
+			expectedMessage: "operation failed",
 		},
 		{
-			name:  "standard error with integration option",
-			input: errors.New("something went wrong"),
-			opts:  []With{WithIntegration("postgres")},
-			expected: &Error{
-				Integration: "postgres",
-				Message:     "something went wrong",
-				Validations: []Validation{},
-			},
-		},
-		{
-			name:  "helix error is flattened",
-			input: New("existing helix error"),
-			expected: &Error{
-				Message:     "existing helix error.",
-				Validations: []Validation{},
-			},
+			name:            "standard error with integration option",
+			input:           errors.New("something went wrong"),
+			message:         "operation failed",
+			opts:            []Option{WithIntegration("postgres")},
+			expectedMessage: "operation failed",
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := NewFromError(tc.input, tc.opts...)
+			actual := Wrap(tc.input, tc.message, tc.opts...)
 
-			assert.Equal(t, tc.expected, actual)
+			if tc.expectedNil {
+				assert.Nil(t, actual)
+			} else {
+				assert.Equal(t, tc.expectedMessage, actual.Message)
+			}
 		})
 	}
 }
 
-func TestNewFromError_WithHelixErrorContainingValidations(t *testing.T) {
-	original := New("original").WithValidations(Validation{
-		Message: "field is required",
-		Path:    []string{"Config", "Field"},
-	})
-
-	wrapped := NewFromError(original)
-
-	assert.Contains(t, wrapped.Message, "original")
-	assert.Contains(t, wrapped.Message, "field is required")
-}
-
-func TestNewFromError_PreservesErrorString(t *testing.T) {
+func TestWrap_PreservesCause(t *testing.T) {
 	original := errors.New("connection refused")
 
-	wrapped := NewFromError(original)
+	wrapped := Wrap(original, "database error")
 
-	assert.Equal(t, "connection refused", wrapped.Message)
+	assert.Equal(t, "database error", wrapped.Message)
+	assert.Equal(t, original, wrapped.Unwrap())
+}
+
+func TestWrap_ErrorsIs(t *testing.T) {
+	sentinel := errors.New("sentinel error")
+
+	wrapped := Wrap(sentinel, "wrapped message")
+
+	assert.True(t, errors.Is(wrapped, sentinel))
+}
+
+func TestWrap_ErrorsAs(t *testing.T) {
+	inner := New("inner error", WithIntegration("postgres"))
+
+	wrapped := Wrap(inner, "outer error")
+
+	var target *Error
+	assert.True(t, errors.As(wrapped, &target))
+	assert.Equal(t, "outer error", target.Message)
+}
+
+func TestWrap_WrappedErrorChain(t *testing.T) {
+	root := errors.New("root cause")
+	level1 := Wrap(root, "level 1")
+	level2 := Wrap(level1, "level 2")
+	level3 := Wrap(level2, "level 3")
+
+	assert.True(t, errors.Is(level3, root))
+	assert.True(t, errors.Is(level3, level1))
+	assert.True(t, errors.Is(level3, level2))
+
+	var target *Error
+	assert.True(t, errors.As(level3, &target))
+	assert.Equal(t, "level 3", target.Message)
+}
+
+func TestWrap_WithValidations(t *testing.T) {
+	original := errors.New("database error")
+	wrapped := Wrap(original, "operation failed").WithValidations(Validation{
+		Message: "connection timeout",
+		Path:    []string{"Config", "Address"},
+	})
+
+	assert.True(t, wrapped.HasValidations())
+	assert.True(t, errors.Is(wrapped, original))
+	assert.Contains(t, wrapped.Error(), "connection timeout")
+}
+
+func TestUnwrap_NoCause(t *testing.T) {
+	err := New("no cause")
+
+	assert.Nil(t, err.Unwrap())
 }
 
 func TestError_WithValidations(t *testing.T) {
@@ -257,6 +285,11 @@ func TestError_HasValidations(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "after adding empty",
+			input:    New("test").WithValidations(),
+			expected: false,
+		},
+		{
 			name: "with validations",
 			input: New("with validations").WithValidations(Validation{
 				Message: "something failed",
@@ -267,9 +300,7 @@ func TestError_HasValidations(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.input.HasValidations()
-
-			assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, tc.input.HasValidations())
 		})
 	}
 }
@@ -288,6 +319,18 @@ func TestError_WithChildren(t *testing.T) {
 			hasChild: false,
 		},
 		{
+			name:     "empty children",
+			input:    New("parent error"),
+			children: []error{},
+			hasChild: false,
+		},
+		{
+			name:     "all nil children",
+			input:    New("parent"),
+			children: []error{nil, nil, nil},
+			hasChild: false,
+		},
+		{
 			name:     "single child",
 			input:    New("parent error"),
 			children: []error{errors.New("child error")},
@@ -302,6 +345,12 @@ func TestError_WithChildren(t *testing.T) {
 			},
 			hasChild: true,
 		},
+		{
+			name:     "nil children filtered",
+			input:    New("parent"),
+			children: []error{nil, errors.New("real"), nil},
+			hasChild: true,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -313,13 +362,12 @@ func TestError_WithChildren(t *testing.T) {
 	}
 }
 
-func TestError_WithChildren_ReturnsErrorInterface(t *testing.T) {
+func TestError_WithChildren_IsChainable(t *testing.T) {
 	err := New("parent")
 
 	result := err.WithChildren(errors.New("child"))
 
-	var _ error = result
-	assert.NotNil(t, result)
+	assert.Same(t, err, result)
 }
 
 func TestError_WithChildren_Accumulates(t *testing.T) {
@@ -346,35 +394,32 @@ func TestError_WithChildren_NestedHelixErrors(t *testing.T) {
 	assert.Contains(t, parent.Error(), "connection timeout")
 }
 
-func TestError_HasChildren(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    *Error
-		expected bool
-	}{
-		{
-			name:     "no children",
-			input:    New("no children"),
-			expected: false,
-		},
-		{
-			name: "with children",
-			input: func() *Error {
-				err := New("with children")
-				err.WithChildren(errors.New("child"))
-				return err
-			}(),
-			expected: true,
-		},
+func TestError_WithChildren_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	err := New("concurrent parent")
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			err.WithChildren(fmt.Errorf("child-%d", n))
+		}(i)
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.input.HasChildren()
-
-			assert.Equal(t, tc.expected, actual)
-		})
+	// Concurrent reads while writes are happening.
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = err.HasChildren()
+			_ = err.Error()
+		}()
 	}
+
+	wg.Wait()
+	assert.True(t, err.HasChildren())
 }
 
 func TestError_Error(t *testing.T) {
@@ -387,6 +432,21 @@ func TestError_Error(t *testing.T) {
 			name:     "simple message",
 			input:    New("This is a simple text example"),
 			expected: `This is a simple text example.`,
+		},
+		{
+			name:     "empty message",
+			input:    New(""),
+			expected: ".",
+		},
+		{
+			name:     "empty error",
+			input:    &Error{},
+			expected: ".",
+		},
+		{
+			name:     "only integration",
+			input:    &Error{Integration: "rest", Validations: []Validation{}},
+			expected: "rest: .",
 		},
 		{
 			name:     "with integration",
@@ -464,67 +524,19 @@ func TestError_Error(t *testing.T) {
 - child
 `,
 		},
-		{
-			name:     "empty error",
-			input:    &Error{},
-			expected: ".",
-		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.input.Error()
-
-			assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expected, tc.input.Error())
 		})
 	}
-}
-
-func TestError_Error_OnlyIntegration(t *testing.T) {
-	err := &Error{
-		Integration: "rest",
-		Validations: []Validation{},
-	}
-
-	assert.Equal(t, "rest: .", err.Error())
 }
 
 func TestError_ImplementsErrorInterface(t *testing.T) {
 	var err error = New("test error")
 	assert.NotNil(t, err)
 	assert.Equal(t, "test error.", err.Error())
-}
-
-func TestWithIntegration(t *testing.T) {
-	testcases := []struct {
-		name        string
-		integration string
-		expected    string
-	}{
-		{
-			name:        "rest",
-			integration: "rest",
-			expected:    "rest",
-		},
-		{
-			name:        "temporal",
-			integration: "temporal",
-			expected:    "temporal",
-		},
-		{
-			name:        "empty string",
-			integration: "",
-			expected:    "",
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := New("test", WithIntegration(tc.integration))
-
-			assert.Equal(t, tc.expected, err.Integration)
-		})
-	}
 }
 
 func TestError_MarshalJSON(t *testing.T) {
@@ -539,7 +551,12 @@ func TestError_MarshalJSON(t *testing.T) {
 			expected: `{"message": "something went wrong"}`,
 		},
 		{
-			name: "single validation with path",
+			name:     "omits empty message",
+			input:    &Error{Validations: []Validation{}},
+			expected: `{}`,
+		},
+		{
+			name:  "single validation with path",
 			input: New("validation error").WithValidations(
 				Validation{
 					Message: "field is required",
@@ -631,47 +648,90 @@ func TestError_MarshalJSON_OmitsChildren(t *testing.T) {
 	assert.NotContains(t, string(b), "child")
 }
 
-func TestError_MarshalJSON_OmitsEmptyMessage(t *testing.T) {
-	err := &Error{
-		Validations: []Validation{},
-	}
+func TestError_MarshalJSON_OmitsEmptyValidations(t *testing.T) {
+	err := New("simple error")
 
 	b, marshalErr := json.Marshal(err)
 
 	assert.NoError(t, marshalErr)
-	assert.JSONEq(t, `{}`, string(b))
+	assert.NotContains(t, string(b), "validations")
+}
+
+func TestError_MarshalJSON_RoundTrip(t *testing.T) {
+	original := New("validation error").WithValidations(
+		Validation{
+			Message: "field is required",
+			Path:    []string{"body", "email"},
+		},
+		Validation{
+			Message: "must be at least 8 characters",
+			Path:    []string{"body", "password"},
+		},
+	)
+
+	b, err := json.Marshal(original)
+	assert.NoError(t, err)
+
+	var unmarshaled Error
+	err = json.Unmarshal(b, &unmarshaled)
+	assert.NoError(t, err)
+
+	assert.Equal(t, original.Message, unmarshaled.Message)
+	assert.Equal(t, original.Validations, unmarshaled.Validations)
 }
 
 func TestError_UnmarshalJSON(t *testing.T) {
-	input := `{
-		"message": "validation failed",
-		"validations": [
-			{
-				"message": "field required",
-				"path": ["body", "name"]
+	testcases := []struct {
+		name              string
+		input             string
+		expectedMessage   string
+		expectedErr       bool
+		validationsNil    bool
+		validationsLen    int
+	}{
+		{
+			name:            "with validations",
+			input:           `{"message":"validation failed","validations":[{"message":"field required","path":["body","name"]}]}`,
+			expectedMessage: "validation failed",
+			validationsLen:  1,
+		},
+		{
+			name:            "no validations",
+			input:           `{"message":"simple error"}`,
+			expectedMessage: "simple error",
+			validationsNil:  true,
+		},
+		{
+			name:        "empty object",
+			input:       `{}`,
+			validationsNil: true,
+		},
+		{
+			name:        "invalid JSON",
+			input:       `not valid json`,
+			expectedErr: true,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			var err Error
+			unmarshalErr := json.Unmarshal([]byte(tc.input), &err)
+
+			if tc.expectedErr {
+				assert.Error(t, unmarshalErr)
+				return
 			}
-		]
-	}`
 
-	var err Error
-	unmarshalErr := json.Unmarshal([]byte(input), &err)
-
-	assert.NoError(t, unmarshalErr)
-	assert.Equal(t, "validation failed", err.Message)
-	assert.Len(t, err.Validations, 1)
-	assert.Equal(t, "field required", err.Validations[0].Message)
-	assert.Equal(t, []string{"body", "name"}, err.Validations[0].Path)
-}
-
-func TestError_UnmarshalJSON_NoValidations(t *testing.T) {
-	input := `{"message": "simple error"}`
-
-	var err Error
-	unmarshalErr := json.Unmarshal([]byte(input), &err)
-
-	assert.NoError(t, unmarshalErr)
-	assert.Equal(t, "simple error", err.Message)
-	assert.Nil(t, err.Validations)
+			assert.NoError(t, unmarshalErr)
+			assert.Equal(t, tc.expectedMessage, err.Message)
+			if tc.validationsNil {
+				assert.Nil(t, err.Validations)
+			} else {
+				assert.Len(t, err.Validations, tc.validationsLen)
+			}
+		})
+	}
 }
 
 func TestValidation_MarshalJSON(t *testing.T) {
@@ -703,4 +763,15 @@ func TestValidation_MarshalJSON(t *testing.T) {
 			assert.JSONEq(t, tc.expected, string(b))
 		})
 	}
+}
+
+func TestValidation_UnmarshalJSON(t *testing.T) {
+	input := `{"message":"field required","path":["body","name"]}`
+
+	var v Validation
+	err := json.Unmarshal([]byte(input), &v)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "field required", v.Message)
+	assert.Equal(t, []string{"body", "name"}, v.Path)
 }

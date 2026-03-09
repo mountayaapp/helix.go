@@ -2,10 +2,7 @@ package event
 
 import (
 	"context"
-	"net/url"
 	"testing"
-
-	"github.com/mountayaapp/helix.go/internal/contextkey"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/baggage"
@@ -21,19 +18,19 @@ func TestEventFromContext(t *testing.T) {
 	}{
 		{
 			name:     "context value is not an Event",
-			ctx:      context.WithValue(t.Context(), contextkey.Event, "not an Event"),
+			ctx:      context.WithValue(t.Context(), eventKey, "not an Event"),
 			expected: Event{},
 			success:  false,
 		},
 		{
 			name:     "context value is an empty Event",
-			ctx:      context.WithValue(t.Context(), contextkey.Event, Event{}),
+			ctx:      context.WithValue(t.Context(), eventKey, Event{}),
 			expected: Event{},
 			success:  true,
 		},
 		{
 			name: "context value is an Event with name",
-			ctx: context.WithValue(t.Context(), contextkey.Event, Event{
+			ctx: context.WithValue(t.Context(), eventKey, Event{
 				Name: "testing",
 			}),
 			expected: Event{
@@ -45,23 +42,16 @@ func TestEventFromContext(t *testing.T) {
 			name: "event extracted from baggage",
 			ctx:  t.Context(),
 			baggage: func() baggage.Baggage {
-				b, _ := baggage.New()
 				memberName, _ := baggage.NewMember("event.name", "testing")
-				memberParamsFilters0, _ := baggage.NewMember("event.params.filters.0", "a")
-				memberParamsFilters1, _ := baggage.NewMember("event.params.filters.1", "b")
-				memberParamsQuery0, _ := baggage.NewMember("event.params.query.0", "search_query")
+				memberMeta, _ := baggage.NewMember("event.meta.source", "web")
 
-				b, _ = b.SetMember(memberName)
-				b, _ = b.SetMember(memberParamsFilters0)
-				b, _ = b.SetMember(memberParamsFilters1)
-				b, _ = b.SetMember(memberParamsQuery0)
+				b, _ := baggage.New(memberName, memberMeta)
 				return b
 			},
 			expected: Event{
 				Name: "testing",
-				Params: url.Values{
-					"filters": []string{"a", "b"},
-					"query":   []string{"search_query"},
+				Meta: map[string]string{
+					"source": "web",
 				},
 			},
 			success: true,
@@ -83,8 +73,6 @@ func TestEventFromContext(t *testing.T) {
 }
 
 func TestEventFromContext_PrefersContextOverBaggage(t *testing.T) {
-
-	// When both context value and baggage are present, context value wins.
 	e := Event{Name: "from_context"}
 	ctx := ContextWithEvent(t.Context(), e)
 
@@ -99,8 +87,6 @@ func TestEventFromContext_PrefersContextOverBaggage(t *testing.T) {
 }
 
 func TestEventFromContext_EmptyBaggageReturnsFalse(t *testing.T) {
-
-	// Baggage without event.name should return false.
 	m, _ := baggage.NewMember("event.user_id", "user_123")
 	b, _ := baggage.New(m)
 	ctx := baggage.ContextWithBaggage(t.Context(), b)
@@ -124,39 +110,19 @@ func TestEventFromContext_BaggageWithMeta(t *testing.T) {
 }
 
 func TestContextWithEvent(t *testing.T) {
-	testcases := []struct {
-		name     string
-		ctx      context.Context
-		input    Event
-		expected context.Context
-		success  bool
-	}{
-		{
-			name: "stores event in context",
-			ctx:  t.Context(),
-			input: Event{
-				Name: "testing",
-			},
-			expected: context.WithValue(t.Context(), contextkey.Event, Event{
-				Name: "testing",
-			}),
-			success: true,
-		},
-	}
+	input := Event{Name: "testing"}
+	ctx := ContextWithEvent(t.Context(), input)
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := ContextWithEvent(tc.ctx, tc.input)
+	actual, ok := ctx.Value(eventKey).(Event)
 
-			assert.Equal(t, tc.expected, actual)
-		})
-	}
+	assert.True(t, ok)
+	assert.Equal(t, input, actual)
 }
 
 func TestContextWithEvent_RoundTrip(t *testing.T) {
 	input := Event{
 		Name:   "test_event",
-		UserId: "user_123",
+		UserID: "user_123",
 		Meta: map[string]string{
 			"key": "value",
 		},
@@ -183,8 +149,6 @@ func TestContextWithEvent_OverwritesPrevious(t *testing.T) {
 }
 
 func TestEventFromBaggage_EmptyName(t *testing.T) {
-
-	// eventFromBaggage returns false when Name is empty.
 	m, _ := baggage.NewMember("event.user_id", "user_123")
 	b, _ := baggage.New(m)
 

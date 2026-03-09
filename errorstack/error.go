@@ -2,6 +2,7 @@ package errorstack
 
 import (
 	"strings"
+	"sync"
 )
 
 /*
@@ -34,10 +35,17 @@ type Error struct {
 	// failures encountered in the request payload.
 	Validations []Validation `json:"validations,omitempty"`
 
-	// Children holds child errors encountered in cascade related to the current
-	// error. Omit children errors when working with JSON: we don't want to give
-	// internal information to clients consuming HTTP APIs.
-	children []error `json:"-"`
+	// cause is the wrapped error for errors.Unwrap() support.
+	cause error
+
+	// mu protects children from concurrent access. Validations are NOT
+	// mutex-protected — they must only be mutated from a single goroutine
+	// (typically during error construction).
+	mu sync.RWMutex
+
+	// children holds child errors encountered in cascade related to the current
+	// error.
+	children []error
 }
 
 /*
@@ -59,29 +67,30 @@ type Validation struct {
 /*
 New returns a new error given the message and options passed.
 */
-func New(message string, opts ...With) *Error {
-	err := &Error{
-		Message:     message,
-		Validations: []Validation{},
-	}
-
-	for _, opt := range opts {
-		opt(err)
-	}
-
-	return err
+func New(message string, opts ...Option) *Error {
+	return newError(message, opts)
 }
 
 /*
-NewFromError returns a new error given the existing error and options passed.
+Wrap creates a new error that wraps an existing error. The original error is
+preserved for errors.Unwrap()/Is()/As() support.
 */
-func NewFromError(existing error, opts ...With) *Error {
+func Wrap(existing error, message string, opts ...Option) *Error {
 	if existing == nil {
 		return nil
 	}
 
+	err := newError(message, opts)
+	err.cause = existing
+	return err
+}
+
+/*
+newError allocates an Error, applies all options, and returns it.
+*/
+func newError(message string, opts []Option) *Error {
 	err := &Error{
-		Message:     existing.Error(),
+		Message:     message,
 		Validations: []Validation{},
 	}
 
@@ -109,59 +118,82 @@ func (err *Error) HasValidations() bool {
 
 /*
 WithChildren adds a list of child errors encountered related to the current
-error.
+error. Nil errors are silently ignored. Thread-safe for concurrent use.
 */
-func (err *Error) WithChildren(children ...error) error {
-	err.children = append(err.children, children...)
+func (err *Error) WithChildren(children ...error) *Error {
+	err.mu.Lock()
+	defer err.mu.Unlock()
+
+	for _, child := range children {
+		if child != nil {
+			err.children = append(err.children, child)
+		}
+	}
+
 	return err
 }
 
 /*
 HasChildren indicates if an error caused other (a.k.a. children) errors.
+Thread-safe for concurrent use.
 */
 func (err *Error) HasChildren() bool {
+	err.mu.RLock()
+	defer err.mu.RUnlock()
+
 	return len(err.children) > 0
 }
 
 /*
+Unwrap returns the wrapped cause for errors.Is()/errors.As() support.
+*/
+func (err *Error) Unwrap() error {
+	return err.cause
+}
+
+/*
 Error returns the stringified version of the error, including its validation
-failures.
+failures and children errors. Thread-safe for concurrent reads of children.
 */
 func (err *Error) Error() string {
-	var msg string
+	var b strings.Builder
 
 	if err.Integration != "" {
-		msg += err.Integration + ": "
+		b.WriteString(err.Integration)
+		b.WriteString(": ")
 	}
 
 	if err.Message != "" {
-		msg += err.Message
+		b.WriteString(err.Message)
 	}
 
-	if err.HasValidations() {
-		msg += ". Reasons:\n"
+	if len(err.Validations) > 0 {
+		b.WriteString(". Reasons:\n")
 
 		for _, validation := range err.Validations {
-			msg += "    - " + validation.Message
-			if validation.Path != nil {
-				msg += "\n      at " + strings.Join(validation.Path, " > ")
+			b.WriteString("    - ")
+			b.WriteString(validation.Message)
+			if len(validation.Path) > 0 {
+				b.WriteString("\n      at ")
+				b.WriteString(strings.Join(validation.Path, " > "))
 			}
 
-			msg += ".\n"
+			b.WriteString(".\n")
 		}
 	} else {
-		msg += "."
+		b.WriteByte('.')
 	}
 
-	if err.HasChildren() {
-		msg += " Caused by:"
-		msg += "\n\n"
-
+	err.mu.RLock()
+	if len(err.children) > 0 {
+		b.WriteString(" Caused by:\n\n")
 		for _, child := range err.children {
-			msg += "- " + child.Error()
-			msg += "\n"
+			b.WriteString("- ")
+			b.WriteString(child.Error())
+			b.WriteByte('\n')
 		}
 	}
+	err.mu.RUnlock()
 
-	return msg
+	return b.String()
 }

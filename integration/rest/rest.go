@@ -8,6 +8,8 @@ import (
 
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/uptrace/bunrouter"
+	"github.com/uptrace/bunrouter/extra/bunrouterotel"
+	"github.com/uptrace/bunrouter/extra/reqlog"
 )
 
 /*
@@ -26,6 +28,9 @@ rest represents the rest integration. It respects the integration.Server and
 REST interfaces.
 */
 type rest struct {
+
+	// svc is the Service this integration belongs to.
+	svc *service.Service
 
 	// config holds the Config initially passed when creating a new REST API.
 	config *Config
@@ -47,7 +52,7 @@ type rest struct {
 New tries to build a new HTTP API server for Config. Returns an error if Config
 or OpenAPI description are not valid.
 */
-func New(cfg Config) (REST, error) {
+func New(svc *service.Service, cfg Config) (REST, error) {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -58,6 +63,7 @@ func New(cfg Config) (REST, error) {
 	// Start to build an error stack, so we can add validations as we go.
 	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
 	r := &rest{
+		svc:    svc,
 		config: &cfg,
 	}
 
@@ -81,9 +87,31 @@ func New(cfg Config) (REST, error) {
 	}
 
 	// Otherwise, try to register the server integration to the service.
-	if err := service.Serve(r); err != nil {
+	if err := service.Serve(svc, r); err != nil {
 		return nil, err
 	}
 
 	return r.bun, nil
+}
+
+/*
+buildRouter tries to build the HTTP router. It comes with opinionated handlers
+for 404 and 405 HTTP errors, as well as for the health endpoint.
+*/
+func (r *rest) buildRouter() (*bunrouter.CompatRouter, []errorstack.Validation) {
+	opts := []bunrouter.Option{
+		bunrouter.Use(reqlog.NewMiddleware(reqlog.WithEnabled(false))),
+		bunrouter.Use(bunrouterotel.NewMiddleware(bunrouterotel.WithClientIP())),
+		bunrouter.WithNotFoundHandler(r.handlerNotFound),
+		bunrouter.WithMethodNotAllowedHandler(r.handlerMethodNotAllowed),
+	}
+
+	if r.config.OpenAPI.Enabled {
+		opts = append(opts, bunrouter.WithMiddleware(r.middlewareValidation))
+	}
+
+	router := bunrouter.New(opts...).Compat()
+	router.Router.GET("/health", r.handlerHealthcheck)
+
+	return router, nil
 }

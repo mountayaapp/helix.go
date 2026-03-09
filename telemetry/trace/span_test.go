@@ -1,21 +1,22 @@
 package trace
 
 import (
-	"context"
 	"errors"
 	"testing"
 
+	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/attribute"
 	otelTrace "go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestSpanKindConstants(t *testing.T) {
-	assert.Equal(t, SpanKind(1), SpanKindInternal)
-	assert.Equal(t, SpanKind(2), SpanKindServer)
-	assert.Equal(t, SpanKind(3), SpanKindClient)
-	assert.Equal(t, SpanKind(4), SpanKindProducer)
-	assert.Equal(t, SpanKind(5), SpanKindConsumer)
+	assert.Equal(t, otelTrace.SpanKindInternal, SpanKindInternal)
+	assert.Equal(t, otelTrace.SpanKindServer, SpanKindServer)
+	assert.Equal(t, otelTrace.SpanKindClient, SpanKindClient)
+	assert.Equal(t, otelTrace.SpanKindProducer, SpanKindProducer)
+	assert.Equal(t, otelTrace.SpanKindConsumer, SpanKindConsumer)
 }
 
 func TestSpanKindValues_AreDistinct(t *testing.T) {
@@ -34,203 +35,17 @@ func TestSpanKindValues_AreDistinct(t *testing.T) {
 	}
 }
 
-func TestSpanKindMapsToOTelSpanKind(t *testing.T) {
-	testcases := []struct {
-		name     string
-		kind     SpanKind
-		expected otelTrace.SpanKind
-	}{
-		{
-			name:     "internal maps to OTel internal",
-			kind:     SpanKindInternal,
-			expected: otelTrace.SpanKindInternal,
-		},
-		{
-			name:     "server maps to OTel server",
-			kind:     SpanKindServer,
-			expected: otelTrace.SpanKindServer,
-		},
-		{
-			name:     "client maps to OTel client",
-			kind:     SpanKindClient,
-			expected: otelTrace.SpanKindClient,
-		},
-		{
-			name:     "producer maps to OTel producer",
-			kind:     SpanKindProducer,
-			expected: otelTrace.SpanKindProducer,
-		},
-		{
-			name:     "consumer maps to OTel consumer",
-			kind:     SpanKindConsumer,
-			expected: otelTrace.SpanKindConsumer,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, otelTrace.SpanKind(tc.kind))
-		})
-	}
-}
-
-func newNoopSpan() *Span {
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(context.Background(), "test-span")
-	return &Span{client: span}
-}
-
-func TestSpan_SetStringAttribute(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetStringAttribute("key", "value")
-	})
-}
-
-func TestSpan_SetSliceStringAttribute(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetSliceStringAttribute("tags", []string{"a", "b", "c"})
-	})
-}
-
-func TestSpan_SetSliceStringAttribute_Empty(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetSliceStringAttribute("tags", []string{})
-	})
-}
-
-func TestSpan_SetBoolAttribute(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetBoolAttribute("enabled", true)
-		s.SetBoolAttribute("disabled", false)
-	})
-}
-
-func TestSpan_SetIntAttribute(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetIntAttribute("count", 42)
-		s.SetIntAttribute("negative", -1)
-		s.SetIntAttribute("zero", 0)
-	})
-}
-
-func TestSpan_SetFloatAttribute(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.SetFloatAttribute("ratio", 3.14)
-		s.SetFloatAttribute("zero", 0.0)
-		s.SetFloatAttribute("negative", -1.5)
-	})
-}
-
-func TestSpan_RecordError(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.False(t, s.hasError)
-
-	s.RecordError("something went wrong", errors.New("test error"))
-
-	assert.True(t, s.hasError)
-}
-
-func TestSpan_RecordError_SetsHasError(t *testing.T) {
-	s := newNoopSpan()
-
-	s.RecordError("first error", errors.New("err 1"))
-	s.RecordError("second error", errors.New("err 2"))
-
-	assert.True(t, s.hasError)
-}
-
-func TestSpan_AddEvent(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.AddEvent("processing_started")
-		s.AddEvent("processing_completed")
-	})
-}
-
-func TestSpan_Context(t *testing.T) {
-	s := newNoopSpan()
-
-	sc := s.Context()
-
-	assert.False(t, sc.HasTraceID())
-	assert.False(t, sc.HasSpanID())
-}
-
-func TestSpan_End(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.NotPanics(t, func() {
-		s.End()
-	})
-}
-
-func TestSpan_End_WithoutError(t *testing.T) {
-	s := newNoopSpan()
-
-	assert.False(t, s.hasError)
-
-	assert.NotPanics(t, func() {
-		s.End()
-	})
-}
-
-func TestSpan_End_WithError(t *testing.T) {
-	s := newNoopSpan()
-	s.RecordError("failure", errors.New("test"))
-
-	assert.True(t, s.hasError)
-
-	assert.NotPanics(t, func() {
-		s.End()
-	})
-}
-
-func TestSpan_FullLifecycle(t *testing.T) {
-	s := newNoopSpan()
-
-	s.SetStringAttribute("operation", "test")
-	s.SetIntAttribute("attempt", 1)
-	s.SetBoolAttribute("retry", false)
-	s.AddEvent("started")
-	s.SetFloatAttribute("duration", 1.5)
-	s.AddEvent("completed")
-	s.End()
-}
-
-func TestSpan_FullLifecycleWithError(t *testing.T) {
-	s := newNoopSpan()
-
-	s.SetStringAttribute("operation", "failing_test")
-	s.AddEvent("started")
-	s.RecordError("operation failed", errors.New("timeout"))
-
-	assert.True(t, s.hasError)
-
-	s.End()
-}
-
-func TestStart_ReturnsSpan(t *testing.T) {
+func TestStart_ReturnsNonNilSpan_WithoutTracer(t *testing.T) {
 	ctx, s := Start(t.Context(), SpanKindInternal, "test-operation")
 
 	assert.NotNil(t, ctx)
-	if s != nil {
-		assert.NotNil(t, s.client)
+	assert.NotNil(t, s)
+
+	assert.NotPanics(t, func() {
+		s.SetAttributes(attribute.String("key", "value"))
+		s.AddEvent("test")
 		s.End()
-	}
+	})
 }
 
 func TestStart_DifferentSpanKinds(t *testing.T) {
@@ -246,8 +61,96 @@ func TestStart_DifferentSpanKinds(t *testing.T) {
 		ctx, s := Start(t.Context(), kind, "test")
 
 		assert.NotNil(t, ctx)
-		if s != nil {
-			s.End()
-		}
+		assert.NotNil(t, s)
+		s.End()
 	}
+}
+
+func TestSpan_RecordError(t *testing.T) {
+	_, s := Start(t.Context(), SpanKindInternal, "test")
+
+	assert.NotPanics(t, func() {
+		s.RecordError("something went wrong", errors.New("test error"))
+		s.End()
+	})
+}
+
+func TestSpan_FullLifecycle(t *testing.T) {
+	_, s := Start(t.Context(), SpanKindInternal, "test")
+
+	assert.NotPanics(t, func() {
+		s.SetAttributes(attribute.String("operation", "test"))
+		s.SetAttributes(attribute.Int64("attempt", 1))
+		s.SetAttributes(attribute.Bool("retry", false))
+		s.AddEvent("started")
+		s.SetAttributes(attribute.Float64("duration", 1.5))
+		s.AddEvent("completed")
+		s.End()
+	})
+}
+
+func TestSpan_NilInternalSpan(t *testing.T) {
+	s := &Span{}
+
+	t.Run("SetAttributes", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			s.SetAttributes(attribute.String("key", "value"))
+		})
+	})
+
+	t.Run("AddEvent", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			s.AddEvent("test-event")
+		})
+	})
+
+	t.Run("RecordError", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			s.RecordError("something went wrong", errors.New("test error"))
+		})
+	})
+
+	t.Run("End", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			s.End()
+		})
+	})
+}
+
+func TestSpan_RecordError_NilError(t *testing.T) {
+	tr := internaltrace.NewNopTracer()
+	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	_, s := Start(ctx, SpanKindInternal, "test")
+
+	assert.NotPanics(t, func() {
+		s.RecordError("should be no-op", nil)
+	})
+
+	assert.False(t, s.hasError)
+}
+
+func TestSpan_End_CalledTwice(t *testing.T) {
+	tr := internaltrace.NewNopTracer()
+	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	_, s := Start(ctx, SpanKindInternal, "test")
+
+	assert.NotPanics(t, func() {
+		s.End()
+		s.End()
+	})
+}
+
+func TestSpan_FullLifecycle_WithError(t *testing.T) {
+	tr := internaltrace.NewNopTracer()
+	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	_, s := Start(ctx, SpanKindInternal, "test")
+
+	assert.NotPanics(t, func() {
+		s.SetAttributes(attribute.String("operation", "test"))
+		s.SetAttributes(attribute.Int64("attempt", 1))
+		s.RecordError("something went wrong", errors.New("test error"))
+		s.End()
+	})
+
+	assert.True(t, s.hasError)
 }

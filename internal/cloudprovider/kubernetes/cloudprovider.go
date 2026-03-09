@@ -6,8 +6,6 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 /*
@@ -70,42 +68,12 @@ func (k *kubernetes) String() string {
 }
 
 /*
-Service returns the service name detected by the cloud provider.
+Attributes returns OpenTelemetry attributes when running in Kubernetes.
 */
-func (k *kubernetes) Service() string {
-	return k.pod
-}
-
-/*
-LoggerFields returns OpenTelemetry fields for logs when running in Kubernetes.
-*/
-func (k *kubernetes) LoggerFields() []zap.Field {
-	fields := []zap.Field{
-		zapcore.Field{
-			Key:    "kubernetes_namespace",
-			Type:   zapcore.StringType,
-			String: k.namespace,
-		},
-		zapcore.Field{
-			Key:    "kubernetes_pod",
-			Type:   zapcore.StringType,
-			String: k.pod,
-		},
-	}
-
-	return fields
-}
-
-/*
-TracerAttributes returns OpenTelemetry attributes for traces when running in
-Kubernetes.
-*/
-func (k *kubernetes) TracerAttributes() []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
+func (k *kubernetes) Attributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
 		attribute.String("kubernetes.namespace", k.namespace),
 		attribute.String("kubernetes.pod", k.pod),
 		attribute.String("service.name", k.pod),
 	}
-
-	return attrs
 }

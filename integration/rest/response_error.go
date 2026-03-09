@@ -9,6 +9,8 @@ import (
 
 var _ json.Marshaler = (*ResponseError[any])(nil)
 
+var fallbackErrorResponse = []byte(`{"status":"Internal Server Error","error":{"message":"We have been notified of this unexpected internal error"}}`)
+
 /*
 ResponseError is the JSON object every HTTP responses shall return.
 */
@@ -77,9 +79,9 @@ Write writes the ResponseError to the ResponseWriter.
 func (res *ResponseError[Metadata]) Write(rw http.ResponseWriter) {
 	b, err := json.Marshal(res)
 	if err != nil {
-		NewResponseError[NoMetadata](res.request).
-			SetStatus(http.StatusInternalServerError).
-			Write(rw)
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusInternalServerError)
+		rw.Write(fallbackErrorResponse)
 		return
 	}
 

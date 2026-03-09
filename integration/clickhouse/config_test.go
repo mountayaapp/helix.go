@@ -70,6 +70,19 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "custom password preserves password and applies other defaults",
+			before: Config{
+				Password: "my_secret",
+			},
+			after: Config{
+				Address:  "127.0.0.1:9000",
+				Database: "default",
+				User:     "default",
+				Password: "my_secret",
+			},
+			err: nil,
+		},
+		{
 			name: "TLS with only CertFile returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
@@ -97,6 +110,77 @@ func TestConfig_Sanitize(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "TLS with only KeyFile returns error",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			after: Config{
+				Address:  "127.0.0.1:9000",
+				Database: "default",
+				User:     "default",
+				Password: "default",
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with both CertFile and KeyFile is valid",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			after: Config{
+				Address:  "127.0.0.1:9000",
+				Database: "default",
+				User:     "default",
+				Password: "default",
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			err: nil,
+		},
+		{
+			name: "disabled TLS ignores invalid certs",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			after: Config{
+				Address:  "127.0.0.1:9000",
+				Database: "default",
+				User:     "default",
+				Password: "default",
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			err: nil,
 		},
 		{
 			name: "TLS with InsecureSkipVerify is valid",

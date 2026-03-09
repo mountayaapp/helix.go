@@ -9,10 +9,7 @@ properties:
     default: Not Found
   error:
     $ref: ../Error.yaml
-  metadata:
-    type:
-      - undefined
-      - object
+  metadata: {}
 required:
   - status
   - error

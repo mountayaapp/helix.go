@@ -13,9 +13,9 @@ Ensure *connection complies to the integration.Dependency type.
 var _ integration.Dependency = (*connection)(nil)
 
 /*
-String returns the string representation of the ClickHouse integration.
+Name returns the string representation of the ClickHouse integration.
 */
-func (conn *connection) String() string {
+func (conn *connection) Name() string {
 	return identifier
 }
 
@@ -23,10 +23,9 @@ func (conn *connection) String() string {
 Close tries to gracefully close the connection with the ClickHouse database.
 */
 func (conn *connection) Close(ctx context.Context) error {
-	stack := errorstack.New("Failed to gracefully close connection with database", errorstack.WithIntegration(identifier))
-
 	err := conn.client.Close()
 	if err != nil {
+		stack := errorstack.New("Failed to gracefully close connection with database", errorstack.WithIntegration(identifier))
 		stack.WithValidations(errorstack.Validation{
 			Message: err.Error(),
 		})
@@ -42,16 +41,15 @@ Status indicates if the integration is able to ping the ClickHouse database or
 not. Returns `200` if connection is working, `503` otherwise.
 */
 func (conn *connection) Status(ctx context.Context) (int, error) {
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-
 	err := conn.client.Ping(ctx)
-	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return 503, stack
+	if err == nil {
+		return 200, nil
 	}
 
-	return 200, nil
+	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
+	stack.WithValidations(errorstack.Validation{
+		Message: err.Error(),
+	})
+
+	return 503, stack
 }

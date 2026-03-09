@@ -21,6 +21,31 @@
   ],
   "integrations": [
     {
+      "id": "bucket",
+      "name": "Bucket",
+      "description": "for standardized blob storage"
+    },
+    {
+      "id": "clickhouse",
+      "name": "ClickHouse",
+      "description": "as analytical database"
+    },
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "description": "as transactional database"
+    },
+    {
+      "id": "valkey",
+      "name": "Valkey",
+      "description": "as key/value cache database"
+    },
+    {
+      "id": "temporal",
+      "name": "Temporal",
+      "description": "for durable, fault-tolerant executions"
+    },
+    {
       "id": "rest",
       "name": "REST API",
       "description": "for building REST APIs"
@@ -29,31 +54,6 @@
       "id": "graphql",
       "name": "GraphQL API",
       "description": "for building GraphQL APIs"
-    },
-    {
-      "id": "temporal",
-      "name": "Temporal",
-      "description": "for durable, fault-tolerant executions"
-    },
-    {
-      "id": "postgres",
-      "name": "PostgreSQL",
-      "description": "as transactional database"
-    },
-    {
-      "id": "clickhouse",
-      "name": "ClickHouse",
-      "description": "as analytical database"
-    },
-    {
-      "id": "valkey",
-      "name": "Valkey",
-      "description": "as key/value cache database"
-    },
-    {
-      "id": "bucket",
-      "name": "Bucket",
-      "description": "for standardized blob storage"
     }
   ]
 }

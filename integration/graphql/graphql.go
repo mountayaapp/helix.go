@@ -17,6 +17,9 @@ interface.
 */
 type graphql struct {
 
+	// svc is the Service this integration belongs to.
+	svc *service.Service
+
 	// config holds the Config initially passed when creating a new GraphQL API.
 	config *Config
 
@@ -32,7 +35,7 @@ type graphql struct {
 New tries to build a new GraphQL API server for Config. Returns an error if
 Config is not valid.
 */
-func New(cfg Config) error {
+func New(svc *service.Service, cfg Config) error {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -41,6 +44,7 @@ func New(cfg Config) error {
 	}
 
 	g := &graphql{
+		svc:    svc,
 		config: &cfg,
 	}
 
@@ -78,7 +82,7 @@ func New(cfg Config) error {
 	g.mux.HandleFunc("/", g.handlerNotFound)
 
 	// Try to register the server integration to the service.
-	if err := service.Serve(g); err != nil {
+	if err := service.Serve(svc, g); err != nil {
 		return err
 	}
 

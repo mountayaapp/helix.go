@@ -9,10 +9,7 @@ properties:
     default: Bad Gateway
   error:
     $ref: ../Error.yaml
-  metadata:
-    type:
-      - undefined
-      - object
+  metadata: {}
 required:
   - status
   - error

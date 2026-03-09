@@ -29,14 +29,21 @@ activityDefinition is the concrete implementation of a type-safe Temporal activi
 */
 type activityDefinition[Input, Result any] struct {
 	name string
+	opts workflow.ActivityOptions
 }
 
 /*
 NewActivity is the factory function for creating a new type-safe Activity handle.
+The provided workflow.ActivityOptions are applied on every Execute call, ensuring
+consistent timeout and retry behavior across all executions of this activity.
+
+Per Temporal best practices, callers should always set at least StartToCloseTimeout
+in the options.
 */
-func NewActivity[Input, Result any](name string) Activity[Input, Result] {
+func NewActivity[Input, Result any](name string, opts workflow.ActivityOptions) Activity[Input, Result] {
 	return &activityDefinition[Input, Result]{
 		name: name,
+		opts: opts,
 	}
 }
 
@@ -57,12 +64,14 @@ func (d *activityDefinition[Input, Result]) Register(
 /*
 Execute wraps workflow.ExecuteActivity. The [Input] type constraint on input
 prevents runtime errors from passing incorrectly typed arguments to the activity
-via interface{} in the workflow.
+via interface{}. Activity options defined at creation time are applied to the
+workflow context before execution.
 */
 func (d *activityDefinition[Input, Result]) Execute(
 	ctx workflow.Context,
 	input Input,
 ) ActivityRun[Result] {
+	ctx = workflow.WithActivityOptions(ctx, d.opts)
 	future := workflow.ExecuteActivity(ctx, d.name, input)
 	result := activityRun[Result]{
 		future: future,
@@ -99,15 +108,18 @@ an extra Config parameter (= repeatable activities).
 */
 type repeatableActivityDefinition[Input, Config, Result any] struct {
 	name string
+	opts workflow.ActivityOptions
 }
 
 /*
 NewRepeatableActivity is the factory function for creating a type-safe repeatable
-Activity handle with [Config].
+Activity handle with [Config]. The provided workflow.ActivityOptions are applied
+on every Execute call.
 */
-func NewRepeatableActivity[Input, Config, Result any](name string) repeatableActivity[Input, Config, Result] {
+func NewRepeatableActivity[Input, Config, Result any](name string, opts workflow.ActivityOptions) repeatableActivity[Input, Config, Result] {
 	return &repeatableActivityDefinition[Input, Config, Result]{
 		name: name,
+		opts: opts,
 	}
 }
 
@@ -128,13 +140,15 @@ func (d *repeatableActivityDefinition[Input, Config, Result]) Register(
 /*
 Execute wraps workflow.ExecuteActivity, requiring and enforcing both [Input] and
 [Config] types. Both are passed as arguments to the underlying activity
-implementation.
+implementation. Activity options defined at creation time are applied to the
+workflow context before execution.
 */
 func (d *repeatableActivityDefinition[Input, Config, Result]) Execute(
 	ctx workflow.Context,
 	input Input,
 	config Config,
 ) ActivityRun[Result] {
+	ctx = workflow.WithActivityOptions(ctx, d.opts)
 	future := workflow.ExecuteActivity(ctx, d.name, input, config)
 	result := activityRun[Result]{
 		future: future,

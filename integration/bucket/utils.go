@@ -1,50 +1,43 @@
 package bucket
 
 import (
-	"fmt"
-	"unicode"
-
 	"github.com/mountayaapp/helix.go/telemetry/trace"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 /*
-setDefaultAttributes sets integration attributes to a trace span.
+Pre-computed span names to avoid allocations on every call.
 */
-func setDefaultAttributes(span *trace.Span, cfg *Config) {
-	if cfg != nil {
-		span.SetStringAttribute(fmt.Sprintf("%s.driver", identifier), cfg.Driver.string())
-		span.SetStringAttribute(fmt.Sprintf("%s.bucket", identifier), cfg.Bucket)
+var (
+	attrKeyDriver    = attribute.Key(identifier + ".driver")
+	attrKeyBucket    = attribute.Key(identifier + ".bucket")
+	attrKeySubfolder = attribute.Key(identifier + ".subfolder")
+	attrKeyKey       = attribute.Key(identifier + ".key")
+)
 
-		if cfg.Subfolder != "" {
-			span.SetStringAttribute(fmt.Sprintf("%s.subfolder", identifier), cfg.Subfolder)
-		}
+/*
+setAttributes sets integration and key attributes to a trace span in a single
+call, reducing per-operation overhead.
+*/
+func setAttributes(span *trace.Span, cfg *Config, key string) {
+	if cfg == nil {
+		span.SetAttributes(attrKeyKey.String(key))
+		return
 	}
-}
 
-/*
-setKeyAttributes sets blob's key attributes to a trace span.
-*/
-func setKeyAttributes(span *trace.Span, key string) {
-	span.SetStringAttribute(fmt.Sprintf("%s.key", identifier), key)
-}
-
-/*
-normalizeErrorMessage normalizes an error returned by the Bucket client to match
-the format of helix.go. This is only used inside Connect for a better readability
-in the terminal. Otherwise, functions return native Bucket errors.
-
-Example:
-
-	"open blob bucket: ..."
-
-Becomes:
-
-	"Open blob bucket: ..."
-*/
-func normalizeErrorMessage(err error) string {
-	var msg string = err.Error()
-	runes := []rune(msg)
-	runes[0] = unicode.ToUpper(runes[0])
-
-	return string(runes)
+	if cfg.Subfolder != "" {
+		span.SetAttributes(
+			attrKeyDriver.String(cfg.Driver.string()),
+			attrKeyBucket.String(cfg.Bucket),
+			attrKeySubfolder.String(cfg.Subfolder),
+			attrKeyKey.String(key),
+		)
+	} else {
+		span.SetAttributes(
+			attrKeyDriver.String(cfg.Driver.string()),
+			attrKeyBucket.String(cfg.Bucket),
+			attrKeyKey.String(key),
+		)
+	}
 }

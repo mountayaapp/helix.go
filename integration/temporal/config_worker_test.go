@@ -17,6 +17,26 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 		err    error
 	}{
 		{
+			name:   "empty config returns task queue error and applies client defaults",
+			before: ConfigWorker{},
+			after: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "127.0.0.1:7233",
+					Namespace: "default",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "TaskQueue must be set and not be empty",
+						Path:    []string{"Config", "Worker", "TaskQueue"},
+					},
+				},
+			},
+		},
+		{
 			name: "valid config with task queue applies client defaults",
 			before: ConfigWorker{
 				TaskQueue: "my-task-queue",
@@ -27,6 +47,60 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 					Namespace: "default",
 				},
 				TaskQueue: "my-task-queue",
+			},
+			err: nil,
+		},
+		{
+			name: "valid config with custom client and task queue",
+			before: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "temporal.example.com:7233",
+					Namespace: "production",
+				},
+				TaskQueue: "my-task-queue",
+			},
+			after: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "temporal.example.com:7233",
+					Namespace: "production",
+				},
+				TaskQueue: "my-task-queue",
+			},
+			err: nil,
+		},
+		{
+			name: "rate limits are preserved",
+			before: ConfigWorker{
+				TaskQueue:                    "queue",
+				WorkerActivitiesPerSecond:    500,
+				TaskQueueActivitiesPerSecond: 1000,
+			},
+			after: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "127.0.0.1:7233",
+					Namespace: "default",
+				},
+				TaskQueue:                    "queue",
+				WorkerActivitiesPerSecond:    500,
+				TaskQueueActivitiesPerSecond: 1000,
+			},
+			err: nil,
+		},
+		{
+			name: "fractional rate limits are preserved",
+			before: ConfigWorker{
+				TaskQueue:                    "queue",
+				WorkerActivitiesPerSecond:    0.1,
+				TaskQueueActivitiesPerSecond: 0.5,
+			},
+			after: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "127.0.0.1:7233",
+					Namespace: "default",
+				},
+				TaskQueue:                    "queue",
+				WorkerActivitiesPerSecond:    0.1,
+				TaskQueueActivitiesPerSecond: 0.5,
 			},
 			err: nil,
 		},
@@ -56,20 +130,32 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 			},
 		},
 		{
-			name: "rate limits are preserved",
+			name: "enable session worker is preserved",
 			before: ConfigWorker{
-				TaskQueue:                    "queue",
-				WorkerActivitiesPerSecond:    500,
-				TaskQueueActivitiesPerSecond: 1000,
+				TaskQueue:           "queue",
+				EnableSessionWorker: true,
 			},
 			after: ConfigWorker{
 				Client: ConfigClient{
 					Address:   "127.0.0.1:7233",
 					Namespace: "default",
 				},
-				TaskQueue:                    "queue",
-				WorkerActivitiesPerSecond:    500,
-				TaskQueueActivitiesPerSecond: 1000,
+				TaskQueue:           "queue",
+				EnableSessionWorker: true,
+			},
+			err: nil,
+		},
+		{
+			name: "enable session worker defaults to false",
+			before: ConfigWorker{
+				TaskQueue: "queue",
+			},
+			after: ConfigWorker{
+				Client: ConfigClient{
+					Address:   "127.0.0.1:7233",
+					Namespace: "default",
+				},
+				TaskQueue: "queue",
 			},
 			err: nil,
 		},

@@ -123,3 +123,46 @@ func TestMux_UnknownRoute_ReturnsNotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestMux_Healthcheck_CustomHealthy(t *testing.T) {
+	g := &graphql{
+		config: &Config{
+			Path: "/graphql",
+			Healthcheck: func(req *http.Request) int {
+				return http.StatusOK
+			},
+		},
+	}
+
+	g.mux = http.NewServeMux()
+	g.mux.HandleFunc("GET /health", g.handlerHealthcheck)
+	g.mux.HandleFunc("/", g.handlerNotFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rw := httptest.NewRecorder()
+	g.mux.ServeHTTP(rw, req)
+
+	assert.Equal(t, http.StatusOK, rw.Code)
+	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"status":"OK"}`, rw.Body.String())
+}
+
+func TestMux_PostGraphQL_NotFoundPath(t *testing.T) {
+	g := newTestMux()
+
+	req := httptest.NewRequest(http.MethodPost, "/not-graphql", nil)
+	rw := httptest.NewRecorder()
+	g.mux.ServeHTTP(rw, req)
+
+	assert.Equal(t, http.StatusNotFound, rw.Code)
+}
+
+func TestMux_HeadGraphQL_ReturnsMethodNotAllowed(t *testing.T) {
+	g := newTestMux()
+
+	req := httptest.NewRequest(http.MethodHead, "/graphql", nil)
+	rw := httptest.NewRecorder()
+	g.mux.ServeHTTP(rw, req)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, rw.Code)
+}

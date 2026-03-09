@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - ineffassign
+    - staticcheck
+    - unused
+  exclusions:
+    rules:
+      # Builder-style methods where the return value is the same receiver.
+      - linters: [errcheck]
+        text: "WithValidations|WithChildren"
+
+      # HTTP response writes where errors can't be meaningfully handled.
+      - linters: [errcheck]
+        text: "rw\\.Write|ResponseWriter\\.Write"
+
+      # Deferred close calls where errors can't be meaningfully handled.
+      - linters: [errcheck]
+        text: "\\.Close`"
+
+      # Fire-and-forget cache operations.
+      - linters: [errcheck]
+        text: "\\.Set`"
+
+      # Middleware next handler calls in HTTP chains.
+      - linters: [errcheck]
+        source: "next\\("
+
+      # Test files have relaxed error checking.
+      - linters: [errcheck]
+        path: "_test\\.go"
+
+      # The `humanized` constant is a convention across all integrations, even
+      # if not yet referenced in every package.
+      - linters: [unused]
+        text: "humanized"

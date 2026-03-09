@@ -6,8 +6,6 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 /*
@@ -73,58 +71,10 @@ func (n *nomad) String() string {
 }
 
 /*
-Service returns the service name detected by the cloud provider.
+Attributes returns OpenTelemetry attributes when running in Nomad.
 */
-func (n *nomad) Service() string {
-	return n.jobName
-}
-
-/*
-LoggerFields returns OpenTelemetry fields for logs when running in Nomad.
-*/
-func (n *nomad) LoggerFields() []zap.Field {
-	fields := []zap.Field{
-		zapcore.Field{
-			Key:    "nomad_datacenter",
-			Type:   zapcore.StringType,
-			String: n.datacenter,
-		},
-		zapcore.Field{
-			Key:    "nomad_job_id",
-			Type:   zapcore.StringType,
-			String: n.jobId,
-		},
-		zapcore.Field{
-			Key:    "nomad_job_name",
-			Type:   zapcore.StringType,
-			String: n.jobName,
-		},
-		zapcore.Field{
-			Key:    "nomad_namespace",
-			Type:   zapcore.StringType,
-			String: n.namespace,
-		},
-		zapcore.Field{
-			Key:    "nomad_region",
-			Type:   zapcore.StringType,
-			String: n.region,
-		},
-		zapcore.Field{
-			Key:    "nomad_task",
-			Type:   zapcore.StringType,
-			String: n.task,
-		},
-	}
-
-	return fields
-}
-
-/*
-TracerAttributes returns OpenTelemetry attributes for traces when running in
-Nomad.
-*/
-func (n *nomad) TracerAttributes() []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
+func (n *nomad) Attributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
 		attribute.String("nomad.datacenter", n.datacenter),
 		attribute.String("nomad.job_id", n.jobId),
 		attribute.String("nomad.job_name", n.jobName),
@@ -133,6 +83,4 @@ func (n *nomad) TracerAttributes() []attribute.KeyValue {
 		attribute.String("nomad.task", n.task),
 		attribute.String("service.name", n.task),
 	}
-
-	return attrs
 }

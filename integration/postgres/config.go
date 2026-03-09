@@ -53,6 +53,27 @@ func (cfg *Config) sanitize() error {
 		cfg.Address = "127.0.0.1:5432"
 	}
 
+	if cfg.Database == "" {
+		stack.WithValidations(errorstack.Validation{
+			Message: "Database is required and must not be empty",
+			Path:    []string{"Config", "Database"},
+		})
+	}
+
+	if cfg.User == "" {
+		stack.WithValidations(errorstack.Validation{
+			Message: "User is required and must not be empty",
+			Path:    []string{"Config", "User"},
+		})
+	}
+
+	if cfg.Password == "" {
+		stack.WithValidations(errorstack.Validation{
+			Message: "Password is required and must not be empty",
+			Path:    []string{"Config", "Password"},
+		})
+	}
+
 	stack.WithValidations(cfg.TLS.Sanitize()...)
 	if stack.HasValidations() {
 		return stack

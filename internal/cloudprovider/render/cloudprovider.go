@@ -6,8 +6,6 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 /*
@@ -64,59 +62,19 @@ func Get() cloudprovider.CloudProvider {
 /*
 String returns the string representation of the Render cloud provider.
 */
-func (q *render) String() string {
+func (r *render) String() string {
 	return "render"
 }
 
 /*
-Service returns the service name detected by the cloud provider.
+Attributes returns OpenTelemetry attributes when running in Render.
 */
-func (q *render) Service() string {
-	return q.serviceId
-}
-
-/*
-LoggerFields returns OpenTelemetry fields for logs when running in Render.
-*/
-func (q *render) LoggerFields() []zap.Field {
-	fields := []zap.Field{
-		zapcore.Field{
-			Key:    "render_instance_id",
-			Type:   zapcore.StringType,
-			String: q.instanceId,
-		},
-		zapcore.Field{
-			Key:    "render_service_id",
-			Type:   zapcore.StringType,
-			String: q.serviceId,
-		},
-		zapcore.Field{
-			Key:    "render_service_name",
-			Type:   zapcore.StringType,
-			String: q.serviceName,
-		},
-		zapcore.Field{
-			Key:    "render_service_type",
-			Type:   zapcore.StringType,
-			String: q.serviceType,
-		},
+func (r *render) Attributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("render.instance_id", r.instanceId),
+		attribute.String("render.service_id", r.serviceId),
+		attribute.String("render.service_name", r.serviceName),
+		attribute.String("render.service_type", r.serviceType),
+		attribute.String("service.name", r.serviceId),
 	}
-
-	return fields
-}
-
-/*
-TracerAttributes returns OpenTelemetry attributes for traces when running in
-Render.
-*/
-func (q *render) TracerAttributes() []attribute.KeyValue {
-	attrs := []attribute.KeyValue{
-		attribute.String("render.instance_id", q.instanceId),
-		attribute.String("render.service_id", q.serviceId),
-		attribute.String("render.service_name", q.serviceName),
-		attribute.String("render.service_type", q.serviceType),
-		attribute.String("service.name", q.serviceId),
-	}
-
-	return attrs
 }

@@ -45,6 +45,15 @@ type ConfigWorker struct {
 	//
 	//   100 000
 	TaskQueueActivitiesPerSecond float64 `json:"taskqueue_activities_per_second,omitempty"`
+
+	// EnableSessionWorker enables the session worker, which is required for
+	// workflows that use sessions for stateful activity routing. Only enable this
+	// when workflows explicitly need sessions, as it consumes extra resources.
+	//
+	// Default:
+	//
+	//   false
+	EnableSessionWorker bool `json:"enable_session_worker"`
 }
 
 /*

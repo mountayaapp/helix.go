@@ -2,13 +2,23 @@ package bucket
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"gocloud.dev/blob"
+)
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const (
+	spanBucketExists = humanized + ": Exists"
+	spanBucketRead   = humanized + ": Read"
+	spanBucketWrite  = humanized + ": Write"
+	spanBucketDelete = humanized + ": Delete"
 )
 
 /*
@@ -39,7 +49,7 @@ type connection struct {
 Connect tries to create a Bucket client given the Config. Returns an error if
 Config is not valid or if the initialization failed.
 */
-func Connect(cfg Config) (Bucket, error) {
+func Connect(svc *service.Service, cfg Config) (Bucket, error) {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -57,7 +67,7 @@ func Connect(cfg Config) (Bucket, error) {
 	conn.client, err = blob.OpenBucket(context.Background(), cfg.Driver.url(&cfg))
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: normalizeErrorMessage(err),
+			Message: integration.NormalizeErrorMessage(err),
 		})
 
 		return nil, stack
@@ -69,7 +79,7 @@ func Connect(cfg Config) (Bucket, error) {
 	}
 
 	// Try to attach the integration to the service.
-	if err := service.Attach(conn); err != nil {
+	if err := service.Attach(svc, conn); err != nil {
 		return nil, err
 	}
 
@@ -82,13 +92,11 @@ Exists returns true if a blob exists at key, false otherwise.
 It automatically handles tracing.
 */
 func (conn *connection) Exists(ctx context.Context, key string) bool {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Exists", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketExists)
 	defer span.End()
 
 	exists, _ := conn.client.Exists(ctx, key)
-
-	setDefaultAttributes(span, conn.config)
-	setKeyAttributes(span, key)
+	setAttributes(span, conn.config, key)
 
 	return exists
 }
@@ -99,7 +107,7 @@ Read reads the blob at key and returns its byte representation.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Read(ctx context.Context, key string) ([]byte, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Read", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketRead)
 	defer span.End()
 
 	value, err := conn.client.ReadAll(ctx, key)
@@ -107,8 +115,7 @@ func (conn *connection) Read(ctx context.Context, key string) ([]byte, error) {
 		span.RecordError("failed to read blob", err)
 	}
 
-	setDefaultAttributes(span, conn.config)
-	setKeyAttributes(span, key)
+	setAttributes(span, conn.config, key)
 
 	return value, err
 }
@@ -119,7 +126,7 @@ Write writes bytes representation of blob at key, with some optional options.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Write(ctx context.Context, key string, value []byte, opts *OptionsWrite) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Write", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketWrite)
 	defer span.End()
 
 	var write *blob.WriterOptions
@@ -140,8 +147,7 @@ func (conn *connection) Write(ctx context.Context, key string, value []byte, opt
 		span.RecordError("failed to write blob", err)
 	}
 
-	setDefaultAttributes(span, conn.config)
-	setKeyAttributes(span, key)
+	setAttributes(span, conn.config, key)
 
 	return err
 }
@@ -152,7 +158,7 @@ Delete deletes existing blob at key.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Delete(ctx context.Context, key string) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Delete", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketDelete)
 	defer span.End()
 
 	err := conn.client.Delete(ctx, key)
@@ -160,8 +166,7 @@ func (conn *connection) Delete(ctx context.Context, key string) error {
 		span.RecordError("failed to delete blob", err)
 	}
 
-	setDefaultAttributes(span, conn.config)
-	setKeyAttributes(span, key)
+	setAttributes(span, conn.config, key)
 
 	return err
 }

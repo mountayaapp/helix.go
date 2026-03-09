@@ -2,12 +2,24 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+)
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const (
+	spanTxBegin    = humanized + ": Transaction / Begin"
+	spanTxCommit   = humanized + ": Transaction / Commit"
+	spanTxRollback = humanized + ": Transaction / Rollback"
+	spanTxExec     = humanized + ": Transaction / Exec"
+	spanTxPrepare  = humanized + ": Transaction / Prepare"
+	spanTxQuery    = humanized + ": Transaction / QueryRows"
+	spanTxQueryRow = humanized + ": Transaction / QueryRow"
 )
 
 /*
@@ -38,7 +50,7 @@ Begin starts a pseudo nested transaction implemented with a savepoint.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Begin(ctx context.Context) (Tx, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Begin", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxBegin)
 	defer span.End()
 
 	subtx, err := tx.client.Begin(ctx)
@@ -62,7 +74,7 @@ Commit commits the transaction.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Commit(ctx context.Context) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Commit", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxCommit)
 	defer span.End()
 
 	err := tx.client.Commit(ctx)
@@ -84,7 +96,7 @@ condition.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Rollback(ctx context.Context) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Rollback", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxRollback)
 	defer span.End()
 
 	err := tx.client.Rollback(ctx)
@@ -103,7 +115,7 @@ Exec delegates to the underlying connection.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Exec", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxExec)
 	defer span.End()
 
 	stmt, err := tx.client.Exec(ctx, query, args...)
@@ -123,7 +135,7 @@ Prepare delegates to the underlying connection.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Prepare", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxPrepare)
 	defer span.End()
 
 	stmt, err := tx.client.Prepare(ctx, id, query)
@@ -143,7 +155,7 @@ Query delegates to the underlying connection.
 It automatically handles tracing and error recording.
 */
 func (tx *transaction) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / QueryRows", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQuery)
 	defer span.End()
 
 	rows, err := tx.client.Query(ctx, query, args...)
@@ -163,7 +175,7 @@ QueryRow delegates to the underlying connection.
 It automatically handles tracing.
 */
 func (tx *transaction) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / QueryRow", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQueryRow)
 	defer span.End()
 
 	row := tx.client.QueryRow(ctx, query, args...)

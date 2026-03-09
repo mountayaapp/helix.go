@@ -1,45 +1,100 @@
 package valkey
 
 import (
-	"errors"
 	"testing"
 
+	"github.com/mountayaapp/helix.go/telemetry/trace"
+
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/attribute"
 )
 
-func TestNormalizeErrorMessage(t *testing.T) {
+func TestSetKeyAttributes(t *testing.T) {
+	span := trace.NewSpan(nil)
+
+	// Should not panic with nil span internals.
+	setKeyAttributes(span, "my-key")
+}
+
+func TestPreComputedAttributeKeys(t *testing.T) {
+	assert.Equal(t, attribute.Key("valkey.key"), attrKeyKey)
+}
+
+func TestPreComputedSpanNames(t *testing.T) {
+	assert.Equal(t, "Valkey: Exists", spanExists)
+	assert.Equal(t, "Valkey: Get", spanGet)
+	assert.Equal(t, "Valkey: Set", spanSet)
+	assert.Equal(t, "Valkey: Increment", spanIncrement)
+	assert.Equal(t, "Valkey: Decrement", spanDecrement)
+	assert.Equal(t, "Valkey: Scan", spanScan)
+	assert.Equal(t, "Valkey: MGet", spanMGet)
+	assert.Equal(t, "Valkey: Delete", spanDelete)
+}
+
+func TestBytesToString(t *testing.T) {
 	testcases := []struct {
 		name     string
-		input    error
+		input    []byte
 		expected string
 	}{
 		{
-			name:     "lowercase error message",
-			input:    errors.New("dial tcp 127.0.0.1:6379: connect: connection refused"),
-			expected: "Dial tcp 127.0.0.1:6379: connect: connection refused",
+			name:     "nil bytes returns empty string",
+			input:    nil,
+			expected: "",
 		},
 		{
-			name:     "already capitalized",
-			input:    errors.New("already capitalized"),
-			expected: "Already capitalized",
+			name:     "empty bytes returns empty string",
+			input:    []byte{},
+			expected: "",
 		},
 		{
-			name:     "single character",
-			input:    errors.New("a"),
-			expected: "A",
+			name:     "converts bytes to string",
+			input:    []byte("hello world"),
+			expected: "hello world",
 		},
 		{
-			name:     "connection timeout",
-			input:    errors.New("connection timeout"),
-			expected: "Connection timeout",
+			name:     "handles binary data",
+			input:    []byte{0x00, 0x01, 0x02},
+			expected: "\x00\x01\x02",
+		},
+		{
+			name:     "handles unicode",
+			input:    []byte("héllo wörld"),
+			expected: "héllo wörld",
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := normalizeErrorMessage(tc.input)
-
-			assert.Equal(t, tc.expected, actual)
+			result := bytesToString(tc.input)
+			assert.Equal(t, tc.expected, result)
 		})
+	}
+}
+
+func BenchmarkSetKeyAttributes(b *testing.B) {
+	span := trace.NewSpan(nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		setKeyAttributes(span, "some-key")
+	}
+}
+
+func BenchmarkBytesToString(b *testing.B) {
+	data := []byte("some value that needs to be converted to a string for valkey")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = bytesToString(data)
+	}
+}
+
+func BenchmarkStringConversion(b *testing.B) {
+	data := []byte("some value that needs to be converted to a string for valkey")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = string(data)
 	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/mountayaapp/helix.go/integration/temporal/temporalrest"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/workflow"
 )
@@ -41,6 +42,10 @@ type Workflow[Input, Result any] interface {
 	GetResult(ctx context.Context, run WorkflowRun[Result]) (Result, error)
 
 	// CreateSchedule creates a new Temporal Schedule for this workflow definition.
+	// If a schedule with the same ID already exists and has identical properties
+	// (workflow name, task queue, overlap policy), the call is a no-op: no error
+	// is returned and no error is recorded in traces. If the existing schedule
+	// differs, an error is returned.
 	CreateSchedule(ctx context.Context, c Client, opts ScheduleOptions) error
 }
 
@@ -183,11 +188,20 @@ workflow.
 type ScheduleOptions struct {
 	TaskQueue       string
 	CronExpressions []string
+
+	// OverlapPolicy controls what happens when an Action would be started by a
+	// Schedule at the same time that an older Action is still running.
+	//
+	// Optional: defaults to SCHEDULE_OVERLAP_POLICY_SKIP.
+	OverlapPolicy enumspb.ScheduleOverlapPolicy
 }
 
 /*
 CreateSchedule wraps the Temporal Client's schedule creation, defining a Schedule
-that executes this specific workflow.
+that executes this specific workflow. If a schedule with the same ID already exists
+and has identical properties (workflow name, task queue, overlap policy), the call
+is a no-op: no error is returned and no error is recorded in traces. If the
+existing schedule differs, an error is returned.
 */
 func (wr *workflowDefinition[Input, Result]) CreateSchedule(ctx context.Context, c Client, opts ScheduleOptions) error {
 	cfg := client.ScheduleOptions{
@@ -200,6 +214,7 @@ func (wr *workflowDefinition[Input, Result]) CreateSchedule(ctx context.Context,
 			Workflow:  wr.name,
 			TaskQueue: opts.TaskQueue,
 		},
+		Overlap: opts.OverlapPolicy,
 	}
 
 	return c.createSchedule(ctx, cfg)

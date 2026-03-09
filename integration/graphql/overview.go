@@ -9,3 +9,8 @@ package graphql
 identifier represents the integration's unique identifier.
 */
 const identifier = "graphql"
+
+/*
+humanized represents the integration's humanized name.
+*/
+const humanized = "GraphQL"

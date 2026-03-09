@@ -2,20 +2,58 @@ package rest
 
 import (
 	"bytes"
-	"context"
-	"fmt"
 	"io"
 	"net/http"
-	"sort"
-	"strings"
+	"net/url"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/getkin/kin-openapi/routers"
+	"github.com/getkin/kin-openapi/routers/gorillamux"
 	"github.com/uptrace/bunrouter"
 )
+
+const (
+	spanOpenAPIReq = humanized + ": OpenAPI / Request validation"
+	spanOpenAPIRes = humanized + ": OpenAPI / Response validation"
+)
+
+/*
+responseWriter wraps the standard http.ResponseWriter so we can store additional
+values during the request/response lifecycle, such as the status code and the
+the response body.
+*/
+type responseWriter struct {
+	http.ResponseWriter
+
+	// status code is the HTTP status code sets in the response header. This allows
+	// to ensure if the status code respects the one defined in the OpenAPI
+	// description.
+	status int
+
+	// buf is the HTTP response body sets by a handler function. This allows to
+	// ensure if the body respects the one defined in the OpenAPI description.
+	buf *bytes.Buffer
+}
+
+/*
+Write writes the data to the connection as part of an HTTP reply.
+*/
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	rw.ResponseWriter.Write(b)
+	return rw.buf.Write(b)
+}
+
+/*
+WriteHeader sends an HTTP response header with the provided status code.
+*/
+func (rw *responseWriter) WriteHeader(status int) {
+	rw.status = status
+	rw.ResponseWriter.WriteHeader(status)
+}
 
 /*
 middlewareValidation is the HTTP middleware to validate a request/response against
@@ -26,7 +64,7 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 
 		// Create a new trace for the OpenAPI middleware. Since there's already a
 		// trace in the request's context, spans will be part of the parent trace.
-		ctx, spanReq := trace.Start(req.Context(), trace.SpanKindServer, "OpenAPI: Request validation")
+		ctx, spanReq := trace.Start(req.Context(), trace.SpanKindServer, spanOpenAPIReq)
 
 		// Wrap the standard http.ResponseWriter so we can store additional values
 		// during the request/response lifecycle, such as the status code and the
@@ -47,27 +85,17 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 			return next(rw, req)
 		}
 
-		// Build the request input for OpenAPI validation. Only validate the
-		// authentication if the security scheme is present and is in the headers
-		// of the request.
+		// Build the request input for OpenAPI validation. Skip security validation
+		// since authentication is handled by the application's own middleware, not
+		// by the OpenAPI layer.
 		in := &openapi3filter.RequestValidationInput{
 			Request:     req.Request,
 			PathParams:  params,
 			QueryParams: req.URL.Query(),
 			Route:       r,
 			Options: &openapi3filter.Options{
-				MultiError: true,
-				AuthenticationFunc: func(ctx context.Context, ai *openapi3filter.AuthenticationInput) error {
-					if ai != nil && ai.SecurityScheme != nil {
-						if ai.SecurityScheme.In == "header" {
-							if strings.TrimSpace(req.Header.Get(ai.SecurityScheme.Name)) == "" {
-								return fmt.Errorf("%s", ai.SecurityScheme.Name)
-							}
-						}
-					}
-
-					return nil
-				},
+				MultiError:         true,
+				AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
 			},
 		}
 
@@ -81,7 +109,7 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 		// like we did for the request. If the response is not valid, an error is
 		// recorded but the response is still returned to the client.
 		defer func() {
-			ctx, spanRes := trace.Start(req.Context(), trace.SpanKindServer, "OpenAPI: Response validation")
+			ctx, spanRes := trace.Start(req.Context(), trace.SpanKindServer, spanOpenAPIRes)
 
 			out := &openapi3filter.ResponseValidationInput{
 				RequestValidationInput: in,
@@ -106,44 +134,13 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 			spanRes.End()
 		}()
 
-		// We now can validate the request. If the request does not respect the
-		// OpenAPI description, return a 400 error and stop the request/response
-		// lifecycle. We don't want HTTP handlers being called if the request is
-		// not valid.
+		// Validate the request against the OpenAPI description. If the request does
+		// not respect the description, an error is recorded but the request is still
+		// forwarded to the handler. This makes validation observational, matching the
+		// behavior of response validation.
 		err = openapi3filter.ValidateRequest(ctx, in)
 		if err != nil {
-			var validations []errorstack.Validation
-
-			// Convert the default error to match the errorstack.Error format. Add
-			// each "issue" to the slice of validations with their message and path.
-			switch err := err.(type) {
-			case openapi3.MultiError:
-				issues := convertError("request.body", err)
-				names := make([]string, 0, len(issues))
-				for k := range issues {
-					names = append(names, k)
-				}
-
-				sort.Strings(names)
-				for _, k := range names {
-					msgs := issues[k]
-					for _, msg := range msgs {
-						validations = append(validations, errorstack.Validation{
-							Message: msg,
-							Path:    strings.Split(k, "."),
-						})
-					}
-				}
-			}
-
 			spanReq.RecordError("failed to validate request", err)
-			spanReq.End()
-
-			NewResponseError[NoMetadata](req.Request).
-				SetStatus(http.StatusBadRequest).
-				SetErrorValidations(validations).
-				Write(rw)
-			return nil
 		}
 
 		// If we made it here it means the request is valid. We can close the span
@@ -153,4 +150,63 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 
 		return nil
 	}
+}
+
+/*
+buildRouterOpenAPI tries to build the router for validating requests and responses
+against the OpenAPI description. It returns validation errors in case the
+description can not be loaded or if it's not valid.
+*/
+func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Validation) {
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
+	// Load the description from file or from a URL, depending on the path defined
+	// in the Config.
+	var doc *openapi3.T
+	var err error
+	u, ok := isValidUrl(r.config.OpenAPI.Description)
+	if ok {
+		doc, err = loader.LoadFromURI(u)
+	} else {
+		doc, err = loader.LoadFromFile(r.config.OpenAPI.Description)
+	}
+
+	if err != nil {
+		return nil, []errorstack.Validation{
+			{
+				Message: err.Error(),
+			},
+		}
+	}
+
+	// Clear server URLs so the gorillamux router matches any host. Without this,
+	// FindRoute fails in local development because the request host (e.g.
+	// localhost:8080) doesn't match the host declared in the spec.
+	doc.Servers = openapi3.Servers{
+		&openapi3.Server{URL: "/"},
+	}
+
+	router, err := gorillamux.NewRouter(doc)
+	if err != nil {
+		return nil, []errorstack.Validation{
+			{
+				Message: err.Error(),
+			},
+		}
+	}
+
+	return router, nil
+}
+
+/*
+isValidUrl tests a string to determine if it is a well-structured URL or not.
+*/
+func isValidUrl(link string) (*url.URL, bool) {
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, false
+	}
+
+	return u, true
 }

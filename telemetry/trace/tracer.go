@@ -3,42 +3,31 @@ package trace
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/internal/tracer"
+	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
 
-	"go.opentelemetry.io/otel/baggage"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 /*
 Start creates a Span and a context containing the newly-created Span.
 
-If the context provided contains a Span then the newly-created Span will be a
-child of that Span, otherwise it will be a root Span.
+If the context contains a Span then the newly-created Span will be a child of
+that Span, otherwise it will be a root Span.
 
 Any Span that is created must also be ended. This is the responsibility of the
-user. Implementations of this API may leak memory or other resources if Spans are
-not ended.
+caller. If no Tracer is found in the context, returns a no-op Span.
 */
 func Start(ctx context.Context, kind SpanKind, name string) (context.Context, *Span) {
-
-	// Create a new Baggage populated with members retrieved from the context.
-	b, err := baggage.New(tracer.FromContextToBaggageMembers(ctx)...)
-	if err != nil {
-		return ctx, nil
+	t := trace.TracerFromContext(ctx)
+	if t != nil {
+		ctx, span := t.Start(ctx, kind, name)
+		return ctx, NewSpan(span)
 	}
 
-	// Create a new context including the Baggage previously created.
-	ctx = baggage.ContextWithBaggage(ctx, b)
-
-	// Populate the Span attributes retrieved from the context.
-	ctx, span := tracer.Tracer().Start(ctx, name, trace.WithSpanKind(trace.SpanKind(kind)))
-	for _, attr := range tracer.FromContextToSpanAttributes(ctx) {
-		span.SetAttributes(attr)
-	}
-
-	s := &Span{
-		client: span,
-	}
-
-	return ctx, s
+	// Fall back to globally registered provider set by service.New().
+	// This path skips event-to-baggage propagation (handled by the context-
+	// based tracer) but still creates proper named spans with correct status.
+	ctx, span := otel.Tracer("github.com/mountayaapp/helix.go").Start(ctx, name, oteltrace.WithSpanKind(oteltrace.SpanKind(kind)))
+	return ctx, NewSpan(span)
 }

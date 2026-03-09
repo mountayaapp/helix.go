@@ -2,13 +2,27 @@ package valkey
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/valkey-io/valkey-go"
+)
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const (
+	spanExists    = humanized + ": Exists"
+	spanGet       = humanized + ": Get"
+	spanSet       = humanized + ": Set"
+	spanIncrement = humanized + ": Increment"
+	spanDecrement = humanized + ": Decrement"
+	spanScan      = humanized + ": Scan"
+	spanMGet      = humanized + ": MGet"
+	spanDelete    = humanized + ": Delete"
 )
 
 /*
@@ -24,12 +38,13 @@ Valkey exposes an opinionated way to interact with Valkey, by bringing automatic
 distributed tracing as well as error recording within traces.
 */
 type Valkey interface {
+	Exists(ctx context.Context, key string) (bool, error)
 	Get(ctx context.Context, key string, opts *OptionsGet) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, opts *OptionsSet) error
 	Increment(ctx context.Context, key string, increment int64) error
 	Decrement(ctx context.Context, key string, decrement int64) error
-	Scan(ctx context.Context, pattern string) []string
-	MGet(ctx context.Context, keys []string) []Entry
+	Scan(ctx context.Context, pattern string) ([]string, error)
+	MGet(ctx context.Context, keys []string) ([]Entry, error)
 	Delete(ctx context.Context, keys []string) error
 }
 
@@ -50,7 +65,7 @@ type connection struct {
 Connect tries to create a Valkey client given the Config. Returns an error if
 Config is not valid or if the initialization failed.
 */
-func Connect(cfg Config) (Valkey, error) {
+func Connect(svc *service.Service, cfg Config) (Valkey, error) {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -85,7 +100,7 @@ func Connect(cfg Config) (Valkey, error) {
 	conn.client, err = valkey.NewClient(opts)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: normalizeErrorMessage(err),
+			Message: integration.NormalizeErrorMessage(err),
 		})
 	}
 
@@ -95,11 +110,31 @@ func Connect(cfg Config) (Valkey, error) {
 	}
 
 	// Try to attach the integration to the service.
-	if err := service.Attach(conn); err != nil {
+	if err := service.Attach(svc, conn); err != nil {
 		return nil, err
 	}
 
 	return conn, nil
+}
+
+/*
+Exists checks if a key exists in Valkey.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Exists(ctx context.Context, key string) (bool, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExists)
+	defer span.End()
+
+	cmd := conn.client.B().Exists().Key(key)
+	count, err := conn.client.Do(ctx, cmd.Build()).AsInt64()
+	if err != nil {
+		span.RecordError("failed to check key existence", err)
+	}
+
+	setKeyAttributes(span, key)
+
+	return count > 0, err
 }
 
 /*
@@ -108,7 +143,7 @@ Get reads the value at key and returns its byte representation.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Get(ctx context.Context, key string, opts *OptionsGet) ([]byte, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Get", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanGet)
 	defer span.End()
 
 	cmd := conn.client.B().Get().Key(key)
@@ -131,10 +166,10 @@ Set writes bytes representation of the value, with some optional options.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Set(ctx context.Context, key string, value []byte, opts *OptionsSet) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Set", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSet)
 	defer span.End()
 
-	cmd := conn.client.B().Set().Key(key).Value(string(value))
+	cmd := conn.client.B().Set().Key(key).Value(bytesToString(value))
 	if opts != nil && opts.TTL > 0 {
 		cmd.Ex(opts.TTL)
 	}
@@ -155,7 +190,7 @@ Increment increments the value of a key.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Increment(ctx context.Context, key string, increment int64) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Increment", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanIncrement)
 	defer span.End()
 
 	cmd := conn.client.B().Incrby().Key(key).Increment(increment)
@@ -175,7 +210,7 @@ Decrement decrements the value of a key.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Decrement(ctx context.Context, key string, decrement int64) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Decrement", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanDecrement)
 	defer span.End()
 
 	cmd := conn.client.B().Decrby().Key(key).Decrement(decrement)
@@ -190,19 +225,25 @@ func (conn *connection) Decrement(ctx context.Context, key string, decrement int
 }
 
 /*
-Scan look for and return all keys given a pattern.
+Scan looks for and returns all keys matching a pattern.
 
-It automatically handles tracing.
+It automatically handles tracing and error recording.
 */
-func (conn *connection) Scan(ctx context.Context, pattern string) []string {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Scan", humanized))
+func (conn *connection) Scan(ctx context.Context, pattern string) ([]string, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanScan)
 	defer span.End()
 
 	var cursor uint64
 	var keys []string
+	var scanErr error
 	for {
 		batch := conn.client.Do(ctx, conn.client.B().Scan().Cursor(cursor).Match(pattern).Build())
-		se, _ := batch.AsScanEntry()
+		se, err := batch.AsScanEntry()
+		if err != nil {
+			span.RecordError("failed to scan keys", err)
+			scanErr = err
+			break
+		}
 
 		keys = append(keys, se.Elements...)
 
@@ -212,24 +253,28 @@ func (conn *connection) Scan(ctx context.Context, pattern string) []string {
 		}
 	}
 
-	return keys
+	return keys, scanErr
 }
 
 /*
 MGet returns key/value pairs for all keys passed.
 
-It automatically handles tracing.
+It automatically handles tracing and error recording.
 */
-func (conn *connection) MGet(ctx context.Context, keys []string) []Entry {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: MGet", humanized))
+func (conn *connection) MGet(ctx context.Context, keys []string) ([]Entry, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanMGet)
 	defer span.End()
 
 	if len(keys) == 0 {
-		return []Entry{}
+		return []Entry{}, nil
 	}
 
 	values := conn.client.Do(ctx, conn.client.B().Mget().Key(keys...).Build())
-	sse, _ := values.AsStrSlice()
+	sse, err := values.AsStrSlice()
+	if err != nil {
+		span.RecordError("failed to get multiple keys", err)
+		return nil, err
+	}
 
 	result := make([]Entry, 0, len(keys))
 	for i, key := range keys {
@@ -242,15 +287,13 @@ func (conn *connection) MGet(ctx context.Context, keys []string) []Entry {
 			continue
 		}
 
-		record := Entry{
+		result = append(result, Entry{
 			Key:   key,
 			Value: []byte(val),
-		}
-
-		result = append(result, record)
+		})
 	}
 
-	return result
+	return result, nil
 }
 
 /*
@@ -259,7 +302,7 @@ Delete deletes a set of keys.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Delete(ctx context.Context, keys []string) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Delete", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanDelete)
 	defer span.End()
 
 	if len(keys) == 0 {

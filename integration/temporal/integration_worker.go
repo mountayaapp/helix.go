@@ -24,19 +24,33 @@ type serverConnection struct {
 }
 
 /*
-String returns the string representation of the Temporal integration.
+Name returns the string representation of the Temporal integration.
 */
-func (conn *serverConnection) String() string {
+func (conn *serverConnection) Name() string {
 	return identifier
 }
 
 /*
-Start starts the Temporal worker.
+Start starts the Temporal worker. It respects both context cancellation and OS
+interrupt signals (SIGINT/SIGTERM) for graceful shutdown.
 */
 func (conn *serverConnection) Start(ctx context.Context) error {
 	stack := errorstack.New("Failed to start worker", errorstack.WithIntegration(identifier))
 
-	err := conn.worker.Run(worker.InterruptCh())
+	// Merge context cancellation with OS interrupt signals so that the worker
+	// stops on whichever comes first.
+	interruptCh := worker.InterruptCh()
+	doneCh := make(chan any, 1)
+	go func() {
+		select {
+		case <-ctx.Done():
+			doneCh <- struct{}{}
+		case sig := <-interruptCh:
+			doneCh <- sig
+		}
+	}()
+
+	err := conn.worker.Run(doneCh)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
 			Message: err.Error(),
@@ -63,16 +77,5 @@ Status indicates if the integration is able to connect to the Temporal server or
 not. Returns `200` if connection is working, `503` otherwise.
 */
 func (conn *serverConnection) Status(ctx context.Context) (int, error) {
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-
-	_, err := conn.client.CheckHealth(ctx, &client.CheckHealthRequest{})
-	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return 503, stack
-	}
-
-	return 200, nil
+	return checkHealth(ctx, conn.client)
 }

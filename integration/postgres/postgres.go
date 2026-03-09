@@ -5,12 +5,22 @@ import (
 	"fmt"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+const (
+	spanExec     = humanized + ": Exec"
+	spanQuery    = humanized + ": QueryRows"
+	spanQueryRow = humanized + ": QueryRow"
 )
 
 /*
@@ -41,7 +51,7 @@ type connection struct {
 Connect tries to connect to the PostgreSQL database given the Config. Returns an
 error if Config is not valid or if the connection failed.
 */
-func Connect(cfg Config) (PostgreSQL, error) {
+func Connect(svc *service.Service, cfg Config) (PostgreSQL, error) {
 
 	// No need to continue if Config is not valid.
 	err := cfg.sanitize()
@@ -60,7 +70,7 @@ func Connect(cfg Config) (PostgreSQL, error) {
 	opts, err := pgxpool.ParseConfig(address)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: normalizeErrorMessage(err),
+			Message: integration.NormalizeErrorMessage(err),
 		})
 
 		return nil, stack
@@ -89,7 +99,7 @@ func Connect(cfg Config) (PostgreSQL, error) {
 	conn.client, err = pgxpool.NewWithConfig(context.Background(), opts)
 	if err != nil {
 		stack.WithValidations(errorstack.Validation{
-			Message: normalizeErrorMessage(err),
+			Message: integration.NormalizeErrorMessage(err),
 		})
 	}
 
@@ -99,7 +109,7 @@ func Connect(cfg Config) (PostgreSQL, error) {
 	}
 
 	// Try to attach the integration to the service.
-	if err := service.Attach(conn); err != nil {
+	if err := service.Attach(svc, conn); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +123,7 @@ begin command: there is no auto-rollback on context cancellation.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) BeginTx(ctx context.Context, opts pgx.TxOptions) (Tx, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Transaction / Begin", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxBegin)
 	defer span.End()
 
 	client, err := conn.client.BeginTx(ctx, opts)
@@ -139,7 +149,7 @@ $1, $2, etc.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: Exec", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExec)
 	defer span.End()
 
 	stmt, err := conn.client.Exec(ctx, query, args...)
@@ -178,7 +188,7 @@ QueryRewriter that implements named arguments.
 It automatically handles tracing and error recording.
 */
 func (conn *connection) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: QueryRows", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanQuery)
 	defer span.End()
 
 	rows, err := conn.client.Query(ctx, query, args...)
@@ -200,7 +210,7 @@ pgx.ErrNoRows if no rows are returned.
 It automatically handles tracing.
 */
 func (conn *connection) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, fmt.Sprintf("%s: QueryRow", humanized))
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanQueryRow)
 	defer span.End()
 
 	row := conn.client.QueryRow(ctx, query, args...)

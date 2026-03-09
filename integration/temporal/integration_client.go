@@ -3,7 +3,6 @@ package temporal
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 
 	"go.temporal.io/sdk/client"
@@ -23,9 +22,9 @@ type clientConnection struct {
 }
 
 /*
-String returns the string representation of the Temporal integration.
+Name returns the string representation of the Temporal integration.
 */
-func (conn *clientConnection) String() string {
+func (conn *clientConnection) Name() string {
 	return identifier
 }
 
@@ -42,16 +41,5 @@ Status indicates if the integration is able to connect to the Temporal server or
 not. Returns `200` if connection is working, `503` otherwise.
 */
 func (conn *clientConnection) Status(ctx context.Context) (int, error) {
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-
-	_, err := conn.client.CheckHealth(ctx, &client.CheckHealthRequest{})
-	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return 503, stack
-	}
-
-	return 200, nil
+	return checkHealth(ctx, conn.client)
 }

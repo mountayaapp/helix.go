@@ -39,6 +39,29 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "custom address preserves address",
+			before: Config{
+				Address: "valkey.custom.com:6380",
+			},
+			after: Config{
+				Address: "valkey.custom.com:6380",
+			},
+			err: nil,
+		},
+		{
+			name: "custom user and password without address applies default address",
+			before: Config{
+				User:     "myuser",
+				Password: "mypassword",
+			},
+			after: Config{
+				Address:  "127.0.0.1:6379",
+				User:     "myuser",
+				Password: "mypassword",
+			},
+			err: nil,
+		},
+		{
 			name: "TLS with only CertFile returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
@@ -65,21 +88,30 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
-			name: "TLS with InsecureSkipVerify is valid",
+			name: "TLS with only KeyFile returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:            true,
-					InsecureSkipVerify: true,
+					Enabled: true,
+					KeyFile: "cert.key",
 				},
 			},
 			after: Config{
 				Address: "127.0.0.1:6379",
 				TLS: integration.ConfigTLS{
-					Enabled:            true,
-					InsecureSkipVerify: true,
+					Enabled: true,
+					KeyFile: "cert.key",
 				},
 			},
-			err: nil,
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
 		},
 		{
 			name: "TLS with both CertFile and KeyFile is valid",
@@ -96,6 +128,40 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled:  true,
 					CertFile: "cert.crt",
 					KeyFile:  "cert.key",
+				},
+			},
+			err: nil,
+		},
+		{
+			name: "disabled TLS ignores invalid certs",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			after: Config{
+				Address: "127.0.0.1:6379",
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			err: nil,
+		},
+		{
+			name: "TLS with InsecureSkipVerify is valid",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
+				},
+			},
+			after: Config{
+				Address: "127.0.0.1:6379",
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
 				},
 			},
 			err: nil,

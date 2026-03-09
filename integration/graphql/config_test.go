@@ -224,6 +224,33 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
+			name: "GraphiQL disabled does not apply default path",
+			before: Config{
+				GraphiQL: ConfigGraphiQL{
+					Enabled: false,
+					Path:    "",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				GraphiQL: ConfigGraphiQL{
+					Enabled: false,
+					Path:    "",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+				},
+			},
+		},
+		{
 			name: "TLS with only CertFile returns schema and TLS errors",
 			before: Config{
 				TLS: integration.ConfigTLS{
@@ -250,6 +277,120 @@ func TestConfig_Sanitize(t *testing.T) {
 					{
 						Message: "CertFile and KeyFile must be set together or neither must be set",
 						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with only KeyFile returns schema and TLS errors",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					KeyFile: "cert.key",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+					{
+						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with both CertFile and KeyFile returns only schema error",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				TLS: integration.ConfigTLS{
+					Enabled:  true,
+					CertFile: "cert.crt",
+					KeyFile:  "cert.key",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+				},
+			},
+		},
+		{
+			name: "disabled TLS ignores invalid certs",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				TLS: integration.ConfigTLS{
+					Enabled:  false,
+					CertFile: "cert.crt",
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with InsecureSkipVerify returns only schema error",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				TLS: integration.ConfigTLS{
+					Enabled:            true,
+					InsecureSkipVerify: true,
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
 					},
 				},
 			},

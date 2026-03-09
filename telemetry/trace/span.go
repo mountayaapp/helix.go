@@ -1,141 +1,96 @@
 package trace
 
 import (
-	"fmt"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
+)
+
+/*
+SpanKind is the role a Span plays in a Trace. Type alias for OTEL's SpanKind.
+*/
+type SpanKind = oteltrace.SpanKind
+
+const (
+	SpanKindInternal = oteltrace.SpanKindInternal
+	SpanKindServer   = oteltrace.SpanKindServer
+	SpanKindClient   = oteltrace.SpanKindClient
+	SpanKindProducer = oteltrace.SpanKindProducer
+	SpanKindConsumer = oteltrace.SpanKindConsumer
 )
 
 /*
 Span is the individual component of a Trace. It represents a single named and
-timed operation of a workflow that is traced. A tracer is used to create a Span
-and it is then up to the operation the Span represents to properly end the Span
-when the operation itself ends.
+timed operation of a workflow that is traced. Always safe to call methods on —
+never nil.
 */
 type Span struct {
-
-	// client is the underlying OpenTelemetry client Span.
-	client trace.Span
-
-	// hasError is used to keep track if an error has been recorded in the Span,
-	// allowing to set appropriate status when needed.
+	span     oteltrace.Span
 	hasError bool
 }
 
 /*
-SpanKind is the role a Span plays in a Trace.
+NewSpan wraps a raw OpenTelemetry Span. This bridges the internal tracer
+(which returns oteltrace.Span) with the public Span type.
 */
-type SpanKind int
-
-/*
-SpanKindInternal is a SpanKind for a Span that represents an internal operation
-within an application.
-*/
-const SpanKindInternal SpanKind = 1
-
-/*
-SpanKindServer is a SpanKind for a Span that represents the operation of handling
-a request from a client.
-*/
-const SpanKindServer SpanKind = 2
-
-/*
-SpanKindClient is a SpanKind for a Span that represents the operation of client
-making a request to a server.
-*/
-const SpanKindClient SpanKind = 3
-
-/*
-SpanKindProducer is a SpanKind for a Span that represents the operation of a
-producer sending a message to a message broker. Unlike SpanKindClient and
-SpanKindServer, there is often no direct relationship between this kind of Span
-and a SpanKindConsumer kind. A SpanKindProducer Span will end once the message
-is accepted by the message broker which might not overlap with the processing of
-that message.
-*/
-const SpanKindProducer SpanKind = 4
-
-/*
-SpanKindConsumer is a SpanKind for a Span that represents the operation of a
-consumer receiving a message from a message broker. Like SpanKindProducer Spans,
-there is often no direct relationship between this Span and the Span that produced
-the message.
-*/
-const SpanKindConsumer SpanKind = 5
-
-/*
-SetStringAttribute sets a string attribute to the span.
-*/
-func (s *Span) SetStringAttribute(key string, value string) {
-	s.client.SetAttributes(attribute.String(key, value))
+func NewSpan(span oteltrace.Span) *Span {
+	return &Span{span: span}
 }
 
 /*
-SetSliceStringAttribute sets a slice of string attributes to the span.
+SetAttributes sets one or more OTEL attributes on the span.
 */
-func (s *Span) SetSliceStringAttribute(key string, values []string) {
-	for i, value := range values {
-		s.client.SetAttributes(attribute.String(fmt.Sprintf("%s[%d]", key, i), value))
+func (s *Span) SetAttributes(attrs ...attribute.KeyValue) {
+	if s.span == nil {
+		return
 	}
+
+	s.span.SetAttributes(attrs...)
 }
 
 /*
-SetBoolAttribute sets a boolean attribute to the span.
-*/
-func (s *Span) SetBoolAttribute(key string, value bool) {
-	s.client.SetAttributes(attribute.Bool(key, value))
-}
-
-/*
-SetIntAttribute sets a integer attribute to the span.
-*/
-func (s *Span) SetIntAttribute(key string, value int64) {
-	s.client.SetAttributes(attribute.Int64(key, value))
-}
-
-/*
-SetFloatAttribute sets a float attribute to the span.
-*/
-func (s *Span) SetFloatAttribute(key string, value float64) {
-	s.client.SetAttributes(attribute.Float64(key, value))
-}
-
-/*
-RecordError will record the error as an exception span event for this Span.
+RecordError records the error as an exception span event and sets the span
+status to error.
 */
 func (s *Span) RecordError(msg string, err error) {
-	s.hasError = true
+	if s.span == nil || err == nil {
+		return
+	}
 
-	s.client.RecordError(err)
-	s.client.SetStatus(codes.Error, msg)
+	s.hasError = true
+	s.span.RecordError(err)
+	s.span.SetStatus(codes.Error, msg)
 }
 
 /*
-AddEvent adds an event to the Span with the provided name.
+AddEvent adds a named event to the Span.
 */
 func (s *Span) AddEvent(name string) {
-	s.client.AddEvent(name)
-}
+	if s.span == nil {
+		return
+	}
 
-/*
-Context returns the original OpenTelemetry span's context.
-*/
-func (s *Span) Context() trace.SpanContext {
-	return s.client.SpanContext()
+	s.span.AddEvent(name)
 }
 
 /*
 End sets the appropriate status and completes the Span. The Span is considered
 complete and ready to be delivered through the rest of the telemetry pipeline
-after this method is called. Therefore, updates to the Span are not allowed after
-this method has been called.
+after this method is called.
+
+The underlying span already auto-sets codes.Ok via the statusSpan wrapper in
+the internal tracer. This explicit SetStatus call is defense-in-depth: it
+ensures correct status even if the span was created outside the wrapped
+TracerProvider.
 */
 func (s *Span) End() {
-	if !s.hasError {
-		s.client.SetStatus(codes.Ok, "")
+	if s.span == nil {
+		return
 	}
 
-	s.client.End()
+	if !s.hasError {
+		s.span.SetStatus(codes.Ok, "")
+	}
+
+	s.span.End()
 }

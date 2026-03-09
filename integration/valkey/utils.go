@@ -1,36 +1,33 @@
 package valkey
 
 import (
-	"fmt"
-	"unicode"
+	"unsafe"
 
 	"github.com/mountayaapp/helix.go/telemetry/trace"
+
+	"go.opentelemetry.io/otel/attribute"
 )
+
+/*
+Pre-computed span names to avoid allocations on every call.
+*/
+var attrKeyKey = attribute.Key(identifier + ".key")
 
 /*
 setKeyAttributes sets key attributes to a trace span.
 */
 func setKeyAttributes(span *trace.Span, key string) {
-	span.SetStringAttribute(fmt.Sprintf("%s.key", identifier), key)
+	span.SetAttributes(attrKeyKey.String(key))
 }
 
 /*
-normalizeErrorMessage normalizes an error returned by the Valkey client to match
-the format of helix.go. This is only used inside Connect for a better readability
-in the terminal. Otherwise, functions return native Valkey errors.
-
-Example:
-
-	"dial tcp 127.0.0.1:6379: connect: connection refused"
-
-Becomes:
-
-	"Dial tcp 127.0.0.1:6379: connect: connection refused"
+bytesToString converts a byte slice to a string without memory allocation. The
+caller must ensure the byte slice is not modified after conversion.
 */
-func normalizeErrorMessage(err error) string {
-	var msg string = err.Error()
-	runes := []rune(msg)
-	runes[0] = unicode.ToUpper(runes[0])
+func bytesToString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
 
-	return string(runes)
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }

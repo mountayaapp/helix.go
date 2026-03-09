@@ -66,6 +66,15 @@ func TestConfigTLS_Sanitize(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "disabled TLS ignores invalid CertFile",
+			cfg: ConfigTLS{
+				Enabled:  false,
+				CertFile: "cert.crt",
+				KeyFile:  "",
+			},
+			validations: nil,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -144,18 +153,6 @@ func TestConfigTLS_ToStandardTLS_FullInsecureSkipVerify(t *testing.T) {
 	assert.Nil(t, tlsConfig.RootCAs)
 }
 
-func TestConfigTLS_Sanitize_DisabledIgnoresInvalidFields(t *testing.T) {
-	cfg := ConfigTLS{
-		Enabled:  false,
-		CertFile: "cert.crt",
-		KeyFile:  "",
-	}
-
-	validations := cfg.Sanitize()
-
-	assert.Empty(t, validations)
-}
-
 func TestConfigTLS_ToStandardTLS_WithServerName(t *testing.T) {
 	cfg := ConfigTLS{
 		Enabled:    true,
@@ -192,4 +189,38 @@ func TestConfigTLS_ToStandardTLS_InvalidRootCAFile(t *testing.T) {
 
 	assert.Nil(t, tlsConfig)
 	assert.NotEmpty(t, validations)
+}
+
+func TestConfigTLS_ToStandardTLS_MultipleInvalidRootCAFiles(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled: true,
+		RootCAFiles: []string{
+			"/nonexistent/ca1.crt",
+			"/nonexistent/ca2.crt",
+			"/nonexistent/ca3.crt",
+		},
+	}
+
+	tlsConfig, validations := cfg.ToStandardTLS()
+
+	assert.Nil(t, tlsConfig)
+	require.Len(t, validations, 3)
+	for _, v := range validations {
+		assert.NotEmpty(t, v.Message)
+	}
+}
+
+func TestConfigTLS_ToStandardTLS_NoCertsNoCAs(t *testing.T) {
+	cfg := ConfigTLS{
+		Enabled: true,
+	}
+
+	tlsConfig, validations := cfg.ToStandardTLS()
+
+	require.Empty(t, validations)
+	require.NotNil(t, tlsConfig)
+	assert.Nil(t, tlsConfig.Certificates)
+	assert.Nil(t, tlsConfig.RootCAs)
+	assert.False(t, tlsConfig.InsecureSkipVerify)
+	assert.Empty(t, tlsConfig.ServerName)
 }

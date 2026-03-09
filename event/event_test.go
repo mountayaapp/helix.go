@@ -1,508 +1,230 @@
 package event
 
 import (
-	"maps"
-	"net"
-	"net/url"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.opentelemetry.io/otel/baggage"
 )
 
-func TestInjectEventToFlatMap(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    Event
-		expected map[string]string
-	}{
-		{
-			name:     "empty struct",
-			input:    Event{},
-			expected: map[string]string{},
-		},
-		{
-			name: "all fields populated",
-			input: Event{
-				Name: "name_test",
-				Meta: map[string]string{
-					"hello": "world",
-					"this":  "works",
-				},
-				Params: url.Values{
-					"query": []string{"a", "b"},
-				},
-				IsAnonymous: false,
-				Subscriptions: []Subscription{
-					{
-						Id:          "subscription_0_id_test",
-						CustomerId:  "subscription_0_customerid_test",
-						ProductId:   "subscription_0_productid_test",
-						PriceId:     "subscription_0_priceid_test",
-						Usage:       "subscription_0_usage_test",
-						IncrementBy: 1,
-						Metadata: map[string]string{
-							"version": "a",
-						},
-					},
-				},
-			},
-			expected: map[string]string{
-				"event.name":                             "name_test",
-				"event.meta.hello":                       "world",
-				"event.meta.this":                        "works",
-				"event.params.query.0":                   "a",
-				"event.params.query.1":                   "b",
-				"event.subscriptions.0.id":               "subscription_0_id_test",
-				"event.subscriptions.0.customer_id":      "subscription_0_customerid_test",
-				"event.subscriptions.0.product_id":       "subscription_0_productid_test",
-				"event.subscriptions.0.price_id":         "subscription_0_priceid_test",
-				"event.subscriptions.0.usage":            "subscription_0_usage_test",
-				"event.subscriptions.0.increment_by":     "1.000000",
-				"event.subscriptions.0.metadata.version": "a",
-			},
-		},
-	}
+func TestBoolPtr(t *testing.T) {
+	t.Run("true", func(t *testing.T) {
+		p := BoolPtr(true)
+		assert.NotNil(t, p)
+		assert.True(t, *p)
+	})
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			var actual = make(map[string]string)
-			maps.Copy(actual, tc.expected)
+	t.Run("false", func(t *testing.T) {
+		p := BoolPtr(false)
+		assert.NotNil(t, p)
+		assert.False(t, *p)
+	})
 
-			injectEventToFlatMap(tc.input, tc.expected)
-
-			assert.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
-func TestInjectEventToFlatMap_TopLevelFields(t *testing.T) {
-	ts := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
-	e := Event{
-		Id:             "evt_123",
-		Name:           "subscribed",
-		UserId:         "user_456",
-		OrganizationId: "org_789",
-		TenantId:       "tenant_abc",
-		IP:             net.ParseIP("192.168.1.1"),
-		UserAgent:      "Mozilla/5.0",
-		Locale:         "en-US",
-		Timezone:       "America/New_York",
-		Timestamp:      ts,
-		IsAnonymous:    true,
-	}
-
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	assert.Equal(t, "evt_123", flatten["event.id"])
-	assert.Equal(t, "subscribed", flatten["event.name"])
-	assert.Equal(t, "user_456", flatten["event.user_id"])
-	assert.Equal(t, "org_789", flatten["event.organization_id"])
-	assert.Equal(t, "tenant_abc", flatten["event.tenant_id"])
-	assert.Equal(t, "192.168.1.1", flatten["event.ip"])
-	assert.Equal(t, "Mozilla/5.0", flatten["event.user_agent"])
-	assert.Equal(t, "en-US", flatten["event.locale"])
-	assert.Equal(t, "America/New_York", flatten["event.timezone"])
-	assert.Equal(t, ts.Format(time.RFC3339Nano), flatten["event.timestamp"])
-	assert.Equal(t, "true", flatten["event.is_anonymous"])
-}
-
-func TestInjectEventToFlatMap_CleansEmptyValues(t *testing.T) {
-	e := Event{
-		Name:        "",
-		IsAnonymous: false,
-	}
-
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	// Empty string values, "false", "0", "0E+00", "0.000000", and "<nil>" should be removed.
-	assert.NotContains(t, flatten, "event.name")
-	assert.NotContains(t, flatten, "event.id")
-	assert.NotContains(t, flatten, "event.is_anonymous")
-	assert.NotContains(t, flatten, "event.user_id")
-	assert.NotContains(t, flatten, "event.ip")
-}
-
-func TestInjectEventToFlatMap_TimestampOmittedWhenZero(t *testing.T) {
-	e := Event{
-		Name: "test",
-	}
-
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	assert.NotContains(t, flatten, "event.timestamp")
-}
-
-func TestInjectEventToFlatMap_NilFlatten(t *testing.T) {
-
-	// injectEventToFlatMap handles nil flatten map by creating a new one,
-	// but changes won't be visible to caller. This tests it doesn't panic.
-	assert.NotPanics(t, func() {
-		injectEventToFlatMap(Event{Name: "test"}, nil)
+	t.Run("returns different pointers", func(t *testing.T) {
+		p1 := BoolPtr(true)
+		p2 := BoolPtr(true)
+		assert.NotSame(t, p1, p2)
+		assert.Equal(t, *p1, *p2)
 	})
 }
 
-func TestInjectEventToFlatMap_MultipleParams(t *testing.T) {
-	e := Event{
-		Name: "search",
-		Params: url.Values{
-			"filters": []string{"a", "b", "c"},
-			"query":   []string{"hello"},
-			"sort":    []string{"asc", "desc"},
-		},
-	}
+func TestEvent_ZeroValue(t *testing.T) {
+	var e Event
 
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	assert.Equal(t, "a", flatten["event.params.filters.0"])
-	assert.Equal(t, "b", flatten["event.params.filters.1"])
-	assert.Equal(t, "c", flatten["event.params.filters.2"])
-	assert.Equal(t, "hello", flatten["event.params.query.0"])
-	assert.Equal(t, "asc", flatten["event.params.sort.0"])
-	assert.Equal(t, "desc", flatten["event.params.sort.1"])
+	assert.Empty(t, e.ID)
+	assert.Empty(t, e.Name)
+	assert.Nil(t, e.Meta)
+	assert.Nil(t, e.IsAnonymous)
+	assert.Empty(t, e.UserID)
+	assert.Empty(t, e.OrganizationID)
+	assert.Empty(t, e.TenantID)
+	assert.Empty(t, e.IP)
+	assert.Empty(t, e.UserAgent)
+	assert.Empty(t, e.Locale)
+	assert.Empty(t, e.Timezone)
+	assert.True(t, e.Timestamp.IsZero())
+	assert.Equal(t, App{}, e.App)
+	assert.Equal(t, Campaign{}, e.Campaign)
+	assert.Equal(t, Device{}, e.Device)
+	assert.Equal(t, Location{}, e.Location)
+	assert.Equal(t, Network{}, e.Network)
+	assert.Equal(t, OS{}, e.OS)
+	assert.Equal(t, Page{}, e.Page)
+	assert.Equal(t, Referrer{}, e.Referrer)
+	assert.Equal(t, Screen{}, e.Screen)
+	assert.Nil(t, e.Subscriptions)
 }
 
-func TestInjectEventToFlatMap_IPv6(t *testing.T) {
-	e := Event{
-		Name: "test",
-		IP:   net.ParseIP("::1"),
-	}
+func TestEvent_JSONMarshal_EmptyEvent(t *testing.T) {
+	b, err := json.Marshal(Event{})
 
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	assert.Equal(t, "::1", flatten["event.ip"])
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(b))
 }
 
-func TestInjectEventToFlatMap_AllNestedObjects(t *testing.T) {
-	e := Event{
-		Name: "full_event",
-		App:  App{Name: "my-app", Version: "1.0.0", BuildId: "abc"},
-		Campaign: Campaign{
-			Name: "summer_sale", Source: "google", Medium: "cpc",
-			Term: "shoes", Content: "banner",
-		},
-		Device: Device{
-			Id: "dev_1", Manufacturer: "Apple", Model: "iPhone",
-			Name: "iPhone 15", Type: "mobile", Version: "17.0",
-			AdvertisingId: "ad_123",
-		},
-		Location: Location{
-			City: "Paris", Country: "FR", Region: "IDF",
-			Latitude: 48.8566, Longitude: 2.3522, Speed: 0,
-		},
-		Network: Network{
-			Bluetooth: true, Cellular: false, WIFI: true,
-			Carrier: "Orange",
-		},
-		OS:       OS{Name: "iOS", Arch: "arm64", Version: "17.0"},
-		Page:     Page{Path: "/home", Title: "Home", URL: "https://example.com"},
-		Referrer: Referrer{Type: "organic", Name: "Google", URL: "https://google.com"},
-		Screen:   Screen{Density: 3, Width: 1170, Height: 2532},
+func TestEvent_JSONMarshal_OmitsZeroValues(t *testing.T) {
+	b, err := json.Marshal(Event{Name: "minimal"})
+
+	assert.NoError(t, err)
+
+	var unmarshaled map[string]any
+	err = json.Unmarshal(b, &unmarshaled)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "minimal", unmarshaled["name"])
+
+	omitted := []string{
+		"id", "meta", "is_anonymous", "user_id", "organization_id",
+		"tenant_id", "ip", "user_agent", "locale", "timezone", "timestamp",
+		"app", "campaign", "device", "location", "network", "os",
+		"page", "referrer", "screen", "subscriptions",
 	}
-
-	flatten := make(map[string]string)
-	injectEventToFlatMap(e, flatten)
-
-	assert.Equal(t, "my-app", flatten["event.app.name"])
-	assert.Equal(t, "1.0.0", flatten["event.app.version"])
-	assert.Equal(t, "abc", flatten["event.app.build_id"])
-	assert.Equal(t, "summer_sale", flatten["event.campaign.name"])
-	assert.Equal(t, "google", flatten["event.campaign.source"])
-	assert.Equal(t, "dev_1", flatten["event.device.id"])
-	assert.Equal(t, "Apple", flatten["event.device.manufacturer"])
-	assert.Equal(t, "Paris", flatten["event.location.city"])
-	assert.Equal(t, "48.856600", flatten["event.location.latitude"])
-	assert.Equal(t, "true", flatten["event.network.bluetooth"])
-	assert.Equal(t, "Orange", flatten["event.network.carrier"])
-	assert.Equal(t, "iOS", flatten["event.os.name"])
-	assert.Equal(t, "/home", flatten["event.page.path"])
-	assert.Equal(t, "organic", flatten["event.referrer.type"])
-	assert.Equal(t, "3", flatten["event.screen.density"])
-	assert.Equal(t, "1170", flatten["event.screen.width"])
-	assert.Equal(t, "2532", flatten["event.screen.height"])
+	for _, key := range omitted {
+		assert.NotContains(t, unmarshaled, key)
+	}
 }
 
-func TestInjectExtractRoundTrip(t *testing.T) {
-	input := Event{
-		Name: "subscribed",
-		Meta: map[string]string{
-			"key": "value",
-		},
-		Params: url.Values{
-			"filters": []string{"a", "b"},
-			"query":   []string{"search"},
-		},
+func TestEvent_JSONRoundTrip(t *testing.T) {
+	original := Event{
+		ID:             "evt_rt",
+		Name:           "round_trip",
+		Meta:           map[string]string{"key": "value"},
+		IsAnonymous:    BoolPtr(true),
+		UserID:         "user_rt",
+		OrganizationID: "org_rt",
+		TenantID:       "tenant_rt",
+		IP:             "10.0.0.1",
+		UserAgent:      "RoundTrip/1.0",
+		Locale:         "ja-JP",
+		Timezone:       "Asia/Tokyo",
+		Timestamp:      time.Date(2025, 12, 25, 0, 0, 0, 0, time.UTC),
+		App:            App{Name: "rt-app", Version: "1.0.0", BuildID: "build_rt"},
+		Campaign:       Campaign{Name: "winter", Source: "email"},
+		Device:         Device{ID: "dev_rt", Type: "tablet"},
+		Location:       Location{City: "Tokyo", Country: "Japan", Latitude: 35.6762, Longitude: 139.6503},
+		Network:        Network{WIFI: true, Carrier: "SoftBank"},
+		OS:             OS{Name: "iPadOS", Version: "17.0"},
+		Page:           Page{Path: "/home", Title: "Home", URL: "https://example.jp/home"},
+		Referrer:       Referrer{Type: "direct"},
+		Screen:         Screen{Density: 2, Width: 2048, Height: 2732},
 		Subscriptions: []Subscription{
 			{
-				Id:         "sub_001",
-				CustomerId: "cus_001",
+				ID:          "sub_rt",
+				CustomerID:  "cus_rt",
+				ProductID:   "prod_rt",
+				IncrementBy: 3.14,
+				Metadata:    map[string]string{"env": "test"},
 			},
 		},
 	}
 
-	flatten := make(map[string]string)
-	injectEventToFlatMap(input, flatten)
+	b, err := json.Marshal(original)
+	assert.NoError(t, err)
 
-	var members []baggage.Member
-	for k, v := range flatten {
-		m, _ := baggage.NewMember(k, v)
-		members = append(members, m)
-	}
+	var restored Event
+	err = json.Unmarshal(b, &restored)
+	assert.NoError(t, err)
 
-	b, _ := baggage.New(members...)
-	output := extractEventFromBaggage(b)
-
-	assert.Equal(t, input.Name, output.Name)
-	assert.Equal(t, input.Meta, output.Meta)
-	assert.Equal(t, input.Params, output.Params)
-	assert.Len(t, output.Subscriptions, 1)
-	assert.Equal(t, "sub_001", output.Subscriptions[0].Id)
-	assert.Equal(t, "cus_001", output.Subscriptions[0].CustomerId)
+	assert.Equal(t, original.ID, restored.ID)
+	assert.Equal(t, original.Name, restored.Name)
+	assert.Equal(t, original.Meta, restored.Meta)
+	assert.NotNil(t, restored.IsAnonymous)
+	assert.Equal(t, *original.IsAnonymous, *restored.IsAnonymous)
+	assert.Equal(t, original.UserID, restored.UserID)
+	assert.Equal(t, original.OrganizationID, restored.OrganizationID)
+	assert.Equal(t, original.TenantID, restored.TenantID)
+	assert.Equal(t, original.IP, restored.IP)
+	assert.Equal(t, original.UserAgent, restored.UserAgent)
+	assert.Equal(t, original.Locale, restored.Locale)
+	assert.Equal(t, original.Timezone, restored.Timezone)
+	assert.True(t, original.Timestamp.Equal(restored.Timestamp))
+	assert.Equal(t, original.App, restored.App)
+	assert.Equal(t, original.Campaign, restored.Campaign)
+	assert.Equal(t, original.Device, restored.Device)
+	assert.Equal(t, original.Location, restored.Location)
+	assert.Equal(t, original.Network, restored.Network)
+	assert.Equal(t, original.OS, restored.OS)
+	assert.Equal(t, original.Page, restored.Page)
+	assert.Equal(t, original.Referrer, restored.Referrer)
+	assert.Equal(t, original.Screen, restored.Screen)
+	assert.Len(t, restored.Subscriptions, 1)
+	assert.Equal(t, original.Subscriptions[0].ID, restored.Subscriptions[0].ID)
+	assert.Equal(t, original.Subscriptions[0].CustomerID, restored.Subscriptions[0].CustomerID)
+	assert.Equal(t, original.Subscriptions[0].ProductID, restored.Subscriptions[0].ProductID)
+	assert.InDelta(t, original.Subscriptions[0].IncrementBy, restored.Subscriptions[0].IncrementBy, 0.001)
+	assert.Equal(t, original.Subscriptions[0].Metadata, restored.Subscriptions[0].Metadata)
 }
 
-func TestInjectExtractRoundTrip_TopLevelFields(t *testing.T) {
-	ts := time.Date(2025, 3, 15, 12, 0, 0, 0, time.UTC)
-	input := Event{
-		Name:           "page_view",
-		UserId:         "user_abc",
-		OrganizationId: "org_def",
-		TenantId:       "tenant_ghi",
-		IP:             net.ParseIP("10.0.0.1"),
-		UserAgent:      "TestAgent/1.0",
-		Locale:         "fr-FR",
-		Timezone:       "Europe/Paris",
-		Timestamp:      ts,
-		IsAnonymous:    true,
-	}
+func TestEvent_JSONUnmarshal_FullEvent(t *testing.T) {
+	input := `{
+		"id": "evt_unmarshal",
+		"name": "signup",
+		"meta": {"channel": "organic"},
+		"is_anonymous": true,
+		"user_id": "user_u001",
+		"organization_id": "org_u001",
+		"tenant_id": "tenant_u001",
+		"ip": "172.16.0.1",
+		"user_agent": "UnmarshalAgent/1.0",
+		"locale": "de-DE",
+		"timezone": "Europe/Berlin",
+		"timestamp": "2025-09-01T14:00:00Z",
+		"app": {"name": "signup-app", "version": "3.0.0", "build_id": "build_u"},
+		"campaign": {"name": "fall", "source": "facebook", "medium": "social", "term": "signup", "content": "cta"},
+		"device": {"id": "dev_u", "manufacturer": "Google", "model": "Pixel 8", "name": "My Pixel", "type": "mobile", "version": "8", "advertising_id": "adid_u"},
+		"location": {"city": "Berlin", "country": "Germany", "region": "Berlin", "latitude": 52.52, "longitude": 13.405, "speed": 0},
+		"network": {"bluetooth": false, "cellular": true, "wifi": false, "carrier": "T-Mobile"},
+		"os": {"name": "Android", "arch": "arm64", "version": "14"},
+		"page": {"path": "/signup", "referrer": "https://facebook.com", "search": "?ref=fb", "title": "Sign Up", "url": "https://app.com/signup?ref=fb"},
+		"referrer": {"type": "social", "name": "Facebook", "url": "https://facebook.com/ad/123", "link": "https://fb.me/abc"},
+		"screen": {"density": 3, "width": 1080, "height": 2400},
+		"subscriptions": [
+			{"id": "sub_u001", "customer_id": "cus_u001", "product_id": "prod_u001", "increment_by": 1}
+		]
+	}`
 
-	flatten := make(map[string]string)
-	injectEventToFlatMap(input, flatten)
+	var actual Event
+	err := json.Unmarshal([]byte(input), &actual)
 
-	var members []baggage.Member
-	for k, v := range flatten {
-		m, _ := baggage.NewMember(k, v)
-		members = append(members, m)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "evt_unmarshal", actual.ID)
+	assert.Equal(t, "signup", actual.Name)
+	assert.Equal(t, map[string]string{"channel": "organic"}, actual.Meta)
+	assert.NotNil(t, actual.IsAnonymous)
+	assert.True(t, *actual.IsAnonymous)
+	assert.Equal(t, "user_u001", actual.UserID)
+	assert.Equal(t, "org_u001", actual.OrganizationID)
+	assert.Equal(t, "tenant_u001", actual.TenantID)
+	assert.Equal(t, "172.16.0.1", actual.IP)
+	assert.Equal(t, "UnmarshalAgent/1.0", actual.UserAgent)
+	assert.Equal(t, "de-DE", actual.Locale)
+	assert.Equal(t, "Europe/Berlin", actual.Timezone)
+	assert.Equal(t, time.Date(2025, 9, 1, 14, 0, 0, 0, time.UTC), actual.Timestamp)
 
-	b, _ := baggage.New(members...)
-	output := extractEventFromBaggage(b)
+	assert.Equal(t, App{Name: "signup-app", Version: "3.0.0", BuildID: "build_u"}, actual.App)
+	assert.Equal(t, Campaign{Name: "fall", Source: "facebook", Medium: "social", Term: "signup", Content: "cta"}, actual.Campaign)
+	assert.Equal(t, Device{ID: "dev_u", Manufacturer: "Google", Model: "Pixel 8", Name: "My Pixel", Type: "mobile", Version: "8", AdvertisingID: "adid_u"}, actual.Device)
 
-	assert.Equal(t, input.Name, output.Name)
-	assert.Equal(t, input.UserId, output.UserId)
-	assert.Equal(t, input.OrganizationId, output.OrganizationId)
-	assert.Equal(t, input.TenantId, output.TenantId)
-	assert.True(t, input.IP.Equal(output.IP))
-	assert.Equal(t, input.UserAgent, output.UserAgent)
-	assert.Equal(t, input.Locale, output.Locale)
-	assert.Equal(t, input.Timezone, output.Timezone)
-	assert.True(t, input.Timestamp.Equal(output.Timestamp))
-	assert.Equal(t, input.IsAnonymous, output.IsAnonymous)
-}
+	assert.Equal(t, "Berlin", actual.Location.City)
+	assert.Equal(t, "Germany", actual.Location.Country)
+	assert.InDelta(t, 52.52, actual.Location.Latitude, 0.001)
+	assert.InDelta(t, 13.405, actual.Location.Longitude, 0.001)
 
-func TestInjectExtractRoundTrip_NestedObjects(t *testing.T) {
-	input := Event{
-		Name: "full_test",
-		App:  App{Name: "my-app", Version: "2.0.0"},
-		OS:   OS{Name: "macOS", Arch: "arm64", Version: "14.0"},
-		Page: Page{Path: "about", Title: "AboutUs"},
-	}
+	assert.False(t, actual.Network.Bluetooth)
+	assert.True(t, actual.Network.Cellular)
+	assert.False(t, actual.Network.WIFI)
+	assert.Equal(t, "T-Mobile", actual.Network.Carrier)
 
-	flatten := make(map[string]string)
-	injectEventToFlatMap(input, flatten)
+	assert.Equal(t, OS{Name: "Android", Arch: "arm64", Version: "14"}, actual.OS)
+	assert.Equal(t, "/signup", actual.Page.Path)
+	assert.Equal(t, "Sign Up", actual.Page.Title)
+	assert.Equal(t, "social", actual.Referrer.Type)
+	assert.Equal(t, "Facebook", actual.Referrer.Name)
+	assert.Equal(t, Screen{Density: 3, Width: 1080, Height: 2400}, actual.Screen)
 
-	var members []baggage.Member
-	for k, v := range flatten {
-		m, _ := baggage.NewMember(k, v)
-		members = append(members, m)
-	}
-
-	b, _ := baggage.New(members...)
-	output := extractEventFromBaggage(b)
-
-	assert.Equal(t, input.App, output.App)
-	assert.Equal(t, input.OS, output.OS)
-	assert.Equal(t, input.Page, output.Page)
-}
-
-func TestInjectExtractRoundTrip_MultipleSubscriptions(t *testing.T) {
-	input := Event{
-		Name: "multi_sub",
-		Subscriptions: []Subscription{
-			{Id: "sub_0", CustomerId: "cus_0", ProductId: "prod_0"},
-			{Id: "sub_1", CustomerId: "cus_1", ProductId: "prod_1"},
-		},
-	}
-
-	flatten := make(map[string]string)
-	injectEventToFlatMap(input, flatten)
-
-	var members []baggage.Member
-	for k, v := range flatten {
-		m, _ := baggage.NewMember(k, v)
-		members = append(members, m)
-	}
-
-	b, _ := baggage.New(members...)
-	output := extractEventFromBaggage(b)
-
-	assert.Len(t, output.Subscriptions, 2)
-	assert.Equal(t, "sub_0", output.Subscriptions[0].Id)
-	assert.Equal(t, "cus_0", output.Subscriptions[0].CustomerId)
-	assert.Equal(t, "prod_0", output.Subscriptions[0].ProductId)
-	assert.Equal(t, "sub_1", output.Subscriptions[1].Id)
-	assert.Equal(t, "cus_1", output.Subscriptions[1].CustomerId)
-	assert.Equal(t, "prod_1", output.Subscriptions[1].ProductId)
-}
-
-func TestExtractEventFromBaggage(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    func() baggage.Baggage
-		expected Event
-	}{
-		{
-			name: "name and meta from baggage",
-			input: func() baggage.Baggage {
-				name, _ := baggage.NewMember("event.name", "name_test")
-				metaHelloWorld, _ := baggage.NewMember("event.meta.hello", "world")
-				metaThisWorks, _ := baggage.NewMember("event.meta.this", "works")
-
-				b, _ := baggage.New(name, metaHelloWorld, metaThisWorks)
-				return b
-			},
-			expected: Event{
-				Name: "name_test",
-				Meta: map[string]string{
-					"hello": "world",
-					"this":  "works",
-				},
-			},
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := extractEventFromBaggage(tc.input())
-
-			assert.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
-func TestExtractEventFromBaggage_EmptyBaggage(t *testing.T) {
-	b, _ := baggage.New()
-
-	actual := extractEventFromBaggage(b)
-
-	assert.Equal(t, Event{}, actual)
-}
-
-func TestExtractEventFromBaggage_NonEventMembers(t *testing.T) {
-	m1, _ := baggage.NewMember("other.key", "value")
-	m2, _ := baggage.NewMember("something.else", "data")
-	b, _ := baggage.New(m1, m2)
-
-	actual := extractEventFromBaggage(b)
-
-	assert.Equal(t, Event{}, actual)
-}
-
-func TestExtractEventFromBaggage_TopLevelFields(t *testing.T) {
-	name, _ := baggage.NewMember("event.name", "test_event")
-	userId, _ := baggage.NewMember("event.user_id", "user_123")
-	orgId, _ := baggage.NewMember("event.organization_id", "org_456")
-	tenantId, _ := baggage.NewMember("event.tenant_id", "tenant_789")
-	ip, _ := baggage.NewMember("event.ip", "10.0.0.1")
-	ua, _ := baggage.NewMember("event.user_agent", "TestAgent")
-	locale, _ := baggage.NewMember("event.locale", "en-US")
-	tz, _ := baggage.NewMember("event.timezone", "UTC")
-	anon, _ := baggage.NewMember("event.is_anonymous", "true")
-
-	b, _ := baggage.New(name, userId, orgId, tenantId, ip, ua, locale, tz, anon)
-	actual := extractEventFromBaggage(b)
-
-	assert.Equal(t, "test_event", actual.Name)
-	assert.Equal(t, "user_123", actual.UserId)
-	assert.Equal(t, "org_456", actual.OrganizationId)
-	assert.Equal(t, "tenant_789", actual.TenantId)
-	assert.True(t, net.ParseIP("10.0.0.1").Equal(actual.IP))
-	assert.Equal(t, "TestAgent", actual.UserAgent)
-	assert.Equal(t, "en-US", actual.Locale)
-	assert.Equal(t, "UTC", actual.Timezone)
-	assert.True(t, actual.IsAnonymous)
-}
-
-func TestExtractEventFromBaggage_Timestamp(t *testing.T) {
-	ts := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
-	name, _ := baggage.NewMember("event.name", "test")
-	timestamp, _ := baggage.NewMember("event.timestamp", ts.Format(time.RFC3339Nano))
-
-	b, _ := baggage.New(name, timestamp)
-	actual := extractEventFromBaggage(b)
-
-	assert.True(t, ts.Equal(actual.Timestamp))
-}
-
-func TestExtractEventFromBaggage_Params(t *testing.T) {
-	name, _ := baggage.NewMember("event.name", "search")
-	p0, _ := baggage.NewMember("event.params.query.0", "hello")
-	p1, _ := baggage.NewMember("event.params.filters.0", "a")
-	p2, _ := baggage.NewMember("event.params.filters.1", "b")
-
-	b, _ := baggage.New(name, p0, p1, p2)
-	actual := extractEventFromBaggage(b)
-
-	assert.Equal(t, url.Values{
-		"query":   []string{"hello"},
-		"filters": []string{"a", "b"},
-	}, actual.Params)
-}
-
-func TestToFlatMap(t *testing.T) {
-	e := Event{
-		Name:   "test_event",
-		UserId: "user_abc",
-		Meta: map[string]string{
-			"key": "value",
-		},
-	}
-
-	flatten := ToFlatMap(e)
-
-	assert.NotNil(t, flatten)
-	assert.Equal(t, "test_event", flatten["event.name"])
-	assert.Equal(t, "user_abc", flatten["event.user_id"])
-	assert.Equal(t, "value", flatten["event.meta.key"])
-}
-
-func TestToFlatMap_EmptyEvent(t *testing.T) {
-	e := Event{}
-
-	flatten := ToFlatMap(e)
-
-	assert.NotNil(t, flatten)
-	assert.Empty(t, flatten)
-}
-
-func TestToFlatMap_WithParams(t *testing.T) {
-	e := Event{
-		Name: "search",
-		Params: url.Values{
-			"q": []string{"test"},
-		},
-	}
-
-	flatten := ToFlatMap(e)
-
-	assert.Equal(t, "test", flatten["event.params.q.0"])
-}
-
-func TestKey(t *testing.T) {
-	assert.Equal(t, "event", Key)
+	assert.Len(t, actual.Subscriptions, 1)
+	assert.Equal(t, "sub_u001", actual.Subscriptions[0].ID)
+	assert.Equal(t, "cus_u001", actual.Subscriptions[0].CustomerID)
+	assert.InDelta(t, 1.0, actual.Subscriptions[0].IncrementBy, 0.001)
 }

@@ -11,11 +11,17 @@ import (
 supportedLanguages is a list of supported languages to handle default error
 messages in the HTTP API.
 
-Engligh is the default language.
+English is the default language.
 */
 var supportedLanguages = []language.Tag{
 	language.English,
 }
+
+/*
+supportedMatcher is a pre-built language matcher, rebuilt only when
+AddOrEditLanguage is called (at init time, before serving).
+*/
+var supportedMatcher = language.NewMatcher(supportedLanguages)
 
 /*
 supportedLocales represents the locales handled by each language for the given
@@ -72,23 +78,13 @@ Example:
 	})
 */
 func AddOrEditLanguage(lang language.Tag, locales map[int]string) {
-	var exists bool = false
-	for found := range supportedLocales {
-		if lang == found {
-			exists = true
-			break
-		}
-	}
-
-	// Create a new language if it doesn't already exist.
-	if !exists {
+	if _, exists := supportedLocales[lang]; !exists {
 		supportedLocales[lang] = make(map[int]string)
 		supportedLanguages = append(supportedLanguages, lang)
 	}
 
-	// Go through each locale passed to only update the one desired and not override
-	// all others.
 	maps.Copy(supportedLocales[lang], locales)
+	supportedMatcher = language.NewMatcher(supportedLanguages)
 }
 
 /*
@@ -106,6 +102,6 @@ func getPreferredLanguage(req *http.Request) language.Tag {
 		header = req.Header.Get("Accept-Language")
 	}
 
-	tag, _ := language.MatchStrings(language.NewMatcher(supportedLanguages), cookieValue, header)
+	tag, _ := language.MatchStrings(supportedMatcher, cookieValue, header)
 	return tag
 }

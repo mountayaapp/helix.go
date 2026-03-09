@@ -33,6 +33,16 @@ func TestParamsFromContext(t *testing.T) {
 			},
 			found: true,
 		},
+		{
+			name:       "multiple URL params",
+			registered: "/orgs/:org_id/users/:user_id",
+			requested:  "/orgs/org_123/users/usr_456",
+			expected: map[string]string{
+				"org_id":  "org_123",
+				"user_id": "usr_456",
+			},
+			found: true,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -51,4 +61,11 @@ func TestParamsFromContext(t *testing.T) {
 			router.ServeHTTP(rw, req)
 		})
 	}
+}
+
+func TestParamsFromContext_NoRouterContext(t *testing.T) {
+	params, found := ParamsFromContext(t.Context())
+
+	assert.Empty(t, params)
+	assert.False(t, found)
 }

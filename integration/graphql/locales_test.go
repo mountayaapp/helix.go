@@ -55,28 +55,20 @@ func TestGetPreferredLanguage_NilRequest(t *testing.T) {
 	assert.Equal(t, language.English, actual)
 }
 
-func TestSupportedLocales_EnglishHasAllStatuses(t *testing.T) {
-	english := supportedLocales[language.English]
-
-	assert.NotEmpty(t, english[http.StatusNotFound])
-	assert.NotEmpty(t, english[http.StatusMethodNotAllowed])
-	assert.NotEmpty(t, english[http.StatusInternalServerError])
-	assert.NotEmpty(t, english[http.StatusServiceUnavailable])
-}
-
 func TestAddOrEditLanguage_NewLanguage(t *testing.T) {
 	originalLen := len(supportedLanguages)
 	defer func() {
 		delete(supportedLocales, language.French)
 		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
 	}()
 
 	AddOrEditLanguage(language.French, map[int]string{
-		http.StatusNotFound:            "Ressource introuvable",
+		http.StatusBadRequest:          "Requête invalide",
 		http.StatusInternalServerError: "Erreur interne du serveur",
 	})
 
-	assert.Equal(t, "Ressource introuvable", supportedLocales[language.French][http.StatusNotFound])
+	assert.Equal(t, "Requête invalide", supportedLocales[language.French][http.StatusBadRequest])
 	assert.Equal(t, "Erreur interne du serveur", supportedLocales[language.French][http.StatusInternalServerError])
 	assert.Equal(t, originalLen+1, len(supportedLanguages))
 }
@@ -92,7 +84,7 @@ func TestAddOrEditLanguage_EditExistingLanguage(t *testing.T) {
 	})
 
 	assert.Equal(t, "Custom not found message", supportedLocales[language.English][http.StatusNotFound])
-	assert.Equal(t, "Resource does not support this method", supportedLocales[language.English][http.StatusMethodNotAllowed])
+	assert.Equal(t, "You are not authorized to perform this action", supportedLocales[language.English][http.StatusUnauthorized])
 }
 
 func TestGetPreferredLanguage_WithAddedLanguage(t *testing.T) {
@@ -100,10 +92,11 @@ func TestGetPreferredLanguage_WithAddedLanguage(t *testing.T) {
 	defer func() {
 		delete(supportedLocales, language.French)
 		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
 	}()
 
 	AddOrEditLanguage(language.French, map[int]string{
-		http.StatusNotFound: "Ressource introuvable",
+		http.StatusBadRequest: "Requête invalide",
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -119,10 +112,11 @@ func TestGetPreferredLanguage_CookieAndHeader(t *testing.T) {
 	defer func() {
 		delete(supportedLocales, language.French)
 		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
 	}()
 
 	AddOrEditLanguage(language.French, map[int]string{
-		http.StatusNotFound: "Ressource introuvable",
+		http.StatusBadRequest: "Requête invalide",
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -132,4 +126,91 @@ func TestGetPreferredLanguage_CookieAndHeader(t *testing.T) {
 	actual := getPreferredLanguage(req)
 
 	assert.Equal(t, language.English, actual)
+}
+
+func TestAddOrEditLanguage_PartialUpdate(t *testing.T) {
+	originalLen := len(supportedLanguages)
+	defer func() {
+		delete(supportedLocales, language.French)
+		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
+	}()
+
+	AddOrEditLanguage(language.French, map[int]string{
+		http.StatusBadRequest:          "Requête invalide",
+		http.StatusInternalServerError: "Erreur interne du serveur",
+	})
+
+	AddOrEditLanguage(language.French, map[int]string{
+		http.StatusNotFound: "Ressource introuvable",
+	})
+
+	assert.Equal(t, "Requête invalide", supportedLocales[language.French][http.StatusBadRequest])
+	assert.Equal(t, "Erreur interne du serveur", supportedLocales[language.French][http.StatusInternalServerError])
+	assert.Equal(t, "Ressource introuvable", supportedLocales[language.French][http.StatusNotFound])
+}
+
+func TestAddOrEditLanguage_RebuildsMatcher(t *testing.T) {
+	originalLen := len(supportedLanguages)
+	defer func() {
+		delete(supportedLocales, language.French)
+		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Language", "fr")
+
+	// Before adding French, should fallback to English.
+	assert.Equal(t, language.English, getPreferredLanguage(req))
+
+	AddOrEditLanguage(language.French, map[int]string{
+		http.StatusBadRequest: "Requête invalide",
+	})
+
+	// After adding French, cached matcher should resolve French.
+	assert.Equal(t, language.French, getPreferredLanguage(req))
+}
+
+func TestSupportedLocales_AllEnglishStatusCodes(t *testing.T) {
+	expectedCodes := []int{
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusPaymentRequired,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusConflict,
+		http.StatusRequestEntityTooLarge,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusServiceUnavailable,
+	}
+
+	for _, code := range expectedCodes {
+		msg, exists := supportedLocales[language.English][code]
+		assert.True(t, exists, "missing locale for status %d", code)
+		assert.NotEmpty(t, msg, "empty locale for status %d", code)
+	}
+}
+
+func TestGetPreferredLanguage_CookiePriority(t *testing.T) {
+	originalLen := len(supportedLanguages)
+	defer func() {
+		delete(supportedLocales, language.French)
+		supportedLanguages = supportedLanguages[:originalLen]
+		supportedMatcher = language.NewMatcher(supportedLanguages)
+	}()
+
+	AddOrEditLanguage(language.French, map[int]string{
+		http.StatusBadRequest: "Requête invalide",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Language", "en")
+	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
+
+	actual := getPreferredLanguage(req)
+
+	assert.Equal(t, language.French, actual)
 }
