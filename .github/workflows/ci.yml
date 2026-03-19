@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   lint:
+    if: "!startsWith(github.event.head_commit.message, 'version: Release')"
     name: Lint
     runs-on: ubuntu-latest
     steps:
@@ -27,6 +28,7 @@ jobs:
         run: make lint
 
   test:
+    if: "!startsWith(github.event.head_commit.message, 'version: Release')"
     name: Test
     runs-on: ubuntu-latest
     steps:

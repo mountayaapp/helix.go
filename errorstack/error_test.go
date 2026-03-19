@@ -556,7 +556,7 @@ func TestError_MarshalJSON(t *testing.T) {
 			expected: `{}`,
 		},
 		{
-			name:  "single validation with path",
+			name: "single validation with path",
 			input: New("validation error").WithValidations(
 				Validation{
 					Message: "field is required",
@@ -682,12 +682,12 @@ func TestError_MarshalJSON_RoundTrip(t *testing.T) {
 
 func TestError_UnmarshalJSON(t *testing.T) {
 	testcases := []struct {
-		name              string
-		input             string
-		expectedMessage   string
-		expectedErr       bool
-		validationsNil    bool
-		validationsLen    int
+		name            string
+		input           string
+		expectedMessage string
+		expectedErr     bool
+		validationsNil  bool
+		validationsLen  int
 	}{
 		{
 			name:            "with validations",
@@ -702,8 +702,8 @@ func TestError_UnmarshalJSON(t *testing.T) {
 			validationsNil:  true,
 		},
 		{
-			name:        "empty object",
-			input:       `{}`,
+			name:           "empty object",
+			input:          `{}`,
 			validationsNil: true,
 		},
 		{
