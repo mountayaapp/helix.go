@@ -47,7 +47,9 @@ details on schema design, resolver implementation, and code generation.
 - `Healthcheck` (`func(*http.Request) int`) — Custom health check handler for
   `GET /health`. Default: aggregates the status of all attached dependencies.
 - `Middleware` (`func(http.Handler) http.Handler`) — Wraps the built-in HTTP
-  handler, useful for adding a middleware chain.
+  handler, useful for adding a middleware chain. The `GET /health` endpoint is
+  excluded from this middleware so it always responds without requiring
+  authentication or other service-level checks.
 - `TLS` (`integration.ConfigTLS`) — TLS settings.
 
 ### GraphiQL
@@ -184,6 +186,9 @@ The `graphql` integration exposes a health check endpoint at `GET /health`.
 $ curl --request GET \
     --url http://localhost:8080/health
 ```
+
+The health endpoint bypasses the `Middleware` configured in `Config`, so it is
+never blocked by authentication or other service-level middleware.
 
 The endpoint aggregates the health status of all dependencies attached to the
 service, returning the highest HTTP status code. When APQ is enabled, the Valkey

@@ -23,7 +23,9 @@ $ go get github.com/mountayaapp/helix.go/integration/rest
   `GET /health`. Should return `200` for healthy, `5xx` for error. Default:
   aggregates the status of all attached dependencies.
 - `Middleware` (`func(http.Handler) http.Handler`) — Wraps the built-in HTTP
-  handler, useful for adding a middleware chain.
+  handler, useful for adding a middleware chain. The `GET /health` endpoint is
+  excluded from this middleware so it always responds without requiring
+  authentication or other service-level checks.
 - `OpenAPI` (`ConfigOpenAPI`) — OpenAPI validation settings. See [OpenAPI](#openapi).
 - `TLS` (`integration.ConfigTLS`) — TLS settings.
 
@@ -261,6 +263,9 @@ The `rest` integration exposes a health check endpoint at `GET /health`.
 $ curl --request GET \
     --url http://localhost:8080/health
 ```
+
+The health endpoint bypasses the `Middleware` configured in `Config`, so it is
+never blocked by authentication or other service-level middleware.
 
 By default, the endpoint aggregates the health status of all dependencies attached
 to the service, returning the highest HTTP status code. If all dependencies are

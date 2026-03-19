@@ -29,9 +29,19 @@ func (r *rest) Start(ctx context.Context) error {
 	stack := errorstack.New("Failed to start HTTP server", errorstack.WithIntegration(identifier))
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
+	// Skip user middleware for the health endpoint so it always responds without
+	// requiring authentication or other service-level checks.
 	var h http.Handler = r.bun
 	if r.config.Middleware != nil {
-		h = r.config.Middleware(r.bun)
+		wrapped := r.config.Middleware(r.bun)
+		h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/health" {
+				r.bun.ServeHTTP(rw, req)
+				return
+			}
+
+			wrapped.ServeHTTP(rw, req)
+		})
 	}
 
 	// Wrap the handler previously built with the one designed for OpenTelemetry

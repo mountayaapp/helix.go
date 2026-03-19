@@ -29,9 +29,19 @@ func (g *graphql) Start(ctx context.Context) error {
 	stack := errorstack.New("Failed to start HTTP server", errorstack.WithIntegration(identifier))
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
+	// Skip user middleware for the health endpoint so it always responds without
+	// requiring authentication or other service-level checks.
 	var h http.Handler = g.mux
 	if g.config.Middleware != nil {
-		h = g.config.Middleware(g.mux)
+		wrapped := g.config.Middleware(g.mux)
+		h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/health" {
+				g.mux.ServeHTTP(rw, req)
+				return
+			}
+
+			wrapped.ServeHTTP(rw, req)
+		})
 	}
 
 	// Wrap the handler previously built with the one designed for OpenTelemetry
