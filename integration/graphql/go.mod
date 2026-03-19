@@ -3,12 +3,12 @@ module github.com/mountayaapp/helix.go/integration/graphql
 go 1.25.0
 
 require (
-	github.com/99designs/gqlgen v0.17.87
+	github.com/99designs/gqlgen v0.17.88
 	github.com/mountayaapp/helix.go v0.23.0
 	github.com/mountayaapp/helix.go/integration/valkey v0.23.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
-	golang.org/x/text v0.34.0
+	golang.org/x/text v0.35.0
 )
 
 require (
@@ -32,8 +32,8 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
-	github.com/sosodev/duration v1.3.1 // indirect
-	github.com/valkey-io/valkey-go v1.0.72 // indirect
+	github.com/sosodev/duration v1.4.0 // indirect
+	github.com/valkey-io/valkey-go v1.0.73 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.32 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/otelzap v0.17.0 // indirect
@@ -62,7 +62,7 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect

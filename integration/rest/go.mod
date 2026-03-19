@@ -3,14 +3,14 @@ module github.com/mountayaapp/helix.go/integration/rest
 go 1.25.0
 
 require (
-	github.com/getkin/kin-openapi v0.133.0
+	github.com/getkin/kin-openapi v0.134.0
 	github.com/mountayaapp/helix.go v0.23.0
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/uptrace/bunrouter/extra/bunrouterotel v1.0.23
 	github.com/uptrace/bunrouter/extra/reqlog v1.0.23
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
-	golang.org/x/text v0.34.0
+	golang.org/x/text v0.35.0
 )
 
 require (
@@ -34,8 +34,8 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
-	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
+	github.com/oasdiff/yaml v0.0.0-20260313112342-a3ea61cb4d4c // indirect
+	github.com/oasdiff/yaml3 v0.0.0-20260224194419-61cd415a242b // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
