@@ -71,7 +71,8 @@ func New(svc *service.Service, cfg Config) error {
 	// Build the HTTP serve mux with the health, GraphQL (POST + OPTIONS for
 	// CORS preflight), method not allowed, and catch-all not found endpoints.
 	g.mux = http.NewServeMux()
-	g.mux.HandleFunc("GET /health", g.handlerHealthcheck)
+	g.mux.HandleFunc("GET /health", g.handlerLiveness)
+	g.mux.HandleFunc("GET /ready", g.handlerReadiness)
 	g.mux.Handle("POST "+cfg.Path, gqlHandler)
 	g.mux.Handle("OPTIONS "+cfg.Path, gqlHandler)
 	g.mux.HandleFunc(cfg.Path, g.handlerMethodNotAllowed)

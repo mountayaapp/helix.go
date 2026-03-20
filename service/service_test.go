@@ -68,6 +68,22 @@ func (d *mockDep) Name() string                          { return d.name }
 func (d *mockDep) Close(_ context.Context) error         { d.closed.Store(true); return d.closeErr }
 func (d *mockDep) Status(_ context.Context) (int, error) { return d.statusVal, d.statusErr }
 
+type slowDep struct {
+	name  string
+	delay time.Duration
+}
+
+func (d *slowDep) Name() string                  { return d.name }
+func (d *slowDep) Close(_ context.Context) error { return nil }
+func (d *slowDep) Status(ctx context.Context) (int, error) {
+	select {
+	case <-time.After(d.delay):
+		return http.StatusOK, nil
+	case <-ctx.Done():
+		return http.StatusServiceUnavailable, ctx.Err()
+	}
+}
+
 // newTestService resets the singleton guard and creates a Service with tracing
 // and logging disabled. Additional options can be passed to override defaults.
 func newTestService(t *testing.T, opts ...Option) *Service {
@@ -587,6 +603,35 @@ func TestStatus_ConcurrentSafety(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestStatus_TimeoutOnSlowDependency(t *testing.T) {
+	svc := newTestService(t)
+	Attach(svc, &slowDep{name: "slow", delay: 10 * time.Second})
+
+	start := time.Now()
+	status, err := svc.Status(context.Background())
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.Less(t, elapsed, 6*time.Second, "should return within statusTimeout")
+}
+
+func TestStatus_RespectsExistingDeadline(t *testing.T) {
+	svc := newTestService(t)
+	Attach(svc, &slowDep{name: "slow", delay: 10 * time.Second})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	status, err := svc.Status(ctx)
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.Less(t, elapsed, 2*time.Second, "should respect caller's tighter deadline")
 }
 
 func TestContext_EnrichesWithLoggerAndTracer(t *testing.T) {

@@ -17,13 +17,26 @@ NoData allows to set no "data" object in the HTTP response.
 type NoData struct{}
 
 /*
-handlerHealthcheck is the default handler function for the healthcheck endpoint.
-Call the custom function defined in the Config if applicable.
+handlerLiveness is the handler function for the liveness probe endpoint.
+Returns 200 immediately without checking any dependencies.
 */
-func (r *rest) handlerHealthcheck(rw http.ResponseWriter, req bunrouter.Request) error {
+func (r *rest) handlerLiveness(rw http.ResponseWriter, req bunrouter.Request) error {
+	NewResponseSuccess[NoMetadata, NoData](req.Request).
+		SetStatus(http.StatusOK).
+		Write(rw)
+
+	return nil
+}
+
+/*
+handlerReadiness is the handler function for the readiness probe endpoint.
+Calls the custom function defined in the Config if applicable, otherwise
+aggregates all dependency statuses via the service.
+*/
+func (r *rest) handlerReadiness(rw http.ResponseWriter, req bunrouter.Request) error {
 	var status int
-	if r.config.Healthcheck != nil {
-		status = r.config.Healthcheck(req.Request)
+	if r.config.Readiness != nil {
+		status = r.config.Readiness(req.Request)
 	} else {
 		status, _ = r.svc.Status(req.Context())
 	}

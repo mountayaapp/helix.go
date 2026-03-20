@@ -389,6 +389,12 @@ func shutdownError(msg string, err error) *errorstack.Error {
 }
 
 /*
+statusTimeout is the maximum duration for a readiness check when the caller's
+context has no deadline set.
+*/
+const statusTimeout = 5 * time.Second
+
+/*
 Status executes a health check of the server and each dependency attached to the
 Service, and returns the highest HTTP status code returned. This means if all
 integrations are healthy (status 200) but one is temporarily unavailable
@@ -401,6 +407,13 @@ func (svc *Service) Status(ctx context.Context) (int, error) {
 	deps := make([]integration.Dependency, len(svc.dependencies))
 	copy(deps, svc.dependencies)
 	svc.mu.Unlock()
+
+	// Guard against contexts with no deadline to prevent indefinite hangs.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, statusTimeout)
+		defer cancel()
+	}
 
 	stack := errorstack.New("Service is not in a healthy state")
 	var (

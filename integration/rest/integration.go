@@ -35,7 +35,7 @@ func (r *rest) Start(ctx context.Context) error {
 	if r.config.Middleware != nil {
 		wrapped := r.config.Middleware(r.bun)
 		h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			if req.URL.Path == "/health" {
+			if req.URL.Path == "/health" || req.URL.Path == "/ready" {
 				r.bun.ServeHTTP(rw, req)
 				return
 			}

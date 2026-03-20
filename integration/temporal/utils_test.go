@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/attribute"
@@ -78,8 +77,4 @@ func TestPreComputedAttributeKeys(t *testing.T) {
 	assert.Equal(t, attribute.Key("temporal.activity.attempt"), attrKeyActivityAttempt)
 	assert.Equal(t, attribute.Key("temporal.server.address"), attrKeyServerAddress)
 	assert.Equal(t, attribute.Key("temporal.namespace"), attrKeyNamespace)
-}
-
-func TestHealthCheckTimeout(t *testing.T) {
-	assert.Equal(t, 5*time.Second, healthCheckTimeout)
 }

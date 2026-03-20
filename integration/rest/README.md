@@ -19,13 +19,13 @@ $ go get github.com/mountayaapp/helix.go/integration/rest
 ## Configuration
 
 - `Address` (`string`) — HTTP address to listen on. Default: `":8080"`.
-- `Healthcheck` (`func(*http.Request) int`) — Custom health check handler for
-  `GET /health`. Should return `200` for healthy, `5xx` for error. Default:
+- `Readiness` (`func(*http.Request) int`) — Custom readiness probe handler for
+  `GET /ready`. Should return `200` for ready, `5xx` for error. Default:
   aggregates the status of all attached dependencies.
 - `Middleware` (`func(http.Handler) http.Handler`) — Wraps the built-in HTTP
-  handler, useful for adding a middleware chain. The `GET /health` endpoint is
-  excluded from this middleware so it always responds without requiring
-  authentication or other service-level checks.
+  handler, useful for adding a middleware chain. The `GET /health` and
+  `GET /ready` endpoints are excluded from this middleware so they always respond
+  without requiring authentication or other service-level checks.
 - `OpenAPI` (`ConfigOpenAPI`) — OpenAPI validation settings. See [OpenAPI](#openapi).
 - `TLS` (`integration.ConfigTLS`) — TLS settings.
 
@@ -255,21 +255,32 @@ url.scheme: "http"
 user_agent.original: "insomnia/2023.2.2"
 ```
 
-## Health check
+## Health probes
 
-The `rest` integration exposes a health check endpoint at `GET /health`.
+The `rest` integration exposes two health probe endpoints following Kubernetes
+conventions. Both bypass the `Middleware` configured in `Config`, so they are
+never blocked by authentication or other service-level middleware.
+
+### Liveness — `GET /health`
 
 ```sh
 $ curl --request GET \
     --url http://localhost:8080/health
 ```
 
-The health endpoint bypasses the `Middleware` configured in `Config`, so it is
-never blocked by authentication or other service-level middleware.
+Returns `200` immediately. No dependency checks are performed. Use this as a
+liveness probe to verify the process is running and able to serve traffic.
 
-By default, the endpoint aggregates the health status of all dependencies attached
-to the service, returning the highest HTTP status code. If all dependencies are
-healthy (`200`) but one is temporarily unavailable (`503`), the response is:
+### Readiness — `GET /ready`
+
+```sh
+$ curl --request GET \
+    --url http://localhost:8080/ready
+```
+
+Aggregates the health status of all dependencies attached to the service,
+returning the highest HTTP status code. If all dependencies are healthy (`200`)
+but one is temporarily unavailable (`503`), the response is:
 
 ```json
 {
@@ -277,4 +288,4 @@ healthy (`200`) but one is temporarily unavailable (`503`), the response is:
 }
 ```
 
-Pass a custom `Healthcheck` function in the config to override this behavior.
+Pass a custom `Readiness` function in the config to override this behavior.

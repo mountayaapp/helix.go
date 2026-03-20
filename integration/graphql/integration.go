@@ -35,7 +35,7 @@ func (g *graphql) Start(ctx context.Context) error {
 	if g.config.Middleware != nil {
 		wrapped := g.config.Middleware(g.mux)
 		h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			if req.URL.Path == "/health" {
+			if req.URL.Path == "/health" || req.URL.Path == "/ready" {
 				g.mux.ServeHTTP(rw, req)
 				return
 			}

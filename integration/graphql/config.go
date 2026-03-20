@@ -48,13 +48,13 @@ type Config struct {
 	// reducing bandwidth on subsequent requests.
 	APQ ConfigAPQ `json:"apq"`
 
-	// Healthcheck allows to define custom logic for the healthcheck endpoint at:
+	// Readiness allows to define custom logic for the readiness probe endpoint at:
 	//
-	//   GET /health
+	//   GET /ready
 	//
-	// It should return 200 if service is healthy, or 5xx if an error occurred.
-	// Returns 200 by default.
-	Healthcheck func(req *http.Request) int `json:"-"`
+	// It should return 200 if service is ready, or 5xx if an error occurred.
+	// Defaults to aggregating the status of all attached dependencies.
+	Readiness func(req *http.Request) int `json:"-"`
 
 	// Middleware allows to wrap the built-in HTTP handler with a custom one, for
 	// adding a chain of middlewares.

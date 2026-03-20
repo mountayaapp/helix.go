@@ -111,7 +111,8 @@ func (r *rest) buildRouter() (*bunrouter.CompatRouter, []errorstack.Validation) 
 	}
 
 	router := bunrouter.New(opts...).Compat()
-	router.Router.GET("/health", r.handlerHealthcheck)
+	router.Router.GET("/health", r.handlerLiveness)
+	router.Router.GET("/ready", r.handlerReadiness)
 
 	return router, nil
 }

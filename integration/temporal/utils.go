@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"context"
-	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
@@ -14,25 +13,12 @@ import (
 )
 
 /*
-healthCheckTimeout is the maximum duration for a health check request when the
-caller's context has no deadline set.
-*/
-const healthCheckTimeout = 5 * time.Second
-
-/*
 checkHealth performs a health check against the Temporal server using the given
-client. It guards against contexts with no deadline to prevent indefinite hangs.
-Returns 200 on success, 503 with an errorstack on failure.
+client. Returns 200 on success, 503 with an errorstack on failure. The caller
+is responsible for providing a context with an appropriate deadline.
 */
 func checkHealth(ctx context.Context, c client.Client) (int, error) {
 	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-
-	// Guard against contexts with no deadline to prevent indefinite hangs.
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, healthCheckTimeout)
-		defer cancel()
-	}
 
 	_, err := c.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {

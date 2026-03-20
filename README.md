@@ -97,7 +97,8 @@ func main() {
 ```
 
 The REST API already emits OpenTelemetry traces for every request, records errors,
-and exposes a health endpoint at `GET /health` — no additional setup required.
+and exposes liveness (`GET /health`) and readiness (`GET /ready`) probes — no
+additional setup required.
 
 ## Viewing traces and logs locally
 
