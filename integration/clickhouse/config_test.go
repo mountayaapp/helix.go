@@ -83,40 +83,11 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "TLS with only CertFile returns error",
-			before: Config{
-				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-				},
-			},
-			after: Config{
-				Address:  "127.0.0.1:9000",
-				Database: "default",
-				User:     "default",
-				Password: "default",
-				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-				},
-			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertFile and KeyFile must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
-				},
-			},
-		},
-		{
-			name: "TLS with only KeyFile returns error",
+			name: "TLS with only CertPEM returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
 					Enabled: true,
-					KeyFile: "cert.key",
+					CertPEM: []byte("cert"),
 				},
 			},
 			after: Config{
@@ -126,7 +97,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				Password: "default",
 				TLS: integration.ConfigTLS{
 					Enabled: true,
-					KeyFile: "cert.key",
+					CertPEM: []byte("cert"),
 				},
 			},
 			err: &errorstack.Error{
@@ -134,19 +105,18 @@ func TestConfig_Sanitize(t *testing.T) {
 				Message:     "Failed to validate configuration",
 				Validations: []errorstack.Validation{
 					{
-						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Message: "CertPEM and KeyPEM must be set together or neither must be set",
 						Path:    []string{"Config", "TLS"},
 					},
 				},
 			},
 		},
 		{
-			name: "TLS with both CertFile and KeyFile is valid",
+			name: "TLS with only KeyPEM returns error",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-					KeyFile:  "cert.key",
+					Enabled: true,
+					KeyPEM:  []byte("key"),
 				},
 			},
 			after: Config{
@@ -155,9 +125,39 @@ func TestConfig_Sanitize(t *testing.T) {
 				User:     "default",
 				Password: "default",
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-					KeyFile:  "cert.key",
+					Enabled: true,
+					KeyPEM:  []byte("key"),
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "CertPEM and KeyPEM must be set together or neither must be set",
+						Path:    []string{"Config", "TLS"},
+					},
+				},
+			},
+		},
+		{
+			name: "TLS with both CertPEM and KeyPEM is valid",
+			before: Config{
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					CertPEM: []byte("cert"),
+					KeyPEM:  []byte("key"),
+				},
+			},
+			after: Config{
+				Address:  "127.0.0.1:9000",
+				Database: "default",
+				User:     "default",
+				Password: "default",
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					CertPEM: []byte("cert"),
+					KeyPEM:  []byte("key"),
 				},
 			},
 			err: nil,
@@ -166,8 +166,8 @@ func TestConfig_Sanitize(t *testing.T) {
 			name: "disabled TLS ignores invalid certs",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:  false,
-					CertFile: "cert.crt",
+					Enabled: false,
+					CertPEM: []byte("cert"),
 				},
 			},
 			after: Config{
@@ -176,8 +176,8 @@ func TestConfig_Sanitize(t *testing.T) {
 				User:     "default",
 				Password: "default",
 				TLS: integration.ConfigTLS{
-					Enabled:  false,
-					CertFile: "cert.crt",
+					Enabled: false,
+					CertPEM: []byte("cert"),
 				},
 			},
 			err: nil,

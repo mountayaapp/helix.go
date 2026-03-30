@@ -63,7 +63,14 @@ func (r *rest) Start(ctx context.Context) error {
 	// unexpected errors.
 	var err error
 	if r.config.TLS.Enabled {
-		err = r.server.ListenAndServeTLS(r.config.TLS.CertFile, r.config.TLS.KeyFile)
+		tlsConfig, tlsValidations := r.config.TLS.ToStandardTLS()
+		if len(tlsValidations) > 0 {
+			stack.WithValidations(tlsValidations...)
+			return stack
+		}
+
+		r.server.TLSConfig = tlsConfig
+		err = r.server.ListenAndServeTLS("", "")
 	} else {
 		err = r.server.ListenAndServe()
 	}

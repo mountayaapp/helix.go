@@ -63,7 +63,14 @@ func (g *graphql) Start(ctx context.Context) error {
 	// unexpected errors.
 	var err error
 	if g.config.TLS.Enabled {
-		err = g.server.ListenAndServeTLS(g.config.TLS.CertFile, g.config.TLS.KeyFile)
+		tlsConfig, tlsValidations := g.config.TLS.ToStandardTLS()
+		if len(tlsValidations) > 0 {
+			stack.WithValidations(tlsValidations...)
+			return stack
+		}
+
+		g.server.TLSConfig = tlsConfig
+		err = g.server.ListenAndServeTLS("", "")
 	} else {
 		err = g.server.ListenAndServe()
 	}

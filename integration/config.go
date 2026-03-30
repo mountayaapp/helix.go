@@ -3,7 +3,6 @@ package integration
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"os"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 )
@@ -29,23 +28,15 @@ type ConfigTLS struct {
 	// custom verification is used.
 	InsecureSkipVerify bool `json:"insecure_skip_verify"`
 
-	// CertFile is the relative or absolute path to the certificate file.
-	//
-	// Example:
-	//
-	//   "./server.crt"
-	CertFile string `json:"-"`
+	// CertPEM is the PEM-encoded certificate bytes.
+	CertPEM []byte `json:"-"`
 
-	// KeyFile is the relative or absolute path to the private key file.
-	//
-	// Example:
-	//
-	//   "./server.key"
-	KeyFile string `json:"-"`
+	// KeyPEM is the PEM-encoded private key bytes.
+	KeyPEM []byte `json:"-"`
 
-	// RootCAFiles allows to provide the RootCAs pool from a list of filenames.
+	// RootCAPEMs allows to provide the RootCAs pool from PEM-encoded certificates.
 	// This is not required by all integrations.
-	RootCAFiles []string `json:"-"`
+	RootCAPEMs [][]byte `json:"-"`
 }
 
 /*
@@ -62,9 +53,15 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Validation {
 		return validations
 	}
 
-	if (cfg.CertFile != "" && cfg.KeyFile == "") || (cfg.CertFile == "" && cfg.KeyFile != "") {
+	cfg.CertPEM = normalizePEM(cfg.CertPEM)
+	cfg.KeyPEM = normalizePEM(cfg.KeyPEM)
+	for i := range cfg.RootCAPEMs {
+		cfg.RootCAPEMs[i] = normalizePEM(cfg.RootCAPEMs[i])
+	}
+
+	if (len(cfg.CertPEM) > 0 && len(cfg.KeyPEM) == 0) || (len(cfg.CertPEM) == 0 && len(cfg.KeyPEM) > 0) {
 		validations = append(validations, errorstack.Validation{
-			Message: "CertFile and KeyFile must be set together or neither must be set",
+			Message: "CertPEM and KeyPEM must be set together or neither must be set",
 			Path:    []string{"Config", "TLS"},
 		})
 	}
@@ -85,10 +82,10 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 	}
 
 	var cert tls.Certificate
-	if cfg.CertFile != "" && cfg.KeyFile != "" {
+	if len(cfg.CertPEM) > 0 && len(cfg.KeyPEM) > 0 {
 		var err error
 
-		cert, err = tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		cert, err = tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
 		if err != nil {
 			validations = append(validations, errorstack.Validation{
 				Message: err.Error(),
@@ -107,22 +104,13 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	if len(cfg.RootCAFiles) == 0 {
+	if len(cfg.RootCAPEMs) == 0 {
 		return tlsConfig, nil
 	}
 
 	caCertPool := x509.NewCertPool()
-	for _, ca := range cfg.RootCAFiles {
-		caCert, err := os.ReadFile(ca)
-		if err != nil {
-			validations = append(validations, errorstack.Validation{
-				Message: err.Error(),
-			})
-
-			continue
-		}
-
-		ok := caCertPool.AppendCertsFromPEM(caCert)
+	for _, ca := range cfg.RootCAPEMs {
+		ok := caCertPool.AppendCertsFromPEM(ca)
 		if !ok {
 			validations = append(validations, errorstack.Validation{
 				Message: "Failed to append root certificate from PEM",

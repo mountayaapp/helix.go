@@ -251,19 +251,19 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
-			name: "TLS with only CertFile returns schema and TLS errors",
+			name: "TLS with only CertPEM returns schema and TLS errors",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
+					Enabled: true,
+					CertPEM: []byte("cert"),
 				},
 			},
 			after: Config{
 				Address: ":8080",
 				Path:    "/graphql",
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
+					Enabled: true,
+					CertPEM: []byte("cert"),
 				},
 			},
 			err: &errorstack.Error{
@@ -275,18 +275,18 @@ func TestConfig_Sanitize(t *testing.T) {
 						Path:    []string{"Config", "Schema"},
 					},
 					{
-						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Message: "CertPEM and KeyPEM must be set together or neither must be set",
 						Path:    []string{"Config", "TLS"},
 					},
 				},
 			},
 		},
 		{
-			name: "TLS with only KeyFile returns schema and TLS errors",
+			name: "TLS with only KeyPEM returns schema and TLS errors",
 			before: Config{
 				TLS: integration.ConfigTLS{
 					Enabled: true,
-					KeyFile: "cert.key",
+					KeyPEM:  []byte("key"),
 				},
 			},
 			after: Config{
@@ -294,7 +294,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				Path:    "/graphql",
 				TLS: integration.ConfigTLS{
 					Enabled: true,
-					KeyFile: "cert.key",
+					KeyPEM:  []byte("key"),
 				},
 			},
 			err: &errorstack.Error{
@@ -306,28 +306,28 @@ func TestConfig_Sanitize(t *testing.T) {
 						Path:    []string{"Config", "Schema"},
 					},
 					{
-						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Message: "CertPEM and KeyPEM must be set together or neither must be set",
 						Path:    []string{"Config", "TLS"},
 					},
 				},
 			},
 		},
 		{
-			name: "TLS with both CertFile and KeyFile returns only schema error",
+			name: "TLS with both CertPEM and KeyPEM returns only schema error",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-					KeyFile:  "cert.key",
+					Enabled: true,
+					CertPEM: []byte("cert"),
+					KeyPEM:  []byte("key"),
 				},
 			},
 			after: Config{
 				Address: ":8080",
 				Path:    "/graphql",
 				TLS: integration.ConfigTLS{
-					Enabled:  true,
-					CertFile: "cert.crt",
-					KeyFile:  "cert.key",
+					Enabled: true,
+					CertPEM: []byte("cert"),
+					KeyPEM:  []byte("key"),
 				},
 			},
 			err: &errorstack.Error{
@@ -345,16 +345,16 @@ func TestConfig_Sanitize(t *testing.T) {
 			name: "disabled TLS ignores invalid certs",
 			before: Config{
 				TLS: integration.ConfigTLS{
-					Enabled:  false,
-					CertFile: "cert.crt",
+					Enabled: false,
+					CertPEM: []byte("cert"),
 				},
 			},
 			after: Config{
 				Address: ":8080",
 				Path:    "/graphql",
 				TLS: integration.ConfigTLS{
-					Enabled:  false,
-					CertFile: "cert.crt",
+					Enabled: false,
+					CertPEM: []byte("cert"),
 				},
 			},
 			err: &errorstack.Error{

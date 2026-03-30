@@ -34,11 +34,11 @@ type Config struct {
 	// OpenAPI configures OpenAPI behavior within the REST API.
 	OpenAPI ConfigOpenAPI `json:"openapi"`
 
-	// TLSConfig configures TLS for the HTTP server. Only CertFile and KeyFile
-	// are took into consideration. Filenames containing a certificate and matching
-	// private key for the server must be provided. If the certificate is signed
-	// by a certificate authority, the CertFile should be the concatenation of the
-	// server's certificate, any intermediates, and the CA's certificate.
+	// TLS configures TLS for the HTTP server. Only CertPEM and KeyPEM are took
+	// into consideration. PEM-encoded certificate and matching private key for
+	// the server must be provided. If the certificate is signed by a certificate
+	// authority, the CertPEM should be the concatenation of the server's
+	// certificate, any intermediates, and the CA's certificate.
 	TLS integration.ConfigTLS `json:"tls"`
 }
 

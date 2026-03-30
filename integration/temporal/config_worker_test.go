@@ -165,7 +165,7 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 				Client: ConfigClient{
 					TLS: integration.ConfigTLS{
 						Enabled: true,
-						KeyFile: "cert.key",
+						KeyPEM:  []byte("key"),
 					},
 				},
 			},
@@ -175,7 +175,7 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 					Namespace: "default",
 					TLS: integration.ConfigTLS{
 						Enabled: true,
-						KeyFile: "cert.key",
+						KeyPEM:  []byte("key"),
 					},
 				},
 			},
@@ -188,7 +188,7 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 						Path:    []string{"Config", "Worker", "TaskQueue"},
 					},
 					{
-						Message: "CertFile and KeyFile must be set together or neither must be set",
+						Message: "CertPEM and KeyPEM must be set together or neither must be set",
 						Path:    []string{"Config", "TLS"},
 					},
 				},
