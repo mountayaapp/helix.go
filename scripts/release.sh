@@ -48,10 +48,29 @@ done
 git tag "$GORELEASER_CURRENT_TAG"
 git push --tags
 
-# Phase 3: Wait for the Go module proxy to index all modules.
+# Phase 3: Create GitHub release.
+echo "==> Running goreleaser..."
+goreleaser release --clean
+
+# Phase 4: Restore local replace directives for development.
+echo "==> Restoring local replace directives..."
+for mod in $integrations; do
+  cd ./integration/$mod
+
+  ./scripts/mod-replace.sh
+
+  cd ../../
+done
+
+git commit -am "version(scripts): Apply post-release of $GORELEASER_CURRENT_TAG"
+git push origin main
+
+echo "==> Release $GORELEASER_CURRENT_TAG complete!"
+
+# Phase 5: Warm the Go module proxy cache (best-effort).
 # This prevents cached 404s when cross-integration dependencies
 # (e.g. graphql -> valkey) are resolved by the proxy.
-echo "==> Waiting for Go module proxy to index modules..."
+echo "==> Warming Go module proxy cache..."
 
 wait_for_proxy() {
   local module="$1"
@@ -70,8 +89,8 @@ wait_for_proxy() {
     sleep 15
   done
 
-  echo "ERROR: ${module}@${version} not available on proxy after ${max_attempts} attempts" 1>&2
-  return 1
+  echo "  !! ${module}@${version} not available on proxy after ${max_attempts} attempts (non-fatal)" 1>&2
+  return 0
 }
 
 wait_for_proxy "github.com/mountayaapp/helix.go" "$GORELEASER_CURRENT_TAG"
@@ -79,22 +98,3 @@ wait_for_proxy "github.com/mountayaapp/helix.go" "$GORELEASER_CURRENT_TAG"
 for mod in $integrations; do
   wait_for_proxy "github.com/mountayaapp/helix.go/integration/$mod" "$GORELEASER_CURRENT_TAG"
 done
-
-# Phase 4: Create GitHub release.
-echo "==> Running goreleaser..."
-goreleaser release --clean
-
-# Phase 5: Restore local replace directives for development.
-echo "==> Restoring local replace directives..."
-for mod in $integrations; do
-  cd ./integration/$mod
-
-  ./scripts/mod-replace.sh
-
-  cd ../../
-done
-
-git commit -am "version(scripts): Apply post-release of $GORELEASER_CURRENT_TAG"
-git push origin main
-
-echo "==> Release $GORELEASER_CURRENT_TAG complete!"
