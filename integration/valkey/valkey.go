@@ -2,6 +2,7 @@ package valkey
 
 import (
 	"context"
+	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -20,6 +21,7 @@ const (
 	spanSet       = humanized + ": Set"
 	spanIncrement = humanized + ": Increment"
 	spanDecrement = humanized + ": Decrement"
+	spanExpire    = humanized + ": Expire"
 	spanScan      = humanized + ": Scan"
 	spanMGet      = humanized + ": MGet"
 	spanDelete    = humanized + ": Delete"
@@ -43,6 +45,7 @@ type Valkey interface {
 	Set(ctx context.Context, key string, value []byte, opts *OptionsSet) error
 	Increment(ctx context.Context, key string, increment int64) error
 	Decrement(ctx context.Context, key string, decrement int64) error
+	Expire(ctx context.Context, key string, ttl time.Duration) error
 	Scan(ctx context.Context, pattern string) ([]string, error)
 	MGet(ctx context.Context, keys []string) ([]Entry, error)
 	Delete(ctx context.Context, keys []string) error
@@ -217,6 +220,34 @@ func (conn *connection) Decrement(ctx context.Context, key string, decrement int
 	err := conn.client.Do(ctx, cmd.Build()).Error()
 	if err != nil {
 		span.RecordError("failed to decrement value", err)
+	}
+
+	setKeyAttributes(span, key)
+
+	return err
+}
+
+/*
+Expire sets or refreshes the time-to-live of a key. Subsequent calls on the
+same key reset the TTL relative to the new call time; this is the natural fit
+for fixed-window rate limiters where the key is always re-created at the start
+of a new window.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExpire)
+	defer span.End()
+
+	seconds := int64(ttl.Seconds())
+	if seconds <= 0 {
+		seconds = 1
+	}
+
+	cmd := conn.client.B().Expire().Key(key).Seconds(seconds)
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		span.RecordError("failed to set key expiration", err)
 	}
 
 	setKeyAttributes(span, key)
