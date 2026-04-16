@@ -15,7 +15,10 @@ import (
 /*
 Pre-computed span names to avoid allocations on every call.
 */
-const spanBatchBegin = humanized + ": Batch / Begin"
+const (
+	spanBatchBegin  = humanized + ": Batch / Begin"
+	spanAsyncInsert = humanized + ": Async Insert"
+)
 
 /*
 ClickHouse exposes an opinionated way to interact with ClickHouse, by bringing
@@ -23,6 +26,7 @@ automatic distributed tracing as well as error recording within traces.
 */
 type ClickHouse interface {
 	NewBatchInsert(ctx context.Context, table string) (Batch, error)
+	AsyncInsertStruct(ctx context.Context, table string, value any) error
 }
 
 /*
@@ -119,4 +123,43 @@ func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch
 	}
 
 	return b, err
+}
+
+/*
+AsyncInsertStruct inserts a single struct row into the given table using
+ClickHouse's native async_insert mechanism. The server buffers incoming rows
+and flushes them in the background, so this call does not pay the
+prepare/append/send roundtrip cost of a batch insert. The call returns as soon
+as the server acknowledges receipt; it does not wait for the flush.
+
+Intended for high-frequency, low-latency per-request writes such as usage
+counters. For bulk loads, prefer NewBatchInsert. Server-side buffering is
+governed by `async_insert_max_data_size`, `async_insert_busy_timeout_ms`, and
+`async_insert_max_query_number`.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) AsyncInsertStruct(ctx context.Context, table string, value any) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanAsyncInsert)
+	defer span.End()
+
+	setDefaultAttributes(span, conn.config)
+	span.SetAttributes(attrKeyTable.String(table))
+
+	query, args, err := prepareAsyncInsert(table, value)
+	if err != nil {
+		span.RecordError("failed to prepare async insert", err)
+		return err
+	}
+
+	// WithAsync(false): the server buffers the row and we do not block waiting
+	// for the flush. This is the recommended async insert API as of
+	// clickhouse-go v2.
+	asyncCtx := clickhouse.Context(ctx, clickhouse.WithAsync(false))
+	if err := conn.client.Exec(asyncCtx, query, args...); err != nil {
+		span.RecordError("failed to async insert struct", err)
+		return err
+	}
+
+	return nil
 }
