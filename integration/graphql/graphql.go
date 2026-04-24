@@ -53,9 +53,9 @@ func New(svc *service.Service, cfg Config) error {
 	gqlHandler := handler.New(cfg.Schema)
 	gqlHandler.AddTransport(transport.POST{})
 
-	// Enable introspection when GraphiQL is enabled, so the schema can be
-	// fetched by the IDE.
-	if cfg.GraphiQL.Enabled {
+	// Enable introspection when configured, so clients can discover the schema
+	// via __schema and __type queries.
+	if cfg.Introspection.Enabled {
 		gqlHandler.Use(extension.Introspection{})
 	}
 

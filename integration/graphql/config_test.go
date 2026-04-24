@@ -251,6 +251,56 @@ func TestConfig_Sanitize(t *testing.T) {
 			},
 		},
 		{
+			name: "Introspection enabled only returns schema error",
+			before: Config{
+				Introspection: ConfigIntrospection{
+					Enabled: true,
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				Introspection: ConfigIntrospection{
+					Enabled: true,
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+				},
+			},
+		},
+		{
+			name: "Introspection disabled only returns schema error",
+			before: Config{
+				Introspection: ConfigIntrospection{
+					Enabled: false,
+				},
+			},
+			after: Config{
+				Address: ":8080",
+				Path:    "/graphql",
+				Introspection: ConfigIntrospection{
+					Enabled: false,
+				},
+			},
+			err: &errorstack.Error{
+				Integration: identifier,
+				Message:     "Failed to validate configuration",
+				Validations: []errorstack.Validation{
+					{
+						Message: "Schema must be set and not be nil",
+						Path:    []string{"Config", "Schema"},
+					},
+				},
+			},
+		},
+		{
 			name: "TLS with only CertPEM returns schema and TLS errors",
 			before: Config{
 				TLS: integration.ConfigTLS{

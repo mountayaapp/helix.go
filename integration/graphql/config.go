@@ -43,6 +43,10 @@ type Config struct {
 	// the GraphQL API.
 	GraphiQL ConfigGraphiQL `json:"graphiql"`
 
+	// Introspection configures GraphQL introspection. When enabled, clients can
+	// issue __schema and __type queries to discover the schema shape.
+	Introspection ConfigIntrospection `json:"introspection"`
+
 	// APQ configures Automatic Persisted Queries (APQ) caching backed by Valkey.
 	// When enabled, clients can send a query hash instead of the full query string,
 	// reducing bandwidth on subsequent requests.
@@ -112,6 +116,17 @@ type ConfigAPQ struct {
 
 	// Valkey is the Valkey integration instance used to store cached queries.
 	Valkey valkey.Valkey `json:"-"`
+}
+
+/*
+ConfigIntrospection configures GraphQL introspection within the GraphQL API.
+When enabled, clients can issue introspection queries (__schema, __type, ...)
+to discover the schema.
+*/
+type ConfigIntrospection struct {
+
+	// Enabled enables introspection within the GraphQL API.
+	Enabled bool `json:"enabled"`
 }
 
 /*
