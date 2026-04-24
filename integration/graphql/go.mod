@@ -70,3 +70,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/mountayaapp/helix.go => ../../
+
+replace github.com/mountayaapp/helix.go/integration/valkey => ../valkey
