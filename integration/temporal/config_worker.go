@@ -16,7 +16,7 @@ type ConfigWorker struct {
 	// TaskQueue is the task queue name you use to identify your client worker,
 	// also identifies group of workflow and activity implementations that are hosted
 	// by a single worker process.
-	TaskQueue string `json:"taskqueue"`
+	TaskQueue string `json:"task_queue"`
 
 	// WorkerActivitiesPerSecond sets the rate limiting on number of activities that
 	// can be executed per second per worker. This can be used to limit resources
@@ -34,7 +34,7 @@ type ConfigWorker struct {
 
 	// TaskQueueActivitiesPerSecond sets the rate limiting on number of activities
 	// that can be executed per second. This is managed by the server and controls
-	// activities per second for your entire taskqueue.
+	// activities per second for your entire task queue.
 	//
 	// Notice that the number is represented in float, so that you can set it to
 	// less than 1 if needed. For example, set the number to 0.1 means you want
@@ -44,7 +44,7 @@ type ConfigWorker struct {
 	// Default:
 	//
 	//   100 000
-	TaskQueueActivitiesPerSecond float64 `json:"taskqueue_activities_per_second,omitempty"`
+	TaskQueueActivitiesPerSecond float64 `json:"task_queue_activities_per_second,omitempty"`
 
 	// EnableSessionWorker enables the session worker, which is required for
 	// workflows that use sessions for stateful activity routing. Only enable this
@@ -62,29 +62,22 @@ client configuration, then validating worker-specific fields. Returns an error
 if configuration is not valid.
 */
 func (cfg *ConfigWorker) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	if cfg.TaskQueue == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "TaskQueue must be set and not be empty",
-			Path:    []string{"Config", "Worker", "TaskQueue"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "worker", "task_queue"},
 		})
 	}
 
-	// Sanitize the client configuration.
-	err := cfg.Client.sanitize()
-	if err != nil {
-		if errstack, ok := err.(*errorstack.Error); ok {
-			stack.WithValidations(errstack.Validations...)
-		} else {
-			stack.WithValidations(errorstack.Validation{
-				Message: err.Error(),
-			})
-		}
+	// Sanitize the client configuration and absorb its entries.
+	if err := cfg.Client.sanitize(); err != nil {
+		entries = append(entries, errorstack.EntriesOf(err)...)
 	}
 
-	if stack.HasValidations() {
-		return stack
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

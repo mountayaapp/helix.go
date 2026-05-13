@@ -18,13 +18,14 @@ tracer, logger, context propagator, and client.Dial. This is the shared helper
 used by both Connect and New.
 */
 func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) {
-	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	// Try to build the tracer.
 	t, err := buildTracer(svc, *cfg)
 	if err != nil {
-		stack.WithValidations(errorstack.Validation{
+		entries = append(entries, errorstack.Entry{
 			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config"},
 		})
 	}
 
@@ -49,25 +50,23 @@ func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) 
 
 	// Set TLS options only if enabled in ConfigClient.
 	if cfg.TLS.Enabled {
-		var validations []errorstack.Validation
-
-		opts.ConnectionOptions.TLS, validations = cfg.TLS.ToStandardTLS()
-		if len(validations) > 0 {
-			stack.WithValidations(validations...)
-		}
+		var tlsEntries []errorstack.Entry
+		opts.ConnectionOptions.TLS, tlsEntries = cfg.TLS.ToStandardTLS()
+		entries = append(entries, tlsEntries...)
 	}
 
 	// Try to create the Temporal client.
 	c, err := client.Dial(opts)
 	if err != nil {
-		stack.WithValidations(errorstack.Validation{
+		entries = append(entries, errorstack.Entry{
 			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config"},
 		})
 	}
 
-	// Stop here if error validations were encountered.
-	if stack.HasValidations() {
-		return nil, stack
+	// Stop here if validation entries were collected.
+	if len(entries) > 0 {
+		return nil, errorstack.NewValidation(entries...)
 	}
 
 	return c, nil

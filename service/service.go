@@ -160,10 +160,11 @@ func New(opts ...Option) (*Service, error) {
 }
 
 /*
-requireState checks that the Service is in the expected state and returns
-validation errors if not. Must be called while holding svc.mu.
+requireState checks that the Service is in the expected state and returns an
+Error describing the mismatch when it does not. Must be called while holding
+svc.mu.
 */
-func (svc *Service) requireState(expected serviceState) []errorstack.Validation {
+func (svc *Service) requireState(expected serviceState) *errorstack.Error {
 	if svc.state == expected {
 		return nil
 	}
@@ -178,11 +179,7 @@ func (svc *Service) requireState(expected serviceState) []errorstack.Validation 
 		msg = "Service has already been stopped"
 	}
 
-	return []errorstack.Validation{
-		{
-			Message: msg,
-		},
-	}
+	return errorstack.New(msg)
 }
 
 /*
@@ -196,34 +193,31 @@ func (svc *Service) serve(server integration.Server) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
-	stack := errorstack.New("Failed to register server integration")
 	if err := svc.requireState(stateCreated); err != nil {
-		return stack.WithValidations(err...)
+		return errorstack.New("Failed to register server integration").Append(err.Entries...)
 	}
 
-	if server == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Server must not be nil",
+	var entries []errorstack.Entry
+	switch {
+	case server == nil:
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"server"},
 		})
-
-		return stack
+	case server.Name() == "":
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"server", "name"},
+		})
+	case svc.server != nil:
+		entries = append(entries, errorstack.Entry{
+			Message: fmt.Sprintf("Must be unique; %s is already registered", svc.server.Name()),
+			Path:    []any{"server"},
+		})
 	}
 
-	if server.Name() == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Server's name must be set and not be empty",
-			Path:    []string{"server.Name()"},
-		})
-
-		return stack
-	}
-
-	if svc.server != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: fmt.Sprintf("A server integration has already been registered (%s). A Service can only have one server", svc.server.Name()),
-		})
-
-		return stack
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	svc.server = server
@@ -241,26 +235,26 @@ func (svc *Service) attach(dep integration.Dependency) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
-	stack := errorstack.New("Failed to attach dependency integration")
 	if err := svc.requireState(stateCreated); err != nil {
-		return stack.WithValidations(err...)
+		return errorstack.New("Failed to attach dependency integration").Append(err.Entries...)
 	}
 
-	if dep == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Dependency must not be nil",
+	var entries []errorstack.Entry
+	switch {
+	case dep == nil:
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"dependency"},
 		})
-
-		return stack
+	case dep.Name() == "":
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"dependency", "name"},
+		})
 	}
 
-	if dep.Name() == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Dependency's name must be set and not be empty",
-			Path:    []string{"dependency.Name()"},
-		})
-
-		return stack
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	svc.dependencies = append(svc.dependencies, dep)
@@ -275,19 +269,17 @@ returns an error while starting.
 func (svc *Service) Start(ctx context.Context) error {
 	svc.mu.Lock()
 
-	stack := errorstack.New("Failed to initialize the Service")
 	if err := svc.requireState(stateCreated); err != nil {
 		svc.mu.Unlock()
-		return stack.WithValidations(err...)
+		return errorstack.New("Failed to initialize Service").Append(err.Entries...)
 	}
 
 	if svc.server == nil {
 		svc.mu.Unlock()
-		stack.WithValidations(errorstack.Validation{
-			Message: "Service must have a server registered via Serve before starting",
+		return errorstack.NewValidation(errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"service", "server"},
 		})
-
-		return stack
 	}
 
 	done := make(chan os.Signal, 1)
@@ -312,7 +304,7 @@ func (svc *Service) Start(ctx context.Context) error {
 		svc.mu.Unlock()
 		return nil
 	case err := <-failed:
-		return stack.WithChildren(err)
+		return errorstack.Wrap(err, "Failed to start server")
 	}
 }
 
@@ -325,9 +317,8 @@ func (svc *Service) Stop(ctx context.Context) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
-	stack := errorstack.New("Failed to gracefully close Service's connections")
 	if err := svc.requireState(stateStarted); err != nil {
-		return stack.WithValidations(err...)
+		return errorstack.New("Failed to gracefully close Service's connections").Append(err.Entries...)
 	}
 
 	if svc.shutdownTimeout > 0 {
@@ -336,56 +327,47 @@ func (svc *Service) Stop(ctx context.Context) error {
 		defer cancel()
 	}
 
-	if svc.server != nil {
-		err := svc.server.Stop(ctx)
-		if err != nil {
-			stack.WithChildren(err)
+	var (
+		mu       sync.Mutex
+		children []errorstack.Entry
+	)
+	collect := func(err error) {
+		if err == nil {
+			return
 		}
+		mu.Lock()
+		children = append(children, errorstack.EntriesOf(err)...)
+		mu.Unlock()
+	}
+
+	if svc.server != nil {
+		collect(svc.server.Stop(ctx))
 	}
 
 	var wg sync.WaitGroup
 	for _, dep := range svc.dependencies {
 		wg.Go(func() {
-			err := dep.Close(ctx)
-			if err != nil {
-				stack.WithChildren(err)
-			}
+			collect(dep.Close(ctx))
 		})
 	}
 
 	wg.Wait()
 
-	if err := svc.tracer.Shutdown(ctx); err != nil {
-		stack.WithChildren(shutdownError("Failed to gracefully drain/close tracer", err))
-	}
-
-	if err := svc.logger.Shutdown(ctx); err != nil {
-		stack.WithChildren(shutdownError("Failed to gracefully drain/close logger provider", err))
-	}
+	collect(errorstack.Wrap(svc.tracer.Shutdown(ctx), "Failed to gracefully drain/close tracer"))
+	collect(errorstack.Wrap(svc.logger.Shutdown(ctx), "Failed to gracefully drain/close logger provider"))
 
 	if err := svc.logger.Sync(); err != nil {
 		if !errors.Is(err, syscall.ENOTTY) {
-			stack.WithChildren(shutdownError("Failed to gracefully drain/close logger", err))
+			collect(errorstack.Wrap(err, "Failed to gracefully drain/close logger"))
 		}
 	}
 
-	if stack.HasChildren() {
-		return stack
+	if len(children) > 0 {
+		return errorstack.New("Failed to gracefully close Service's connections").Append(children...)
 	}
 
 	svc.state = stateStopped
 	return nil
-}
-
-func shutdownError(msg string, err error) *errorstack.Error {
-	return &errorstack.Error{
-		Message: msg,
-		Validations: []errorstack.Validation{
-			{
-				Message: err.Error(),
-			},
-		},
-	}
 }
 
 /*
@@ -415,11 +397,11 @@ func (svc *Service) Status(ctx context.Context) (int, error) {
 		defer cancel()
 	}
 
-	stack := errorstack.New("Service is not in a healthy state")
 	var (
-		mu  sync.Mutex
-		max = 200
-		wg  sync.WaitGroup
+		mu       sync.Mutex
+		max      = 200
+		children []errorstack.Entry
+		wg       sync.WaitGroup
 	)
 
 	check := func(status int, err error) {
@@ -427,11 +409,10 @@ func (svc *Service) Status(ctx context.Context) (int, error) {
 		if status > max {
 			max = status
 		}
-		mu.Unlock()
-
 		if err != nil {
-			stack.WithChildren(err)
+			children = append(children, errorstack.EntriesOf(err)...)
 		}
+		mu.Unlock()
 	}
 
 	if server != nil {
@@ -448,8 +429,10 @@ func (svc *Service) Status(ctx context.Context) (int, error) {
 
 	wg.Wait()
 
-	if stack.HasChildren() {
-		return max, stack
+	if len(children) > 0 {
+		return max, errorstack.New("Service is not in a healthy state",
+			errorstack.WithCode(errorstack.CodeServiceUnavailable),
+		).Append(children...)
 	}
 
 	return max, nil

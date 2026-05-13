@@ -42,28 +42,31 @@ func (d *driverAWS) string() string {
 validate ensures Config and environment variables are valid for the AWS S3 bucket
 driver.
 */
-func (d *driverAWS) validate(cfg *Config) []errorstack.Validation {
-	var validations []errorstack.Validation
+func (d *driverAWS) validate(cfg *Config) []errorstack.Entry {
+	var entries []errorstack.Entry
 
 	if os.Getenv("AWS_ACCESS_KEY_ID") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "Environment variable `AWS_ACCESS_KEY_ID` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"env", "aws_access_key_id"},
 		})
 	}
 
 	if os.Getenv("AWS_SECRET_ACCESS_KEY") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "Environment variable `AWS_SECRET_ACCESS_KEY` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"env", "aws_secret_access_key"},
 		})
 	}
 
 	if os.Getenv("AWS_REGION") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "Environment variable `AWS_REGION` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"env", "aws_region"},
 		})
 	}
 
-	return validations
+	return entries
 }
 
 /*

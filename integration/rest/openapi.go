@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -154,10 +155,10 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 
 /*
 buildRouterOpenAPI tries to build the router for validating requests and responses
-against the OpenAPI description. It returns validation errors in case the
+against the OpenAPI description. It returns validation entries in case the
 description can not be loaded or if it's not valid.
 */
-func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Validation) {
+func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Entry) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 
@@ -173,11 +174,10 @@ func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Validation) {
 	}
 
 	if err != nil {
-		return nil, []errorstack.Validation{
-			{
-				Message: err.Error(),
-			},
-		}
+		return nil, []errorstack.Entry{{
+			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config", "openapi", "description"},
+		}}
 	}
 
 	// Clear server URLs so the gorillamux router matches any host. Without this,
@@ -189,11 +189,10 @@ func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Validation) {
 
 	router, err := gorillamux.NewRouter(doc)
 	if err != nil {
-		return nil, []errorstack.Validation{
-			{
-				Message: err.Error(),
-			},
-		}
+		return nil, []errorstack.Entry{{
+			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config", "openapi", "description"},
+		}}
 	}
 
 	return router, nil

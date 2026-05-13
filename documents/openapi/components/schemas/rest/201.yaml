@@ -1,16 +1,14 @@
-type: object
 x-go-type: rest.Response
 x-go-type-import:
   path: github.com/mountayaapp/helix.go/integration/rest
 
-properties:
-  status:
-    type: string
-    default: Created
-  metadata: {}
-  data: {}
-required:
-  - status
+allOf:
+  - $ref: ../SuccessExtensions.yaml
+  - type: object
+    properties:
+      data: {}
+    required:
+      - data
 
 example:
-  status: Created
+  data: null

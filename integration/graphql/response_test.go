@@ -6,26 +6,22 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/mountayaapp/helix.go/errorstack"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteSuccess(t *testing.T) {
+	// All 2xx HTTP-layer success responses use the same envelope as REST
+	// ({"data":null}) so the wire shape stays consistent across transports.
+	// The HTTP status code carries the OK/Created/etc. distinction.
 	testcases := []struct {
-		name     string
-		status   int
-		expected string
+		name   string
+		status int
 	}{
-		{
-			name:     "200 OK",
-			status:   http.StatusOK,
-			expected: `{"status":"OK"}`,
-		},
-		{
-			name:     "201 Created",
-			status:   http.StatusCreated,
-			expected: `{"status":"Created"}`,
-		},
+		{name: "200 OK", status: http.StatusOK},
+		{name: "201 Created", status: http.StatusCreated},
 	}
 
 	for _, tc := range testcases {
@@ -36,7 +32,7 @@ func TestWriteSuccess(t *testing.T) {
 
 			assert.Equal(t, tc.status, rw.Code)
 			assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-			assert.JSONEq(t, tc.expected, rw.Body.String())
+			assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 		})
 	}
 }
@@ -50,47 +46,67 @@ func TestWriteError(t *testing.T) {
 		{
 			name:     "400 Bad Request",
 			status:   http.StatusBadRequest,
-			expected: `{"status":"Bad Request","error":{"message":"Failed to validate request"}}`,
+			expected: `{"errors":[{"message":"Request is invalid","extensions":{"code":"BAD_REQUEST"}}]}`,
 		},
 		{
 			name:     "401 Unauthorized",
 			status:   http.StatusUnauthorized,
-			expected: `{"status":"Unauthorized","error":{"message":"You are not authorized to perform this action"}}`,
+			expected: `{"errors":[{"message":"Authentication is required","extensions":{"code":"UNAUTHORIZED"}}]}`,
+		},
+		{
+			name:     "402 Payment Required",
+			status:   http.StatusPaymentRequired,
+			expected: `{"errors":[{"message":"Payment is required","extensions":{"code":"PAYMENT_REQUIRED"}}]}`,
 		},
 		{
 			name:     "403 Forbidden",
 			status:   http.StatusForbidden,
-			expected: `{"status":"Forbidden","error":{"message":"You don't have required permissions to perform this action"}}`,
+			expected: `{"errors":[{"message":"Access is forbidden","extensions":{"code":"FORBIDDEN"}}]}`,
 		},
 		{
 			name:     "404 Not Found",
 			status:   http.StatusNotFound,
-			expected: `{"status":"Not Found","error":{"message":"Resource does not exist"}}`,
+			expected: `{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`,
 		},
 		{
 			name:     "405 Method Not Allowed",
 			status:   http.StatusMethodNotAllowed,
-			expected: `{"status":"Method Not Allowed","error":{"message":"Resource does not support this method"}}`,
+			expected: `{"errors":[{"message":"Method is not allowed for this resource","extensions":{"code":"METHOD_NOT_ALLOWED"}}]}`,
 		},
 		{
 			name:     "409 Conflict",
 			status:   http.StatusConflict,
-			expected: `{"status":"Conflict","error":{"message":"Failed to process target resource because of conflict"}}`,
+			expected: `{"errors":[{"message":"Resource conflicts with current state","extensions":{"code":"CONFLICT"}}]}`,
+		},
+		{
+			name:     "413 Payload Too Large",
+			status:   http.StatusRequestEntityTooLarge,
+			expected: `{"errors":[{"message":"Payload exceeds size limit","extensions":{"code":"PAYLOAD_TOO_LARGE"}}]}`,
 		},
 		{
 			name:     "429 Too Many Requests",
 			status:   http.StatusTooManyRequests,
-			expected: `{"status":"Too Many Requests","error":{"message":"Request-rate limit has been reached"}}`,
+			expected: `{"errors":[{"message":"Rate limit has been exceeded","extensions":{"code":"TOO_MANY_REQUESTS"}}]}`,
 		},
 		{
 			name:     "500 Internal Server Error",
 			status:   http.StatusInternalServerError,
-			expected: `{"status":"Internal Server Error","error":{"message":"We have been notified of this unexpected internal error"}}`,
+			expected: `{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_ERROR"}}]}`,
+		},
+		{
+			name:     "501 Not Implemented",
+			status:   http.StatusNotImplemented,
+			expected: `{"errors":[{"message":"Endpoint is not implemented","extensions":{"code":"NOT_IMPLEMENTED"}}]}`,
+		},
+		{
+			name:     "502 Bad Gateway",
+			status:   http.StatusBadGateway,
+			expected: `{"errors":[{"message":"Upstream gateway is unavailable","extensions":{"code":"BAD_GATEWAY"}}]}`,
 		},
 		{
 			name:     "503 Service Unavailable",
 			status:   http.StatusServiceUnavailable,
-			expected: `{"status":"Service Unavailable","error":{"message":"Please try again in a few moments"}}`,
+			expected: `{"errors":[{"message":"Service is temporarily unavailable","extensions":{"code":"SERVICE_UNAVAILABLE"}}]}`,
 		},
 	}
 
@@ -115,7 +131,10 @@ func TestWriteError_NilRequest(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"Not Found","error":{"message":"Resource does not exist"}}`, rw.Body.String())
+	assert.JSONEq(t,
+		`{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`,
+		rw.Body.String(),
+	)
 }
 
 func TestWriteSuccess_SetsContentType(t *testing.T) {
@@ -138,6 +157,8 @@ func TestWriteError_AllSupportedStatusCodes(t *testing.T) {
 		http.StatusRequestEntityTooLarge,
 		http.StatusTooManyRequests,
 		http.StatusInternalServerError,
+		http.StatusNotImplemented,
+		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
 	}
 
@@ -150,8 +171,8 @@ func TestWriteError_AllSupportedStatusCodes(t *testing.T) {
 
 			assert.Equal(t, code, rw.Code)
 			assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-			assert.Contains(t, rw.Body.String(), `"status"`)
-			assert.Contains(t, rw.Body.String(), `"error"`)
+			assert.Contains(t, rw.Body.String(), `"errors"`)
+			assert.Contains(t, rw.Body.String(), `"code"`)
 		})
 	}
 }
@@ -161,9 +182,12 @@ func TestFallbackErrorResponse_ValidJSON(t *testing.T) {
 	err := json.Unmarshal(fallbackErrorResponse, &result)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Internal Server Error", result["status"])
-	errObj := result["error"].(map[string]any)
-	assert.NotEmpty(t, errObj["message"])
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 1)
+	entry := errs[0].(map[string]any)
+	assert.NotEmpty(t, entry["message"])
+	ext := entry["extensions"].(map[string]any)
+	assert.Equal(t, errorstack.CodeInternalError, ext["code"])
 }
 
 func TestWriteSuccess_StatusText(t *testing.T) {
@@ -172,5 +196,6 @@ func TestWriteSuccess_StatusText(t *testing.T) {
 	writeSuccess(rw, http.StatusNoContent)
 
 	assert.Equal(t, http.StatusNoContent, rw.Code)
-	assert.JSONEq(t, `{"status":"No Content"}`, rw.Body.String())
+	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 }
+

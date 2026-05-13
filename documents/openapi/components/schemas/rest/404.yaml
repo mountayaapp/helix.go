@@ -1,18 +1,12 @@
-type: object
-x-go-type: rest.Response
+x-go-type: errorstack.Error
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/integration/rest
+  path: github.com/mountayaapp/helix.go/errorstack
 
-properties:
-  status:
-    type: string
-    default: Not Found
-  error:
-    $ref: ../Error.yaml
-  metadata: {}
-required:
-  - status
-  - error
+allOf:
+  - $ref: ../Errors.yaml
 
 example:
-  status: Not Found
+  errors:
+    - message: Resource does not exist
+      extensions:
+        code: NOT_FOUND

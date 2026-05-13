@@ -7,7 +7,19 @@ import (
 
 var _ json.Marshaler = (*ResponseSuccess[any, any])(nil)
 
-var fallbackSuccessResponse = []byte(`{"status":"Internal Server Error"}`)
+var fallbackSuccessResponse = []byte(`{"data":null}`)
+
+/*
+Response is the wire-format envelope for 2xx HTTP responses produced by
+ResponseSuccess[Metadata, Data].MarshalJSON. Non-generic so OpenAPI specs
+can reference it via x-go-type without specializing the generic. The "data"
+field is always present (serialized as null when no payload was set) so
+consumers can rely on its presence; "extensions" is omitted when empty.
+*/
+type Response struct {
+	Data       any            `json:"data"`
+	Extensions map[string]any `json:"extensions,omitempty"`
+}
 
 /*
 ResponseSuccess is the JSON object every HTTP responses shall return.
@@ -21,11 +33,14 @@ type ResponseSuccess[Metadata any, Data any] struct {
 
 /*
 responseSuccessJSON is the JSON representation of ResponseSuccess when marshaled.
+Mirrors responseErrorJSON: typed metadata is folded under extensions.metadata
+so the wire shape is uniform across 2xx and non-2xx envelopes. "data" is always
+serialized (as null when no payload was set) so consumers can rely on the
+field's presence.
 */
-type responseSuccessJSON[Metadata any, Data any] struct {
-	Status   string    `json:"status"`
-	Metadata *Metadata `json:"metadata,omitempty"`
-	Data     *Data     `json:"data,omitempty"`
+type responseSuccessJSON[Data any] struct {
+	Data       *Data          `json:"data"`
+	Extensions map[string]any `json:"extensions,omitempty"`
 }
 
 /*
@@ -38,7 +53,7 @@ func NewResponseSuccess[Metadata any, Data any](req *http.Request) *ResponseSucc
 }
 
 /*
-SetStatus sets the response's status code.
+SetStatus sets the response's HTTP status code.
 */
 func (res *ResponseSuccess[Metadata, Data]) SetStatus(status int) *ResponseSuccess[Metadata, Data] {
 	res.statusCode = status
@@ -47,7 +62,7 @@ func (res *ResponseSuccess[Metadata, Data]) SetStatus(status int) *ResponseSucce
 }
 
 /*
-SetMetadata sets the "metadata" object of the response body.
+SetMetadata sets the typed metadata folded under top-level extensions.metadata.
 */
 func (res *ResponseSuccess[Metadata, Data]) SetMetadata(metadata Metadata) *ResponseSuccess[Metadata, Data] {
 	res.metadata = &metadata
@@ -82,15 +97,15 @@ func (res *ResponseSuccess[Metadata, Data]) Write(rw http.ResponseWriter) {
 }
 
 /*
-MarshalJSON is an implementation of json.Marshaler to properly marshal the response
-body.
+MarshalJSON serializes the response into the GraphQL-spec envelope, folding
+the typed metadata under top-level extensions.metadata when present.
 */
 func (res *ResponseSuccess[Metadata, Data]) MarshalJSON() ([]byte, error) {
-	formatted := responseSuccessJSON[Metadata, Data]{
-		Status:   http.StatusText(res.statusCode),
-		Metadata: res.metadata,
-		Data:     res.data,
+	envelope := responseSuccessJSON[Data]{Data: res.data}
+
+	if res.metadata != nil {
+		envelope.Extensions = map[string]any{"metadata": res.metadata}
 	}
 
-	return json.Marshal(formatted)
+	return json.Marshal(envelope)
 }

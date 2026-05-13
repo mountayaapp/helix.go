@@ -13,56 +13,56 @@ import (
 
 func TestConfigTLS_Sanitize(t *testing.T) {
 	testcases := []struct {
-		name        string
-		cfg         ConfigTLS
-		validations []errorstack.Validation
+		name     string
+		cfg      ConfigTLS
+		expected []errorstack.Entry
 	}{
 		{
-			name: "disabled TLS has no validations",
+			name: "disabled TLS has no entries",
 			cfg: ConfigTLS{
 				Enabled: false,
 			},
-			validations: nil,
+			expected: nil,
 		},
 		{
-			name: "enabled TLS without certs has no validations",
+			name: "enabled TLS without certs has no entries",
 			cfg: ConfigTLS{
 				Enabled: true,
 			},
-			validations: nil,
+			expected: nil,
 		},
 		{
-			name: "enabled TLS with both CertPEM and KeyPEM has no validations",
+			name: "enabled TLS with both CertPEM and KeyPEM has no entries",
 			cfg: ConfigTLS{
 				Enabled: true,
 				CertPEM: []byte("cert"),
 				KeyPEM:  []byte("key"),
 			},
-			validations: nil,
+			expected: nil,
 		},
 		{
-			name: "TLS with only CertPEM returns error",
+			name: "TLS with only CertPEM returns entry",
 			cfg: ConfigTLS{
 				Enabled: true,
 				CertPEM: []byte("cert"),
 			},
-			validations: []errorstack.Validation{
+			expected: []errorstack.Entry{
 				{
-					Message: "CertPEM and KeyPEM must be set together or neither must be set",
-					Path:    []string{"Config", "TLS"},
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
 			},
 		},
 		{
-			name: "TLS with only KeyPEM returns error",
+			name: "TLS with only KeyPEM returns entry",
 			cfg: ConfigTLS{
 				Enabled: true,
 				KeyPEM:  []byte("key"),
 			},
-			validations: []errorstack.Validation{
+			expected: []errorstack.Entry{
 				{
-					Message: "CertPEM and KeyPEM must be set together or neither must be set",
-					Path:    []string{"Config", "TLS"},
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
 			},
 		},
@@ -72,14 +72,14 @@ func TestConfigTLS_Sanitize(t *testing.T) {
 				Enabled: false,
 				CertPEM: []byte("cert"),
 			},
-			validations: nil,
+			expected: nil,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			validations := tc.cfg.Sanitize()
-			assert.Equal(t, tc.validations, validations)
+			entries := tc.cfg.Sanitize()
+			assert.Equal(t, tc.expected, entries)
 		})
 	}
 }

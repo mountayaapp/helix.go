@@ -47,8 +47,6 @@ sanitize sets default values - when applicable - and validates the configuration
 Returns an error if configuration is not valid.
 */
 func (cfg *Config) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
-
 	if cfg.Address == "" {
 		cfg.Address = "127.0.0.1:9000"
 	}
@@ -65,9 +63,9 @@ func (cfg *Config) sanitize() error {
 		cfg.Password = "default"
 	}
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
-	if stack.HasValidations() {
-		return stack
+	entries := cfg.TLS.Sanitize()
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

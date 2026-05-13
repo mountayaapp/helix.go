@@ -60,30 +60,26 @@ func New(svc *service.Service, cfg Config) (REST, error) {
 		return nil, err
 	}
 
-	// Start to build an error stack, so we can add validations as we go.
-	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
 	r := &rest{
 		svc:    svc,
 		config: &cfg,
 	}
 
-	var validations []errorstack.Validation
-	r.bun, validations = r.buildRouter()
-	if validations != nil {
-		stack.WithValidations(validations...)
-	}
+	var entries []errorstack.Entry
+	var routerEntries []errorstack.Entry
+	r.bun, routerEntries = r.buildRouter()
+	entries = append(entries, routerEntries...)
 
 	// Only try to build the OpenAPI router if enabled in Config.
 	if cfg.OpenAPI.Enabled {
-		r.oapirouter, validations = r.buildRouterOpenAPI()
-		if validations != nil {
-			stack.WithValidations(validations...)
-		}
+		var oapiEntries []errorstack.Entry
+		r.oapirouter, oapiEntries = r.buildRouterOpenAPI()
+		entries = append(entries, oapiEntries...)
 	}
 
-	// Stop here if error validations were encountered.
-	if stack.HasValidations() {
-		return nil, stack
+	// Stop here if validation entries were collected.
+	if len(entries) > 0 {
+		return nil, errorstack.NewValidation(entries...)
 	}
 
 	// Otherwise, try to register the server integration to the service.
@@ -98,7 +94,7 @@ func New(svc *service.Service, cfg Config) (REST, error) {
 buildRouter tries to build the HTTP router. It comes with opinionated handlers
 for 404 and 405 HTTP errors, as well as for the health endpoint.
 */
-func (r *rest) buildRouter() (*bunrouter.CompatRouter, []errorstack.Validation) {
+func (r *rest) buildRouter() (*bunrouter.CompatRouter, []errorstack.Entry) {
 	opts := []bunrouter.Option{
 		bunrouter.Use(reqlog.NewMiddleware(reqlog.WithEnabled(false))),
 		bunrouter.Use(bunrouterotel.NewMiddleware(bunrouterotel.WithClientIP())),

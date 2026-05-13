@@ -18,15 +18,11 @@ client. Returns 200 on success, 503 with an errorstack on failure. The caller
 is responsible for providing a context with an appropriate deadline.
 */
 func checkHealth(ctx context.Context, c client.Client) (int, error) {
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-
 	_, err := c.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return 503, stack
+		return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
+			errorstack.WithCode(errorstack.CodeServiceUnavailable),
+		)
 	}
 
 	return 200, nil
@@ -36,7 +32,7 @@ func checkHealth(ctx context.Context, c client.Client) (int, error) {
 Pre-computed span names to avoid allocations on every call.
 */
 var (
-	attrKeyWorkerTaskQueue   = attribute.Key(identifier + ".worker.taskqueue")
+	attrKeyWorkerTaskQueue   = attribute.Key(identifier + ".worker.task_queue")
 	attrKeyWorkflowNamespace = attribute.Key(identifier + ".workflow.namespace")
 	attrKeyWorkflowType      = attribute.Key(identifier + ".workflow.type")
 	attrKeyWorkflowAttempt   = attribute.Key(identifier + ".workflow.attempt")

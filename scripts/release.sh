@@ -98,3 +98,27 @@ wait_for_proxy "github.com/mountayaapp/helix.go" "$GORELEASER_CURRENT_TAG"
 for mod in $integrations; do
   wait_for_proxy "github.com/mountayaapp/helix.go/integration/$mod" "$GORELEASER_CURRENT_TAG"
 done
+
+cat <<'EOF'
+
+==> Release complete. pkg.go.dev indexing notes:
+
+    * DO NOT visit pkg.go.dev/<module>@<version> until at least 30 min
+      have passed. Per index.golang.org's docs, requesting a version
+      before it has fully propagated pins a stale mirror cache for up
+      to 30 minutes, and pkg.go.dev's worker caches the resulting
+      build failure indefinitely.
+
+    * Verify sooner if needed the way a normal consumer would:
+      `go get github.com/mountayaapp/helix.go@<tag>` in a downstream
+      project. This is one of pkg.go.dev's three documented paths for
+      ensuring a version is indexed and it is lossless.
+
+    * After 30 min, check pkg.go.dev/<module>?tab=versions. If anything
+      is still missing, file a pkgsite issue:
+      https://github.com/golang/go/issues/new?template=02-pkgsite.md
+      Do NOT click the "Request" button or otherwise poke the missing
+      URL — the Go team's manual re-index is the only path that clears
+      a cached build failure.
+
+EOF

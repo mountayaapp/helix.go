@@ -48,35 +48,33 @@ sanitize sets default values - when applicable - and validates the configuration
 Returns an error if configuration is not valid.
 */
 func (cfg *Config) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	if cfg.Driver == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Driver must be set and not be nil",
-			Path:    []string{"Config", "Driver"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "driver"},
 		})
 	} else {
-		stack.WithValidations(cfg.Driver.validate(cfg)...)
+		entries = append(entries, cfg.Driver.validate(cfg)...)
 	}
 
 	if cfg.Bucket == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Bucket must be set and not be empty",
-			Path:    []string{"Config", "Bucket"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "bucket"},
 		})
 	}
 
-	if cfg.Subfolder != "" {
-		if !strings.HasSuffix(cfg.Subfolder, "/") {
-			stack.WithValidations(errorstack.Validation{
-				Message: "Subfolder must end with a trailing slash",
-				Path:    []string{"Config", "Subfolder"},
-			})
-		}
+	if cfg.Subfolder != "" && !strings.HasSuffix(cfg.Subfolder, "/") {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must end with a trailing slash",
+			Path:    []any{"config", "subfolder"},
+		})
 	}
 
-	if stack.HasValidations() {
-		return stack
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

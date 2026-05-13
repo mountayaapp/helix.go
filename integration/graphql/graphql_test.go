@@ -68,7 +68,7 @@ func TestMux_NonAllowedMethodGraphQL_ReturnsMethodNotAllowed(t *testing.T) {
 
 			assert.Equal(t, http.StatusMethodNotAllowed, rw.Code)
 			assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-			assert.JSONEq(t, `{"status":"Method Not Allowed","error":{"message":"Resource does not support this method"}}`, rw.Body.String())
+			assert.JSONEq(t, `{"errors":[{"message":"Method is not allowed for this resource","extensions":{"code":"METHOD_NOT_ALLOWED"}}]}`, rw.Body.String())
 		})
 	}
 }
@@ -82,7 +82,7 @@ func TestMux_Liveness_ReturnsOK(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"OK"}`, rw.Body.String())
+	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 }
 
 func TestMux_Readiness_CustomReady(t *testing.T) {
@@ -106,7 +106,7 @@ func TestMux_Readiness_CustomReady(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"OK"}`, rw.Body.String())
+	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 }
 
 func TestMux_Readiness_WithCustomReadiness(t *testing.T) {
@@ -137,7 +137,7 @@ func TestMux_Readiness_WithCustomReadiness(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"Service Unavailable","error":{"message":"Please try again in a few moments"}}`, rw.Body.String())
+	assert.JSONEq(t, `{"errors":[{"message":"Service is temporarily unavailable","extensions":{"code":"SERVICE_UNAVAILABLE"}}]}`, rw.Body.String())
 }
 
 func TestMux_UnknownRoute_ReturnsNotFound(t *testing.T) {
@@ -157,7 +157,7 @@ func TestMux_UnknownRoute_ReturnsNotFound(t *testing.T) {
 
 			assert.Equal(t, http.StatusNotFound, rw.Code)
 			assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-			assert.JSONEq(t, `{"status":"Not Found","error":{"message":"Resource does not exist"}}`, rw.Body.String())
+			assert.JSONEq(t, `{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`, rw.Body.String())
 		})
 	}
 }

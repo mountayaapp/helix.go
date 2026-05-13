@@ -23,14 +23,8 @@ func (conn *connection) Name() string {
 Close tries to gracefully close the connection with the ClickHouse database.
 */
 func (conn *connection) Close(ctx context.Context) error {
-	err := conn.client.Close()
-	if err != nil {
-		stack := errorstack.New("Failed to gracefully close connection with database", errorstack.WithIntegration(identifier))
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return stack
+	if err := errorstack.Wrap(conn.client.Close(), "Failed to gracefully close connection"); err != nil {
+		return err
 	}
 
 	return nil
@@ -46,10 +40,7 @@ func (conn *connection) Status(ctx context.Context) (int, error) {
 		return 200, nil
 	}
 
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-	stack.WithValidations(errorstack.Validation{
-		Message: err.Error(),
-	})
-
-	return 503, stack
+	return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
+		errorstack.WithCode(errorstack.CodeServiceUnavailable),
+	)
 }

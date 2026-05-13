@@ -57,8 +57,6 @@ func Connect(svc *service.Service, cfg Config) (Bucket, error) {
 		return nil, err
 	}
 
-	// Start to build an error stack, so we can add validations as we go.
-	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
 	conn := &connection{
 		config: &cfg,
 	}
@@ -66,11 +64,10 @@ func Connect(svc *service.Service, cfg Config) (Bucket, error) {
 	// Try to create the Bucket connection, using the URL returned by the driver.
 	conn.client, err = blob.OpenBucket(context.Background(), cfg.Driver.url(&cfg))
 	if err != nil {
-		stack.WithValidations(errorstack.Validation{
+		return nil, errorstack.NewValidation(errorstack.Entry{
 			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config"},
 		})
-
-		return nil, stack
 	}
 
 	// Use a prefixed bucket, if applicable.

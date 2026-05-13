@@ -68,24 +68,22 @@ sanitize sets default values - when applicable - and validates the configuration
 Returns an error if configuration is not valid.
 */
 func (cfg *Config) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	if cfg.Address == "" {
 		cfg.Address = ":8080"
 	}
 
-	if cfg.OpenAPI.Enabled {
-		if cfg.OpenAPI.Description == "" {
-			stack.WithValidations(errorstack.Validation{
-				Message: "Description must be set and not be empty",
-				Path:    []string{"Config", "OpenAPI", "Description"},
-			})
-		}
+	if cfg.OpenAPI.Enabled && cfg.OpenAPI.Description == "" {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "openapi", "description"},
+		})
 	}
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
-	if stack.HasValidations() {
-		return stack
+	entries = append(entries, cfg.TLS.Sanitize()...)
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

@@ -69,7 +69,7 @@ func TestSetActivityAttributes_ZeroValues(t *testing.T) {
 }
 
 func TestPreComputedAttributeKeys(t *testing.T) {
-	assert.Equal(t, attribute.Key("temporal.worker.taskqueue"), attrKeyWorkerTaskQueue)
+	assert.Equal(t, attribute.Key("temporal.worker.task_queue"), attrKeyWorkerTaskQueue)
 	assert.Equal(t, attribute.Key("temporal.workflow.namespace"), attrKeyWorkflowNamespace)
 	assert.Equal(t, attribute.Key("temporal.workflow.type"), attrKeyWorkflowType)
 	assert.Equal(t, attribute.Key("temporal.workflow.attempt"), attrKeyWorkflowAttempt)

@@ -1,18 +1,12 @@
-type: object
-x-go-type: rest.Response
+x-go-type: errorstack.Error
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/integration/rest
+  path: github.com/mountayaapp/helix.go/errorstack
 
-properties:
-  status:
-    type: string
-    default: Service Unavailable
-  error:
-    $ref: ../Error.yaml
-  metadata: {}
-required:
-  - status
-  - error
+allOf:
+  - $ref: ../Errors.yaml
 
 example:
-  status: Service Unavailable
+  errors:
+    - message: Service is temporarily unavailable
+      extensions:
+        code: SERVICE_UNAVAILABLE

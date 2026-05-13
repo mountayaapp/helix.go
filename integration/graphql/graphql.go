@@ -49,9 +49,12 @@ func New(svc *service.Service, cfg Config) error {
 	}
 
 	// Create the gqlgen handler with the executable schema and add the POST
-	// transport for handling GraphQL requests.
+	// transport for handling GraphQL requests. Wire the errorstack-aware error
+	// presenter so resolver errors carry path/extensions consistently with the
+	// rest of helix.go.
 	gqlHandler := handler.New(cfg.Schema)
 	gqlHandler.AddTransport(transport.POST{})
+	gqlHandler.SetErrorPresenter(errorPresenter)
 
 	// Enable introspection when configured, so clients can discover the schema
 	// via __schema and __type queries.

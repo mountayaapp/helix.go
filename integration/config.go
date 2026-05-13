@@ -41,16 +41,17 @@ type ConfigTLS struct {
 
 /*
 Sanitize sets default values - if applicable - and validates the configuration.
-Returns validation errors if configuration is not valid. This doesn't return a
-standard error since this function shall only be called by integrations. This
-allows to easily add error validations to an existing errorstack:
+Returns validation entries if configuration is not valid. This doesn't return
+a standard error since this function shall only be called by integrations,
+which collect entries from many sources before producing a final
+errorstack.NewValidation:
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
+	entries = append(entries, cfg.TLS.Sanitize()...)
 */
-func (cfg *ConfigTLS) Sanitize() []errorstack.Validation {
-	var validations []errorstack.Validation
+func (cfg *ConfigTLS) Sanitize() []errorstack.Entry {
+	var entries []errorstack.Entry
 	if !cfg.Enabled {
-		return validations
+		return entries
 	}
 
 	cfg.CertPEM = normalizePEM(cfg.CertPEM)
@@ -60,25 +61,24 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Validation {
 	}
 
 	if (len(cfg.CertPEM) > 0 && len(cfg.KeyPEM) == 0) || (len(cfg.CertPEM) == 0 && len(cfg.KeyPEM) > 0) {
-		validations = append(validations, errorstack.Validation{
-			Message: "CertPEM and KeyPEM must be set together or neither must be set",
-			Path:    []string{"Config", "TLS"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set together; cert_pem and key_pem are required as a pair",
+			Path:    []any{"config", "tls"},
 		})
 	}
 
-	return validations
+	return entries
 }
 
 /*
-ToStandardTLS tries to return a Go standard *tls.Config. Returns validation errors
-if configuration is not valid. This doesn't return a standard error since this
-function shall only be called by integrations. This allows to easily add error
-validations to an existing errorstack.
+ToStandardTLS tries to return a Go standard *tls.Config. Returns validation
+entries if configuration is not valid. This doesn't return a standard error
+since this function shall only be called by integrations.
 */
-func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
-	var validations []errorstack.Validation
+func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Entry) {
+	var entries []errorstack.Entry
 	if !cfg.Enabled {
-		return nil, validations
+		return nil, entries
 	}
 
 	var cert tls.Certificate
@@ -87,11 +87,12 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 
 		cert, err = tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
 		if err != nil {
-			validations = append(validations, errorstack.Validation{
-				Message: err.Error(),
+			entries = append(entries, errorstack.Entry{
+				Message: "Must be a valid X509 key pair",
+				Path:    []any{"config", "tls"},
 			})
 
-			return nil, validations
+			return nil, entries
 		}
 	}
 
@@ -112,14 +113,15 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Validation) {
 	for _, ca := range cfg.RootCAPEMs {
 		ok := caCertPool.AppendCertsFromPEM(ca)
 		if !ok {
-			validations = append(validations, errorstack.Validation{
-				Message: "Failed to append root certificate from PEM",
+			entries = append(entries, errorstack.Entry{
+				Message: "Must be a valid PEM-encoded root certificate",
+				Path:    []any{"config", "tls", "root_ca_pems"},
 			})
 		}
 	}
 
-	if len(validations) > 0 {
-		return nil, validations
+	if len(entries) > 0 {
+		return nil, entries
 	}
 
 	tlsConfig.RootCAs = caCertPool

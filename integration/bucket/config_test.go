@@ -19,20 +19,10 @@ func TestConfig_Sanitize(t *testing.T) {
 			name:   "empty config returns driver and bucket errors",
 			before: Config{},
 			after:  Config{},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Driver must be set and not be nil",
-						Path:    []string{"Config", "Driver"},
-					},
-					{
-						Message: "Bucket must be set and not be empty",
-						Path:    []string{"Config", "Bucket"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "driver"}},
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "bucket"}},
+			),
 		},
 		{
 			name: "valid driver and bucket is valid",
@@ -54,16 +44,9 @@ func TestConfig_Sanitize(t *testing.T) {
 			after: Config{
 				Bucket: "anything",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Driver must be set and not be nil",
-						Path:    []string{"Config", "Driver"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "driver"}},
+			),
 		},
 		{
 			name: "missing bucket returns error",
@@ -73,16 +56,9 @@ func TestConfig_Sanitize(t *testing.T) {
 			after: Config{
 				Driver: DriverLocal,
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Bucket must be set and not be empty",
-						Path:    []string{"Config", "Bucket"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "bucket"}},
+			),
 		},
 		{
 			name: "subfolder without trailing slash returns error",
@@ -96,16 +72,12 @@ func TestConfig_Sanitize(t *testing.T) {
 				Bucket:    "anything",
 				Subfolder: "not/a/valid/path",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Subfolder must end with a trailing slash",
-						Path:    []string{"Config", "Subfolder"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must end with a trailing slash",
+					Path:    []any{"config", "subfolder"},
 				},
-			},
+			),
 		},
 		{
 			name: "subfolder with trailing slash is valid",
@@ -157,24 +129,14 @@ func TestConfig_Sanitize(t *testing.T) {
 			after: Config{
 				Subfolder: "not/a/valid/path",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Driver must be set and not be nil",
-						Path:    []string{"Config", "Driver"},
-					},
-					{
-						Message: "Bucket must be set and not be empty",
-						Path:    []string{"Config", "Bucket"},
-					},
-					{
-						Message: "Subfolder must end with a trailing slash",
-						Path:    []string{"Config", "Subfolder"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "driver"}},
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "bucket"}},
+				errorstack.Entry{
+					Message: "Must end with a trailing slash",
+					Path:    []any{"config", "subfolder"},
 				},
-			},
+			),
 		},
 	}
 

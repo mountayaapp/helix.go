@@ -19,6 +19,21 @@ func TestNewResponseError(t *testing.T) {
 	assert.NotNil(t, res)
 }
 
+func TestNewResponseError_DefaultsToInternalServerError(t *testing.T) {
+	// A caller that forgets SetStatus must still produce a valid HTTP error
+	// response — never a status-0 response with an error envelope.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+
+	NewResponseError[NoMetadata](req).Write(rw)
+
+	assert.Equal(t, http.StatusInternalServerError, rw.Code)
+	assert.JSONEq(t,
+		`{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_ERROR"}}]}`,
+		rw.Body.String(),
+	)
+}
+
 func TestResponseError_SetStatus(t *testing.T) {
 	testcases := []struct {
 		name     string
@@ -28,47 +43,67 @@ func TestResponseError_SetStatus(t *testing.T) {
 		{
 			name:     "400 Bad Request",
 			status:   http.StatusBadRequest,
-			expected: `{"status":"Bad Request","error":{"message":"Failed to validate request"}}`,
+			expected: `{"errors":[{"message":"Request is invalid","extensions":{"code":"BAD_REQUEST"}}]}`,
 		},
 		{
 			name:     "401 Unauthorized",
 			status:   http.StatusUnauthorized,
-			expected: `{"status":"Unauthorized","error":{"message":"You are not authorized to perform this action"}}`,
+			expected: `{"errors":[{"message":"Authentication is required","extensions":{"code":"UNAUTHORIZED"}}]}`,
+		},
+		{
+			name:     "402 Payment Required",
+			status:   http.StatusPaymentRequired,
+			expected: `{"errors":[{"message":"Payment is required","extensions":{"code":"PAYMENT_REQUIRED"}}]}`,
 		},
 		{
 			name:     "403 Forbidden",
 			status:   http.StatusForbidden,
-			expected: `{"status":"Forbidden","error":{"message":"You don't have required permissions to perform this action"}}`,
+			expected: `{"errors":[{"message":"Access is forbidden","extensions":{"code":"FORBIDDEN"}}]}`,
 		},
 		{
 			name:     "404 Not Found",
 			status:   http.StatusNotFound,
-			expected: `{"status":"Not Found","error":{"message":"Resource does not exist"}}`,
+			expected: `{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`,
 		},
 		{
 			name:     "405 Method Not Allowed",
 			status:   http.StatusMethodNotAllowed,
-			expected: `{"status":"Method Not Allowed","error":{"message":"Resource does not support this method"}}`,
+			expected: `{"errors":[{"message":"Method is not allowed for this resource","extensions":{"code":"METHOD_NOT_ALLOWED"}}]}`,
 		},
 		{
 			name:     "409 Conflict",
 			status:   http.StatusConflict,
-			expected: `{"status":"Conflict","error":{"message":"Failed to process target resource because of conflict"}}`,
+			expected: `{"errors":[{"message":"Resource conflicts with current state","extensions":{"code":"CONFLICT"}}]}`,
+		},
+		{
+			name:     "413 Payload Too Large",
+			status:   http.StatusRequestEntityTooLarge,
+			expected: `{"errors":[{"message":"Payload exceeds size limit","extensions":{"code":"PAYLOAD_TOO_LARGE"}}]}`,
 		},
 		{
 			name:     "429 Too Many Requests",
 			status:   http.StatusTooManyRequests,
-			expected: `{"status":"Too Many Requests","error":{"message":"Request-rate limit has been reached"}}`,
+			expected: `{"errors":[{"message":"Rate limit has been exceeded","extensions":{"code":"TOO_MANY_REQUESTS"}}]}`,
 		},
 		{
 			name:     "500 Internal Server Error",
 			status:   http.StatusInternalServerError,
-			expected: `{"status":"Internal Server Error","error":{"message":"We have been notified of this unexpected internal error"}}`,
+			expected: `{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_ERROR"}}]}`,
+		},
+		{
+			name:     "501 Not Implemented",
+			status:   http.StatusNotImplemented,
+			expected: `{"errors":[{"message":"Endpoint is not implemented","extensions":{"code":"NOT_IMPLEMENTED"}}]}`,
+		},
+		{
+			name:     "502 Bad Gateway",
+			status:   http.StatusBadGateway,
+			expected: `{"errors":[{"message":"Upstream gateway is unavailable","extensions":{"code":"BAD_GATEWAY"}}]}`,
 		},
 		{
 			name:     "503 Service Unavailable",
 			status:   http.StatusServiceUnavailable,
-			expected: `{"status":"Service Unavailable","error":{"message":"Please try again in a few moments"}}`,
+			expected: `{"errors":[{"message":"Service is temporarily unavailable","extensions":{"code":"SERVICE_UNAVAILABLE"}}]}`,
 		},
 	}
 
@@ -88,48 +123,53 @@ func TestResponseError_SetStatus(t *testing.T) {
 
 func TestResponseError_SetMetadata(t *testing.T) {
 	type metadata struct {
-		RequestId string `json:"request_id"`
+		RequestID string `json:"request_id"`
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	res := NewResponseError[metadata](req).
 		SetStatus(http.StatusBadRequest).
-		SetMetadata(metadata{RequestId: "abc-123"})
+		SetMetadata(metadata{RequestID: "abc-123"})
 
 	b, err := json.Marshal(res)
 
 	require.NoError(t, err)
 
 	var result map[string]any
-	json.Unmarshal(b, &result)
-	meta := result["metadata"].(map[string]any)
+	require.NoError(t, json.Unmarshal(b, &result))
+	extensions := result["extensions"].(map[string]any)
+	meta := extensions["metadata"].(map[string]any)
 	assert.Equal(t, "abc-123", meta["request_id"])
 }
 
-func TestResponseError_SetErrorValidations(t *testing.T) {
+func TestResponseError_SetValidations(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	res := NewResponseError[NoMetadata](req).
 		SetStatus(http.StatusBadRequest).
-		SetErrorValidations([]errorstack.Validation{
-			{
-				Message: "Email is required",
-				Path:    []string{"body", "email"},
+		SetValidations(
+			errorstack.Entry{
+				Message: "Must be a valid email address",
+				Path:    []any{"request", "body", "email"},
 			},
-			{
-				Message: "Name must not be empty",
-				Path:    []string{"body", "name"},
+			errorstack.Entry{
+				Message: "Must be set",
+				Path:    []any{"request", "body", "name"},
 			},
-		})
+		)
 
 	b, err := json.Marshal(res)
-
 	require.NoError(t, err)
 
 	var result map[string]any
-	json.Unmarshal(b, &result)
-	errObj := result["error"].(map[string]any)
-	validations := errObj["validations"].([]any)
-	assert.Len(t, validations, 2)
+	require.NoError(t, json.Unmarshal(b, &result))
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 2, "validations supersede the seeded fallback entry")
+
+	for _, e := range errs {
+		entry := e.(map[string]any)
+		ext := entry["extensions"].(map[string]any)
+		assert.Equal(t, errorstack.CodeValidationFailed, ext["code"])
+	}
 }
 
 func TestResponseError_Write(t *testing.T) {
@@ -142,7 +182,10 @@ func TestResponseError_Write(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"Not Found","error":{"message":"Resource does not exist"}}`, rw.Body.String())
+	assert.JSONEq(t,
+		`{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`,
+		rw.Body.String(),
+	)
 }
 
 func TestResponseError_Write_InternalServerError(t *testing.T) {
@@ -155,7 +198,10 @@ func TestResponseError_Write_InternalServerError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"Internal Server Error","error":{"message":"We have been notified of this unexpected internal error"}}`, rw.Body.String())
+	assert.JSONEq(t,
+		`{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_ERROR"}}]}`,
+		rw.Body.String(),
+	)
 }
 
 func TestResponseError_ChainedCalls(t *testing.T) {
@@ -167,62 +213,64 @@ func TestResponseError_ChainedCalls(t *testing.T) {
 	res := NewResponseError[metadata](req).
 		SetStatus(http.StatusBadRequest).
 		SetMetadata(metadata{TraceID: "trace_123"}).
-		SetErrorValidations([]errorstack.Validation{
-			{
-				Message: "email is required",
-				Path:    []string{"body", "email"},
+		SetValidations(
+			errorstack.Entry{
+				Message: "Must be set",
+				Path:    []any{"request", "body", "email"},
 			},
-		})
+		)
 
 	b, err := json.Marshal(res)
-
 	require.NoError(t, err)
 
 	var result map[string]any
-	json.Unmarshal(b, &result)
-	assert.Equal(t, "Bad Request", result["status"])
-	assert.NotNil(t, result["metadata"])
-	assert.NotNil(t, result["error"])
+	require.NoError(t, json.Unmarshal(b, &result))
+
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 1)
+
+	extensions := result["extensions"].(map[string]any)
+	meta := extensions["metadata"].(map[string]any)
+	assert.Equal(t, "trace_123", meta["trace_id"])
 }
 
-func TestResponseError_MarshalJSON_StatusText(t *testing.T) {
-	testcases := []struct {
-		name           string
-		status         int
-		expectedStatus string
-	}{
-		{name: "400", status: http.StatusBadRequest, expectedStatus: "Bad Request"},
-		{name: "404", status: http.StatusNotFound, expectedStatus: "Not Found"},
-		{name: "500", status: http.StatusInternalServerError, expectedStatus: "Internal Server Error"},
-		{name: "503", status: http.StatusServiceUnavailable, expectedStatus: "Service Unavailable"},
-	}
+func TestResponseError_MarshalJSON_NormalizesAppendedEntryWithoutCode(t *testing.T) {
+	// Schema invariant: every errors[] entry must carry extensions.code (per
+	// Error.yaml). ResponseError.MarshalJSON delegates to errorstack so the
+	// invariant holds even when callers append a bare Entry that bypasses the
+	// public constructors.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	res := NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusBadRequest)
+	res.err.Append(errorstack.Entry{Message: "Manually appended without code"})
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			res := NewResponseError[NoMetadata](req).SetStatus(tc.status)
+	b, err := json.Marshal(res)
+	require.NoError(t, err)
 
-			b, err := json.Marshal(res)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(b, &result))
 
-			require.NoError(t, err)
-
-			var result map[string]any
-			json.Unmarshal(b, &result)
-			assert.Equal(t, tc.expectedStatus, result["status"])
-		})
-	}
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 2)
+	appended := errs[1].(map[string]any)
+	ext := appended["extensions"].(map[string]any)
+	assert.Equal(t, errorstack.CodeInternalError, ext["code"], "appended entries without a code default to INTERNAL_ERROR")
 }
 
-func TestResponseError_SetErrorValidations_Empty(t *testing.T) {
+func TestResponseError_SetValidations_Empty(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	res := NewResponseError[NoMetadata](req).
 		SetStatus(http.StatusBadRequest).
-		SetErrorValidations([]errorstack.Validation{})
+		SetValidations()
 
 	b, err := json.Marshal(res)
-
 	require.NoError(t, err)
-	assert.NotContains(t, string(b), "validations")
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(b, &result))
+
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 1, "empty SetValidations falls back to a single internal error entry per errorstack guarantee")
 }
 
 func TestFallbackErrorResponse_ValidJSON(t *testing.T) {
@@ -230,9 +278,12 @@ func TestFallbackErrorResponse_ValidJSON(t *testing.T) {
 	err := json.Unmarshal(fallbackErrorResponse, &result)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Internal Server Error", result["status"])
-	errObj := result["error"].(map[string]any)
-	assert.NotEmpty(t, errObj["message"])
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 1)
+	entry := errs[0].(map[string]any)
+	assert.NotEmpty(t, entry["message"])
+	ext := entry["extensions"].(map[string]any)
+	assert.Equal(t, errorstack.CodeInternalError, ext["code"])
 }
 
 func TestResponseError_Write_SetsHeaders(t *testing.T) {
@@ -246,3 +297,4 @@ func TestResponseError_Write_SetsHeaders(t *testing.T) {
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
 	assert.Equal(t, http.StatusBadRequest, rw.Code)
 }
+

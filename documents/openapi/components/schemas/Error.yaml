@@ -1,27 +1,32 @@
 type: object
-x-go-type: errorstack.Error
+x-go-type: errorstack.Entry
 x-go-type-import:
   path: github.com/mountayaapp/helix.go/errorstack
 
 properties:
   message:
     type: string
-    example: You are not authorized to perform this action
-  validations:
+    example: Must be a valid email address
+  path:
     type: array
     items:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Security requirements must be set
-        path:
-          type: array
-          items:
-            type: string
-          example:
-            - request
-            - headers
-            - X-API-KEY
+      oneOf:
+        - type: string
+        - type: integer
+    example:
+      - request
+      - body
+      - email
+  extensions:
+    type: object
+    properties:
+      code:
+        type: string
+        description: Machine-readable error code identifying the failure category.
+        example: VALIDATION_FAILED
+    required:
+      - code
+
 required:
   - message
+  - extensions

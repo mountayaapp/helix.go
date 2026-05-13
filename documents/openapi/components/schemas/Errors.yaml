@@ -1,0 +1,29 @@
+type: object
+x-go-type: errorstack.Error
+x-go-type-import:
+  path: github.com/mountayaapp/helix.go/errorstack
+
+properties:
+  errors:
+    type: array
+    items:
+      $ref: ./Error.yaml
+    minItems: 1
+  extensions:
+    type: object
+    description: |
+      Top-level extensions map for 4xx and 5xx responses. Mirrors the
+      GraphQL-spec response extensions: a free-form map for
+      response-scoped metadata. Populated by
+      errorstack.Error.SetExtension and ResponseError.SetMetadata.
+    additionalProperties: true
+    properties:
+      metadata:
+        type: object
+        description: |
+          Typed metadata folded by ResponseError.SetMetadata. Inner shape
+          depends on the endpoint's Metadata type parameter.
+        additionalProperties: true
+
+required:
+  - errors

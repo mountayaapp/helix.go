@@ -35,8 +35,6 @@ Start starts the Temporal worker. It respects both context cancellation and OS
 interrupt signals (SIGINT/SIGTERM) for graceful shutdown.
 */
 func (conn *serverConnection) Start(ctx context.Context) error {
-	stack := errorstack.New("Failed to start worker", errorstack.WithIntegration(identifier))
-
 	// Merge context cancellation with OS interrupt signals so that the worker
 	// stops on whichever comes first.
 	interruptCh := worker.InterruptCh()
@@ -50,16 +48,7 @@ func (conn *serverConnection) Start(ctx context.Context) error {
 		}
 	}()
 
-	err := conn.worker.Run(doneCh)
-	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return stack
-	}
-
-	return nil
+	return errorstack.Wrap(conn.worker.Run(doneCh), "Failed to start server")
 }
 
 /*

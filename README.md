@@ -23,9 +23,9 @@ boilerplate.
   across service boundaries — REST handlers, Temporal workflows, database calls —
   through the distributed tracing context.
 
-- **Consistent error handling.** The `errorstack` package provides structured,
-  composable errors with validation support. Same schema, same behavior, across
-  every integration.
+- **Consistent error handling.** The `errorstack` package emits a single
+  GraphQL-spec error envelope (`{errors:[…], extensions:{…}}`) shared by REST and
+  GraphQL APIs. Same shape, same machine-readable codes, across every integration.
 
 - **Type-safe by default.** Go generics enforce type safety at every layer — from
   HTTP response builders to event propagation — catching bugs at compile time.
@@ -326,14 +326,14 @@ processing requests, and all telemetry is flushed before the process exits.
     user, err := fetchUser(params["id"])
     if err != nil {
 
-      // Error response — returns {"status":"Not Found","error":{"message":"..."}}
+      // Error response — returns {"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}
       rest.NewResponseError[rest.NoMetadata](req).
         SetStatus(http.StatusNotFound).
         Write(rw)
       return
     }
 
-    // Success response — returns {"status":"OK","metadata":{...},"data":{...}}
+    // Success response — returns {"data":{...},"extensions":{"metadata":{...}}}
     rest.NewResponseSuccess[UserMetadata, User](req).
       SetStatus(http.StatusOK).
       SetMetadata(UserMetadata{RequestID: "abc-123"}).
@@ -465,42 +465,53 @@ processing requests, and all telemetry is flushed before the process exits.
 <details>
   <summary>Structured error handling</summary>
 
-  The `errorstack` package provides composable errors with validation support,
-  used consistently across all integrations.
+  The `errorstack` package emits a single GraphQL-spec error envelope used
+  consistently by REST and GraphQL APIs:
+
+  ```json
+  {
+    "errors": [
+      {
+        "message": "Must be set",
+        "path": ["env", "stripe_api_key"],
+        "extensions": {"code": "VALIDATION_FAILED"}
+      }
+    ]
+  }
+  ```
 
   ```go
   import (
-    "fmt"
-
     "github.com/mountayaapp/helix.go/errorstack"
   )
 
-  // Create a new error with validation details.
+  // Build a multi-entry validation error. Each entry is forced to
+  // extensions.code = "VALIDATION_FAILED".
   func validateConfig(apiKey string) error {
-    stack := errorstack.New("Invalid configuration",
-      errorstack.WithIntegration("stripe"),
-    )
+    var entries []errorstack.Entry
 
     if apiKey == "" {
-      stack.WithValidations(errorstack.Validation{
-        Message: "STRIPE_API_KEY environment variable must be set and not be empty",
+      entries = append(entries, errorstack.Entry{
+        Message: "Must be set",
+        Path:    []any{"env", "stripe_api_key"},
       })
     }
 
-    if stack.HasValidations() {
-      return stack
+    if len(entries) > 0 {
+      return errorstack.NewValidation(entries...)
     }
-
     return nil
   }
 
-  // Wrap an existing error with additional context.
+  // Wrap an existing error to preserve it for errors.Is/As while attaching a
+  // canonical lifecycle message and code.
   func fetchUser(id string) error {
     user, err := db.QueryRow(ctx, "SELECT * FROM users WHERE id = $1", id)
     if err != nil {
-      return errorstack.Wrap(err, fmt.Sprintf("Failed to fetch user %s", id))
+      return errorstack.Wrap(err, "Failed to handle request",
+        errorstack.WithCode(errorstack.CodeInternalError),
+      )
     }
-
     return nil
   }
   ```

@@ -26,7 +26,6 @@ func (r *rest) Name() string {
 Start starts the HTTP server of the HTTP REST integration.
 */
 func (r *rest) Start(ctx context.Context) error {
-	stack := errorstack.New("Failed to start HTTP server", errorstack.WithIntegration(identifier))
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
 	// Skip user middleware for the health endpoint so it always responds without
@@ -63,10 +62,9 @@ func (r *rest) Start(ctx context.Context) error {
 	// unexpected errors.
 	var err error
 	if r.config.TLS.Enabled {
-		tlsConfig, tlsValidations := r.config.TLS.ToStandardTLS()
-		if len(tlsValidations) > 0 {
-			stack.WithValidations(tlsValidations...)
-			return stack
+		tlsConfig, tlsEntries := r.config.TLS.ToStandardTLS()
+		if len(tlsEntries) > 0 {
+			return errorstack.NewValidation(tlsEntries...)
 		}
 
 		r.server.TLSConfig = tlsConfig
@@ -76,11 +74,7 @@ func (r *rest) Start(ctx context.Context) error {
 	}
 
 	if err != nil && err != http.ErrServerClosed {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return stack
+		return errorstack.Wrap(err, "Failed to start server")
 	}
 
 	return nil
@@ -90,15 +84,8 @@ func (r *rest) Start(ctx context.Context) error {
 Stop tries to gracefully stop the HTTP server.
 */
 func (r *rest) Stop(ctx context.Context) error {
-	stack := errorstack.New("Failed to gracefully stop HTTP server", errorstack.WithIntegration(identifier))
-
-	err := r.server.Shutdown(ctx)
-	if err != nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: err.Error(),
-		})
-
-		return stack
+	if err := errorstack.Wrap(r.server.Shutdown(ctx), "Failed to gracefully stop server"); err != nil {
+		return err
 	}
 
 	return nil

@@ -47,36 +47,36 @@ sanitize sets default values - when applicable - and validates the configuration
 Returns an error if configuration is not valid.
 */
 func (cfg *Config) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	if cfg.Address == "" {
 		cfg.Address = "127.0.0.1:5432"
 	}
 
 	if cfg.Database == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Database is required and must not be empty",
-			Path:    []string{"Config", "Database"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "database"},
 		})
 	}
 
 	if cfg.User == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "User is required and must not be empty",
-			Path:    []string{"Config", "User"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "user"},
 		})
 	}
 
 	if cfg.Password == "" {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Password is required and must not be empty",
-			Path:    []string{"Config", "Password"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "password"},
 		})
 	}
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
-	if stack.HasValidations() {
-		return stack
+	entries = append(entries, cfg.TLS.Sanitize()...)
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

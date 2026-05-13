@@ -40,16 +40,17 @@ func (d *driverGoogleCloud) string() string {
 validate ensures Config and environment variables are valid for the Google Cloud
 bucket driver.
 */
-func (d *driverGoogleCloud) validate(cfg *Config) []errorstack.Validation {
-	var validations []errorstack.Validation
+func (d *driverGoogleCloud) validate(cfg *Config) []errorstack.Entry {
+	var entries []errorstack.Entry
 
 	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "Environment variable `GOOGLE_APPLICATION_CREDENTIALS` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"env", "google_application_credentials"},
 		})
 	}
 
-	return validations
+	return entries
 }
 
 /*

@@ -1,0 +1,24 @@
+type: object
+x-go-type: rest.Response
+x-go-type-import:
+  path: github.com/mountayaapp/helix.go/integration/rest
+
+properties:
+  extensions:
+    type: object
+    description: |
+      Top-level extensions map for 2xx responses. Mirrors the GraphQL-spec
+      response extensions: a free-form map for response-scoped metadata.
+    additionalProperties: true
+    properties:
+      metadata:
+        type: object
+        description: |
+          Typed metadata folded by ResponseSuccess.SetMetadata. Inner shape
+          depends on the endpoint's Metadata type parameter.
+        additionalProperties: true
+
+example:
+  extensions:
+    metadata:
+      trace_id: 4bf92f3577b34da6a3ce929d0e0e4736

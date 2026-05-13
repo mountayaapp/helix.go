@@ -54,8 +54,8 @@ func Connect(svc *service.Service, cfg Config) (ClickHouse, error) {
 		return nil, err
 	}
 
-	// Start to build an error stack, so we can add validations as we go.
-	stack := errorstack.New("Failed to initialize integration", errorstack.WithIntegration(identifier))
+	// Collect validation entries as we go, then build a single Validation error.
+	var entries []errorstack.Entry
 	conn := &connection{
 		config: &cfg,
 	}
@@ -72,25 +72,23 @@ func Connect(svc *service.Service, cfg Config) (ClickHouse, error) {
 
 	// Set TLS options only if enabled in Config.
 	if cfg.TLS.Enabled {
-		var validations []errorstack.Validation
-
-		opts.TLS, validations = cfg.TLS.ToStandardTLS()
-		if len(validations) > 0 {
-			stack.WithValidations(validations...)
-		}
+		var tlsEntries []errorstack.Entry
+		opts.TLS, tlsEntries = cfg.TLS.ToStandardTLS()
+		entries = append(entries, tlsEntries...)
 	}
 
 	// Try to connect to the ClickHouse database.
 	conn.client, err = clickhouse.Open(opts)
 	if err != nil {
-		stack.WithValidations(errorstack.Validation{
+		entries = append(entries, errorstack.Entry{
 			Message: integration.NormalizeErrorMessage(err),
+			Path:    []any{"config"},
 		})
 	}
 
-	// Stop here if error validations were encountered.
-	if stack.HasValidations() {
-		return nil, stack
+	// Stop here if validation entries were collected.
+	if len(entries) > 0 {
+		return nil, errorstack.NewValidation(entries...)
 	}
 
 	// Try to attach the integration to the service.

@@ -22,24 +22,11 @@ func TestConfig_Sanitize(t *testing.T) {
 			after: Config{
 				Address: "127.0.0.1:5432",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Database is required and must not be empty",
-						Path:    []string{"Config", "Database"},
-					},
-					{
-						Message: "User is required and must not be empty",
-						Path:    []string{"Config", "User"},
-					},
-					{
-						Message: "Password is required and must not be empty",
-						Path:    []string{"Config", "Password"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "database"}},
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "user"}},
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "password"}},
+			),
 		},
 		{
 			name: "valid config with all required fields",
@@ -83,16 +70,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				User:     "admin",
 				Password: "secret",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Database is required and must not be empty",
-						Path:    []string{"Config", "Database"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "database"}},
+			),
 		},
 		{
 			name: "missing only user returns user error",
@@ -105,16 +85,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				Database: "mydb",
 				Password: "secret",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "User is required and must not be empty",
-						Path:    []string{"Config", "User"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "user"}},
+			),
 		},
 		{
 			name: "missing only password returns password error",
@@ -127,16 +100,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				Database: "mydb",
 				User:     "admin",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Password is required and must not be empty",
-						Path:    []string{"Config", "Password"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "password"}},
+			),
 		},
 		{
 			name: "TLS with only CertPEM returns error",
@@ -159,16 +125,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with only KeyPEM returns error",
@@ -191,16 +153,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with both CertPEM and KeyPEM is valid",

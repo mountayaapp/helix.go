@@ -143,6 +143,69 @@ if err != nil {
 }
 ```
 
+## Error responses
+
+GraphQL responses follow the [GraphQL spec error envelope](https://spec.graphql.org/draft/#sec-Errors)
+both for the GraphQL execution layer (returned by gqlgen) and for HTTP-layer
+errors (404, 405, …) returned by this integration before the GraphQL layer is
+reached:
+
+```json
+{
+  "errors": [
+    {"message": "…", "path": [...], "extensions": {"code": "…"}}
+  ]
+}
+```
+
+The integration wires a gqlgen `ErrorPresenter` that recognizes
+`*errorstack.Error` in the error chain and carries `extensions.code` into the
+GraphQL response. When an entry has a non-empty `Path`, it is promoted to the
+spec-level `errors[].path` slot (overriding gqlgen's resolver-derived path) so
+the wire shape stays consistent with REST.
+
+### Single vs. multi-entry errors
+
+Returning `*errorstack.Error` from a resolver always produces one wire-level
+element of `errors[]` per Entry — single- and multi-entry are handled the
+same way:
+
+```go
+return nil, errorstack.New("Resource does not exist", errorstack.WithCode(errorstack.CodeNotFound))
+```
+
+```go
+func (r *mutationResolver) CreateUser(ctx context.Context, input UserInput) (*User, error) {
+  return nil, errorstack.NewValidation(
+    errorstack.Entry{
+      Message: "Must be a valid email address",
+      Path:    []any{"input", "email"},
+    },
+    errorstack.Entry{
+      Message: "Must be set",
+      Path:    []any{"input", "name"},
+    },
+  )
+}
+```
+
+The presenter promotes each entry's `Path` to `errors[].path` (or falls
+back to gqlgen's resolver path when empty) and fans `entries[1:]` into
+gqlgen's error collector so the response carries one `errors[]` element per
+Entry — matching the REST wire shape exactly.
+
+For the rare case where a resolver wants to surface validation errors
+*and* return a partial successful payload, call `AddErrors(ctx, err)` and
+return the payload (and `nil` error) from the resolver:
+
+```go
+graphql.AddErrors(ctx, validation)
+return partial, nil
+```
+
+HTTP-layer errors (e.g. `GET /graphql` returns 405) use the same envelope
+shape.
+
 ## Trace attributes
 
 The `graphql` integration sets the following trace attributes:
@@ -204,12 +267,24 @@ $ curl --request GET \
 
 Aggregates the health status of all dependencies attached to the service,
 returning the highest HTTP status code. When APQ is enabled, the Valkey
-connection status is also taken into account. If all dependencies are healthy
-(`200`) but Valkey is temporarily unavailable (`503`), the response is:
+connection status is also taken into account. When all dependencies are
+healthy, the response is:
+
+```json
+{"data":null}
+```
+
+If all dependencies are healthy (`200`) but Valkey is temporarily
+unavailable (`503`), the response uses the canonical error envelope:
 
 ```json
 {
-  "status": "Service Unavailable"
+  "errors": [
+    {
+      "message": "Service is temporarily unavailable",
+      "extensions": {"code": "SERVICE_UNAVAILABLE"}
+    }
+  ]
 }
 ```
 

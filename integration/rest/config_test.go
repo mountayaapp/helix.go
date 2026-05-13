@@ -47,16 +47,9 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: true,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Description must be set and not be empty",
-						Path:    []string{"Config", "OpenAPI", "Description"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "openapi", "description"}},
+			),
 		},
 		{
 			name: "OpenAPI enabled with description is valid",
@@ -122,16 +115,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with only KeyPEM returns error",
@@ -148,16 +137,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with both CertPEM and KeyPEM is valid",
@@ -233,20 +218,13 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Description must be set and not be empty",
-						Path:    []string{"Config", "OpenAPI", "Description"},
-					},
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be set", Path: []any{"config", "openapi", "description"}},
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 	}
 
@@ -259,4 +237,3 @@ func TestConfig_Sanitize(t *testing.T) {
 		})
 	}
 }
-

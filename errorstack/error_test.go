@@ -3,526 +3,198 @@ package errorstack
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"sync"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNew(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    *Error
-		expected *Error
-	}{
-		{
-			name:  "simple text message",
-			input: New("This is a simple text example"),
-			expected: &Error{
-				Message:     "This is a simple text example",
-				Validations: []Validation{},
-			},
-		},
-		{
-			name:  "with integration option",
-			input: New("This is a text example with integration", WithIntegration("bucket")),
-			expected: &Error{
-				Integration: "bucket",
-				Message:     "This is a text example with integration",
-				Validations: []Validation{},
-			},
-		},
-		{
-			name:  "empty integration option",
-			input: New("test", WithIntegration("")),
-			expected: &Error{
-				Message:     "test",
-				Validations: []Validation{},
-			},
-		},
-	}
+func TestNew_DefaultsToInternalError(t *testing.T) {
+	err := New("Failed to validate configuration")
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.input)
-		})
+	require.Len(t, err.Entries, 1)
+	assert.Equal(t, "Failed to validate configuration", err.Entries[0].Message)
+	assert.Equal(t, CodeInternalError, err.Entries[0].Extensions["code"])
+	assert.Nil(t, err.Entries[0].Path)
+}
+
+func TestNew_WithCodeOverridesDefault(t *testing.T) {
+	err := New("Resource does not exist", WithCode(CodeNotFound))
+
+	assert.Equal(t, CodeNotFound, err.Entries[0].Extensions["code"])
+}
+
+func TestNew_WithPath(t *testing.T) {
+	err := New("Must be set", WithPath("config", "address"))
+
+	assert.Equal(t, []any{"config", "address"}, err.Entries[0].Path)
+}
+
+func TestNew_WithExtension(t *testing.T) {
+	err := New("Failed to handle request", WithExtension("trace_id", "abc-123"))
+
+	assert.Equal(t, "abc-123", err.Entries[0].Extensions["trace_id"])
+	assert.Equal(t, CodeInternalError, err.Entries[0].Extensions["code"])
+}
+
+func TestNew_CombinedOptions(t *testing.T) {
+	// Options are independent and must compose on a single Entry: WithCode,
+	// WithPath, and WithExtension all land on the same entry without
+	// stomping each other.
+	err := New("Must be a valid email address",
+		WithCode(CodeBadRequest),
+		WithPath("request", "body", "email"),
+		WithExtension("hint", "use a corporate domain"),
+	)
+
+	require.Len(t, err.Entries, 1)
+	assert.Equal(t, "Must be a valid email address", err.Entries[0].Message)
+	assert.Equal(t, CodeBadRequest, err.Entries[0].Extensions["code"])
+	assert.Equal(t, []any{"request", "body", "email"}, err.Entries[0].Path)
+	assert.Equal(t, "use a corporate domain", err.Entries[0].Extensions["hint"])
+}
+
+func TestValidation_ForcesValidationFailedCode(t *testing.T) {
+	err := NewValidation(
+		Entry{Message: "Must be set", Path: []any{"config", "address"}},
+		Entry{
+			Message:    "Must be set",
+			Path:       []any{"config", "database"},
+			Extensions: map[string]any{"code": "OVERRIDDEN"},
+		},
+	)
+
+	require.Len(t, err.Entries, 2)
+	for _, entry := range err.Entries {
+		assert.Equal(t, CodeValidationFailed, entry.Extensions["code"])
 	}
 }
 
-func TestWrap(t *testing.T) {
-	testcases := []struct {
-		name            string
-		input           error
-		message         string
-		opts            []Option
-		expectedMessage string
-		expectedNil     bool
-	}{
-		{
-			name:        "nil error returns nil",
-			input:       nil,
-			message:     "wrapper",
-			expectedNil: true,
-		},
-		{
-			name:            "standard error",
-			input:           errors.New("something went wrong"),
-			message:         "operation failed",
-			expectedMessage: "operation failed",
-		},
-		{
-			name:            "standard error with integration option",
-			input:           errors.New("something went wrong"),
-			message:         "operation failed",
-			opts:            []Option{WithIntegration("postgres")},
-			expectedMessage: "operation failed",
-		},
+func TestValidation_PreservesCustomExtensions(t *testing.T) {
+	err := NewValidation(Entry{
+		Message:    "Must be a valid email address",
+		Path:       []any{"request", "body", "email"},
+		Extensions: map[string]any{"hint": "use a corporate domain"},
+	})
+
+	assert.Equal(t, CodeValidationFailed, err.Entries[0].Extensions["code"])
+	assert.Equal(t, "use a corporate domain", err.Entries[0].Extensions["hint"])
+}
+
+func TestValidation_EmptyFallsBackToInternalError(t *testing.T) {
+	err := NewValidation()
+
+	require.Len(t, err.Entries, 1)
+	assert.Equal(t, CodeInternalError, err.Entries[0].Extensions["code"])
+}
+
+func TestWrap_NilReturnsNil(t *testing.T) {
+	assert.Nil(t, Wrap(nil, "Failed to validate configuration"))
+}
+
+func TestWrap_NilThroughErrorInterface(t *testing.T) {
+	// Regression: Wrap must return Go's untyped nil when cause is nil, even
+	// when funneled through a function typed `error`. Returning *Error here
+	// would surface the typed-nil-through-interface trap (a nil *Error wrapped
+	// in error compares non-nil at the call site), masking clean shutdowns as
+	// failures — see integration/temporal/integration_worker.go.
+	makeErr := func(in error) error {
+		return Wrap(in, "Failed to start server")
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := Wrap(tc.input, tc.message, tc.opts...)
-
-			if tc.expectedNil {
-				assert.Nil(t, actual)
-			} else {
-				assert.Equal(t, tc.expectedMessage, actual.Message)
-			}
-		})
-	}
+	assert.Nil(t, makeErr(nil))
+	assert.False(t, makeErr(nil) != nil, "Wrap(nil, …) must compare equal to nil through error interface")
 }
 
 func TestWrap_PreservesCause(t *testing.T) {
-	original := errors.New("connection refused")
+	sentinel := errors.New("connection refused")
 
-	wrapped := Wrap(original, "database error")
-
-	assert.Equal(t, "database error", wrapped.Message)
-	assert.Equal(t, original, wrapped.Unwrap())
-}
-
-func TestWrap_ErrorsIs(t *testing.T) {
-	sentinel := errors.New("sentinel error")
-
-	wrapped := Wrap(sentinel, "wrapped message")
+	wrapped := Wrap(sentinel, "Failed to initialize integration")
 
 	assert.True(t, errors.Is(wrapped, sentinel))
+	assert.Equal(t, sentinel, errors.Unwrap(wrapped))
 }
 
 func TestWrap_ErrorsAs(t *testing.T) {
-	inner := New("inner error", WithIntegration("postgres"))
-
-	wrapped := Wrap(inner, "outer error")
+	inner := New("Failed to validate configuration")
+	wrapped := Wrap(inner, "Failed to initialize integration")
 
 	var target *Error
 	assert.True(t, errors.As(wrapped, &target))
-	assert.Equal(t, "outer error", target.Message)
+	assert.Equal(t, "Failed to initialize integration", target.Entries[0].Message)
 }
 
-func TestWrap_WrappedErrorChain(t *testing.T) {
-	root := errors.New("root cause")
-	level1 := Wrap(root, "level 1")
-	level2 := Wrap(level1, "level 2")
-	level3 := Wrap(level2, "level 3")
+func TestWrap_MultiLevelChain(t *testing.T) {
+	// Wrapping multiple times must preserve the full chain: errors.Is finds
+	// the root cause through all levels, errors.As surfaces the outermost
+	// *Error (the most recent context), and Error() includes the root cause
+	// text at the tail.
+	root := errors.New("connection refused")
+	l1 := Wrap(root, "Failed to dial database")
+	l2 := Wrap(l1, "Failed to initialize integration")
+	l3 := Wrap(l2, "Failed to start service")
 
-	assert.True(t, errors.Is(level3, root))
-	assert.True(t, errors.Is(level3, level1))
-	assert.True(t, errors.Is(level3, level2))
+	assert.True(t, errors.Is(l3, root), "errors.Is traverses the full Unwrap chain to the root cause")
 
 	var target *Error
-	assert.True(t, errors.As(level3, &target))
-	assert.Equal(t, "level 3", target.Message)
+	require.True(t, errors.As(l3, &target))
+	assert.Equal(t, "Failed to start service", target.Entries[0].Message, "errors.As surfaces the outermost *Error")
+
+	assert.Contains(t, l3.Error(), "connection refused", "Error() includes the root cause text")
 }
 
-func TestWrap_WithValidations(t *testing.T) {
-	original := errors.New("database error")
-	wrapped := Wrap(original, "operation failed").WithValidations(Validation{
-		Message: "connection timeout",
-		Path:    []string{"Config", "Address"},
-	})
+func TestEntriesOf_MultiLevelChainReturnsOutermost(t *testing.T) {
+	// errors.As finds the first *Error in the chain; since Wrap returns an
+	// *Error, EntriesOf on a wrapped *Error must return the OUTER entries,
+	// not unwrap further to the inner. Locks in the documented behavior.
+	inner := New("Inner failure", WithCode(CodeNotFound))
+	outer := Wrap(inner, "Outer context", WithCode(CodeInternalError))
 
-	assert.True(t, wrapped.HasValidations())
-	assert.True(t, errors.Is(wrapped, original))
-	assert.Contains(t, wrapped.Error(), "connection timeout")
+	entries := EntriesOf(outer)
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Outer context", entries[0].Message)
+	assert.Equal(t, CodeInternalError, entries[0].Extensions["code"])
 }
 
-func TestUnwrap_NoCause(t *testing.T) {
-	err := New("no cause")
-
-	assert.Nil(t, err.Unwrap())
-}
-
-func TestError_WithValidations(t *testing.T) {
-	testcases := []struct {
-		name        string
-		input       *Error
-		validations []Validation
-		expected    *Error
-	}{
-		{
-			name:        "empty validations",
-			input:       New("test error"),
-			validations: []Validation{},
-			expected: &Error{
-				Message:     "test error",
-				Validations: []Validation{},
-			},
-		},
-		{
-			name:  "single validation with path",
-			input: New("test error"),
-			validations: []Validation{
-				{
-					Message: "field is required",
-					Path:    []string{"Config", "Address"},
-				},
-			},
-			expected: &Error{
-				Message: "test error",
-				Validations: []Validation{
-					{
-						Message: "field is required",
-						Path:    []string{"Config", "Address"},
-					},
-				},
-			},
-		},
-		{
-			name:  "multiple validations",
-			input: New("test error"),
-			validations: []Validation{
-				{
-					Message: "first validation",
-					Path:    []string{"a"},
-				},
-				{
-					Message: "second validation",
-					Path:    []string{"b"},
-				},
-			},
-			expected: &Error{
-				Message: "test error",
-				Validations: []Validation{
-					{
-						Message: "first validation",
-						Path:    []string{"a"},
-					},
-					{
-						Message: "second validation",
-						Path:    []string{"b"},
-					},
-				},
-			},
-		},
-		{
-			name:  "validation without path",
-			input: New("test error"),
-			validations: []Validation{
-				{
-					Message: "no path validation",
-				},
-			},
-			expected: &Error{
-				Message: "test error",
-				Validations: []Validation{
-					{
-						Message: "no path validation",
-					},
-				},
-			},
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.input.WithValidations(tc.validations...)
-
-			assert.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
-func TestError_WithValidations_IsChainable(t *testing.T) {
-	err := New("test")
-
-	result := err.WithValidations(Validation{Message: "a"})
+func TestAppend_Chainable(t *testing.T) {
+	err := New("Failed to validate configuration")
+	result := err.Append(Entry{Message: "Must be set"})
 
 	assert.Same(t, err, result)
+	assert.Len(t, err.Entries, 2)
 }
 
-func TestError_WithValidations_Accumulates(t *testing.T) {
-	err := New("test")
-	err.WithValidations(Validation{Message: "first"})
-	err.WithValidations(Validation{Message: "second"})
-	err.WithValidations(Validation{Message: "third"})
+func TestSetExtension_TopLevel(t *testing.T) {
+	err := New("Failed to handle request").SetExtension("trace_id", "abc-123")
 
-	assert.Len(t, err.Validations, 3)
-	assert.Equal(t, "first", err.Validations[0].Message)
-	assert.Equal(t, "second", err.Validations[1].Message)
-	assert.Equal(t, "third", err.Validations[2].Message)
+	assert.Equal(t, "abc-123", err.Extensions["trace_id"])
 }
 
-func TestError_WithValidations_DeepPath(t *testing.T) {
-	err := New("test").WithValidations(Validation{
-		Message: "deeply nested failure",
-		Path:    []string{"request", "body", "user", "address", "zip_code"},
-	})
-
-	assert.Len(t, err.Validations, 1)
-	assert.Len(t, err.Validations[0].Path, 5)
-}
-
-func TestError_HasValidations(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    *Error
-		expected bool
-	}{
-		{
-			name:     "no validations",
-			input:    New("no validations"),
-			expected: false,
-		},
-		{
-			name:     "after adding empty",
-			input:    New("test").WithValidations(),
-			expected: false,
-		},
-		{
-			name: "with validations",
-			input: New("with validations").WithValidations(Validation{
-				Message: "something failed",
-			}),
-			expected: true,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.input.HasValidations())
-		})
-	}
-}
-
-func TestError_WithChildren(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    *Error
-		children []error
-		hasChild bool
-	}{
-		{
-			name:     "nil children",
-			input:    New("parent error"),
-			children: nil,
-			hasChild: false,
-		},
-		{
-			name:     "empty children",
-			input:    New("parent error"),
-			children: []error{},
-			hasChild: false,
-		},
-		{
-			name:     "all nil children",
-			input:    New("parent"),
-			children: []error{nil, nil, nil},
-			hasChild: false,
-		},
-		{
-			name:     "single child",
-			input:    New("parent error"),
-			children: []error{errors.New("child error")},
-			hasChild: true,
-		},
-		{
-			name:  "multiple children",
-			input: New("parent error"),
-			children: []error{
-				errors.New("child error 1"),
-				errors.New("child error 2"),
-			},
-			hasChild: true,
-		},
-		{
-			name:     "nil children filtered",
-			input:    New("parent"),
-			children: []error{nil, errors.New("real"), nil},
-			hasChild: true,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			tc.input.WithChildren(tc.children...)
-
-			assert.Equal(t, tc.hasChild, tc.input.HasChildren())
-		})
-	}
-}
-
-func TestError_WithChildren_IsChainable(t *testing.T) {
-	err := New("parent")
-
-	result := err.WithChildren(errors.New("child"))
-
-	assert.Same(t, err, result)
-}
-
-func TestError_WithChildren_Accumulates(t *testing.T) {
-	err := New("parent")
-	err.WithChildren(errors.New("first"))
-	err.WithChildren(errors.New("second"))
-	err.WithChildren(errors.New("third"))
-
-	assert.True(t, err.HasChildren())
-}
-
-func TestError_WithChildren_NestedHelixErrors(t *testing.T) {
-	child := New("child error", WithIntegration("postgres"))
-	child.WithValidations(Validation{
-		Message: "connection timeout",
-		Path:    []string{"Config", "Address"},
-	})
-
-	parent := New("parent error")
-	parent.WithChildren(child)
-
-	assert.True(t, parent.HasChildren())
-	assert.Contains(t, parent.Error(), "child error")
-	assert.Contains(t, parent.Error(), "connection timeout")
-}
-
-func TestError_WithChildren_Concurrent(t *testing.T) {
-	t.Parallel()
-
-	err := New("concurrent parent")
-	var wg sync.WaitGroup
-
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			err.WithChildren(fmt.Errorf("child-%d", n))
-		}(i)
-	}
-
-	// Concurrent reads while writes are happening.
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = err.HasChildren()
-			_ = err.Error()
-		}()
-	}
-
-	wg.Wait()
-	assert.True(t, err.HasChildren())
-}
-
-func TestError_Error(t *testing.T) {
+func TestError_String(t *testing.T) {
 	testcases := []struct {
 		name     string
 		input    *Error
 		expected string
 	}{
 		{
-			name:     "simple message",
-			input:    New("This is a simple text example"),
-			expected: `This is a simple text example.`,
+			name:     "single entry, no path",
+			input:    New("Resource does not exist", WithCode(CodeNotFound)),
+			expected: "NOT_FOUND: Resource does not exist",
 		},
 		{
-			name:     "empty message",
-			input:    New(""),
-			expected: ".",
-		},
-		{
-			name:     "empty error",
-			input:    &Error{},
-			expected: ".",
-		},
-		{
-			name:     "only integration",
-			input:    &Error{Integration: "rest", Validations: []Validation{}},
-			expected: "rest: .",
-		},
-		{
-			name:     "with integration",
-			input:    New("This is a text example with integration", WithIntegration("bucket")),
-			expected: `bucket: This is a text example with integration.`,
-		},
-		{
-			name: "with integration and validations",
-			input: New("This is a text example with validations", WithIntegration("bucket")).WithValidations(Validation{
-				Message: "Failed to validate test case",
-				Path:    []string{"custom", "path"},
-			}),
-			expected: `bucket: This is a text example with validations. Reasons:
-    - Failed to validate test case
-      at custom > path.
-`,
-		},
-		{
-			name: "multiple validations",
-			input: New("error with multiple validations").WithValidations(
-				Validation{
-					Message: "first issue",
-					Path:    []string{"field", "a"},
-				},
-				Validation{
-					Message: "second issue",
-					Path:    []string{"field", "b"},
-				},
+			name: "validation entries with paths",
+			input: NewValidation(
+				Entry{Message: "Must be set", Path: []any{"config", "address"}},
+				Entry{Message: "Must be set", Path: []any{"config", "database"}},
 			),
-			expected: `error with multiple validations. Reasons:
-    - first issue
-      at field > a.
-    - second issue
-      at field > b.
-`,
+			expected: "VALIDATION_FAILED: Must be set (config.address); Must be set (config.database)",
 		},
 		{
-			name: "validation without path",
-			input: New("validation without path").WithValidations(Validation{
-				Message: "something failed",
-			}),
-			expected: `validation without path. Reasons:
-    - something failed.
-`,
-		},
-		{
-			name: "with children",
-			input: func() *Error {
-				err := New("parent error")
-				err.WithChildren(errors.New("child error 1"), errors.New("child error 2"))
-				return err
-			}(),
-			expected: `parent error. Caused by:
-
-- child error 1
-- child error 2
-`,
-		},
-		{
-			name: "with validations and children",
-			input: func() *Error {
-				err := New("parent with validations and children", WithIntegration("test"))
-				err.WithValidations(Validation{
-					Message: "validation issue",
-					Path:    []string{"Config"},
-				})
-				err.WithChildren(errors.New("child"))
-				return err
-			}(),
-			expected: `test: parent with validations and children. Reasons:
-    - validation issue
-      at Config.
- Caused by:
-
-- child
-`,
+			name:     "default code",
+			input:    New("Failed to handle request"),
+			expected: "INTERNAL_ERROR: Failed to handle request",
 		},
 	}
 
@@ -533,245 +205,212 @@ func TestError_Error(t *testing.T) {
 	}
 }
 
-func TestError_ImplementsErrorInterface(t *testing.T) {
-	var err error = New("test error")
-	assert.NotNil(t, err)
-	assert.Equal(t, "test error.", err.Error())
+func TestError_StringEmptyEntries(t *testing.T) {
+	// A manually-constructed *Error with no entries must still produce a
+	// sensible log line. The fallback branch in Error() emits a canonical
+	// INTERNAL_ERROR string; when a cause is attached, its text is appended.
+	t.Run("no cause", func(t *testing.T) {
+		assert.Equal(t, "INTERNAL_ERROR: Internal server error", (&Error{}).Error())
+	})
+
+	t.Run("with cause", func(t *testing.T) {
+		err := &Error{cause: errors.New("disk full")}
+		assert.Equal(t, "INTERNAL_ERROR: Internal server error: disk full", err.Error())
+	})
 }
 
-func TestError_MarshalJSON(t *testing.T) {
-	testcases := []struct {
-		name     string
-		input    *Error
-		expected string
-	}{
-		{
-			name:     "simple message",
-			input:    New("something went wrong"),
-			expected: `{"message": "something went wrong"}`,
-		},
-		{
-			name:     "omits empty message",
-			input:    &Error{Validations: []Validation{}},
-			expected: `{}`,
-		},
-		{
-			name: "single validation with path",
-			input: New("validation error").WithValidations(
-				Validation{
-					Message: "field is required",
-					Path:    []string{"request", "body", "email"},
-				},
-			),
-			expected: `{
-				"message": "validation error",
-				"validations": [
-					{
-						"message": "field is required",
-						"path": ["request", "body", "email"]
-					}
-				]
-			}`,
-		},
-		{
-			name: "multiple validations",
-			input: New("multiple validations").WithValidations(
-				Validation{
-					Message: "name is required",
-					Path:    []string{"body", "name"},
-				},
-				Validation{
-					Message: "email is invalid",
-					Path:    []string{"body", "email"},
-				},
-			),
-			expected: `{
-				"message": "multiple validations",
-				"validations": [
-					{
-						"message": "name is required",
-						"path": ["body", "name"]
-					},
-					{
-						"message": "email is invalid",
-						"path": ["body", "email"]
-					}
-				]
-			}`,
-		},
-		{
-			name: "validation without path",
-			input: New("no path").WithValidations(
-				Validation{
-					Message: "something went wrong",
-				},
-			),
-			expected: `{
-				"message": "no path",
-				"validations": [
-					{
-						"message": "something went wrong"
-					}
-				]
-			}`,
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			b, err := json.Marshal(tc.input)
-
-			assert.NoError(t, err)
-			assert.JSONEq(t, tc.expected, string(b))
-		})
-	}
-}
-
-func TestError_MarshalJSON_OmitsIntegration(t *testing.T) {
-	err := New("test", WithIntegration("rest"))
+func TestMarshalJSON_SingleEntry(t *testing.T) {
+	err := New("Resource does not exist", WithCode(CodeNotFound))
 
 	b, marshalErr := json.Marshal(err)
 
-	assert.NoError(t, marshalErr)
-	assert.NotContains(t, string(b), "integration")
-	assert.NotContains(t, string(b), `"rest"`)
+	require.NoError(t, marshalErr)
+	assert.JSONEq(t, `{
+		"errors": [
+			{"message": "Resource does not exist", "extensions": {"code": "NOT_FOUND"}}
+		]
+	}`, string(b))
 }
 
-func TestError_MarshalJSON_OmitsChildren(t *testing.T) {
-	err := New("parent")
-	err.WithChildren(errors.New("child"))
-
-	b, marshalErr := json.Marshal(err)
-
-	assert.NoError(t, marshalErr)
-	assert.NotContains(t, string(b), "children")
-	assert.NotContains(t, string(b), "child")
-}
-
-func TestError_MarshalJSON_OmitsEmptyValidations(t *testing.T) {
-	err := New("simple error")
-
-	b, marshalErr := json.Marshal(err)
-
-	assert.NoError(t, marshalErr)
-	assert.NotContains(t, string(b), "validations")
-}
-
-func TestError_MarshalJSON_RoundTrip(t *testing.T) {
-	original := New("validation error").WithValidations(
-		Validation{
-			Message: "field is required",
-			Path:    []string{"body", "email"},
-		},
-		Validation{
-			Message: "must be at least 8 characters",
-			Path:    []string{"body", "password"},
-		},
+func TestMarshalJSON_MultipleEntries(t *testing.T) {
+	err := NewValidation(
+		Entry{Message: "Must be a valid email address", Path: []any{"request", "body", "email"}},
+		Entry{Message: "Must be set", Path: []any{"request", "body", "name"}},
 	)
 
-	b, err := json.Marshal(original)
-	assert.NoError(t, err)
+	b, marshalErr := json.Marshal(err)
 
-	var unmarshaled Error
-	err = json.Unmarshal(b, &unmarshaled)
-	assert.NoError(t, err)
-
-	assert.Equal(t, original.Message, unmarshaled.Message)
-	assert.Equal(t, original.Validations, unmarshaled.Validations)
+	require.NoError(t, marshalErr)
+	assert.JSONEq(t, `{
+		"errors": [
+			{
+				"message": "Must be a valid email address",
+				"path": ["request", "body", "email"],
+				"extensions": {"code": "VALIDATION_FAILED"}
+			},
+			{
+				"message": "Must be set",
+				"path": ["request", "body", "name"],
+				"extensions": {"code": "VALIDATION_FAILED"}
+			}
+		]
+	}`, string(b))
 }
 
-func TestError_UnmarshalJSON(t *testing.T) {
-	testcases := []struct {
-		name            string
-		input           string
-		expectedMessage string
-		expectedErr     bool
-		validationsNil  bool
-		validationsLen  int
-	}{
-		{
-			name:            "with validations",
-			input:           `{"message":"validation failed","validations":[{"message":"field required","path":["body","name"]}]}`,
-			expectedMessage: "validation failed",
-			validationsLen:  1,
-		},
-		{
-			name:            "no validations",
-			input:           `{"message":"simple error"}`,
-			expectedMessage: "simple error",
-			validationsNil:  true,
-		},
-		{
-			name:           "empty object",
-			input:          `{}`,
-			validationsNil: true,
-		},
-		{
-			name:        "invalid JSON",
-			input:       `not valid json`,
-			expectedErr: true,
-		},
-	}
+func TestMarshalJSON_WithTopLevelExtensions(t *testing.T) {
+	err := New("Resource does not exist", WithCode(CodeNotFound)).
+		SetExtension("metadata", map[string]any{"trace_id": "abc-123"})
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			var err Error
-			unmarshalErr := json.Unmarshal([]byte(tc.input), &err)
+	b, marshalErr := json.Marshal(err)
 
-			if tc.expectedErr {
-				assert.Error(t, unmarshalErr)
-				return
-			}
-
-			assert.NoError(t, unmarshalErr)
-			assert.Equal(t, tc.expectedMessage, err.Message)
-			if tc.validationsNil {
-				assert.Nil(t, err.Validations)
-			} else {
-				assert.Len(t, err.Validations, tc.validationsLen)
-			}
-		})
-	}
+	require.NoError(t, marshalErr)
+	assert.JSONEq(t, `{
+		"errors": [
+			{"message": "Resource does not exist", "extensions": {"code": "NOT_FOUND"}}
+		],
+		"extensions": {"metadata": {"trace_id": "abc-123"}}
+	}`, string(b))
 }
 
-func TestValidation_MarshalJSON(t *testing.T) {
+func TestMarshalJSON_AlwaysIncludesErrorsField(t *testing.T) {
+	err := &Error{}
+
+	b, marshalErr := json.Marshal(err)
+
+	require.NoError(t, marshalErr)
+	assert.Contains(t, string(b), `"errors"`)
+}
+
+func TestEntry_PathSerializesAsLowerSnakeCase(t *testing.T) {
+	entry := Entry{
+		Message: "Must be set",
+		Path:    []any{"request", "headers", "x_api_key"},
+	}
+
+	b, err := json.Marshal(entry)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"message": "Must be set",
+		"path": ["request", "headers", "x_api_key"]
+	}`, string(b))
+}
+
+func TestMarshalJSON_NormalizesMissingCode(t *testing.T) {
+	err := New("Failed to handle request").Append(Entry{Message: "Must be set"})
+
+	b, marshalErr := json.Marshal(err)
+
+	require.NoError(t, marshalErr)
+	assert.JSONEq(t, `{
+		"errors": [
+			{"message": "Failed to handle request", "extensions": {"code": "INTERNAL_ERROR"}},
+			{"message": "Must be set", "extensions": {"code": "INTERNAL_ERROR"}}
+		]
+	}`, string(b))
+}
+
+func TestEntry_PathSupportsIntegerIndexes(t *testing.T) {
+	// Per Path doc: segments may be lower_snake_case strings or integer
+	// indexes (e.g. when a list element validation fails).
+	entry := Entry{
+		Message: "Must be set",
+		Path:    []any{"items", 0, "name"},
+	}
+
+	b, err := json.Marshal(entry)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"message": "Must be set",
+		"path": ["items", 0, "name"]
+	}`, string(b))
+}
+
+func TestError_StringWithIntegerPathSegments(t *testing.T) {
+	err := New("Must be set", WithPath("items", 0, "name"))
+
+	assert.Equal(t, "INTERNAL_ERROR: Must be set (items.0.name)", err.Error())
+}
+
+func TestSetExtension_DoesNotMutatePerEntryCode(t *testing.T) {
+	// SetExtension targets the response-level (top-level) Extensions map,
+	// not per-entry extensions. Calling SetExtension("code", ...) must not
+	// override the per-entry code.
+	err := New("Resource does not exist", WithCode(CodeNotFound)).
+		SetExtension("code", "TOPLEVEL_OVERRIDE")
+
+	assert.Equal(t, "TOPLEVEL_OVERRIDE", err.Extensions["code"], "top-level extension is set")
+	assert.Equal(t, CodeNotFound, err.Entries[0].Extensions["code"], "per-entry code is unaffected")
+}
+
+func TestEntriesOf_TypedNilStarErrorReturnsNil(t *testing.T) {
+	// EntriesOf must handle a typed-nil *Error stored in an error
+	// interface — errors.As succeeds but the inner pointer is nil, which
+	// would panic if dereferenced.
+	var typed *Error
+	var iface error = typed
+
+	assert.Nil(t, EntriesOf(iface))
+}
+
+func TestEntriesOf_NilReturnsNil(t *testing.T) {
+	assert.Nil(t, EntriesOf(nil))
+}
+
+func TestEntriesOf_TypedNilDoesNotPanic(t *testing.T) {
+	var typed *Error
+	var iface error = typed
+
+	assert.NotPanics(t, func() { _ = EntriesOf(iface) })
+	assert.Nil(t, EntriesOf(iface))
+}
+
+func TestEntriesOf_ErrorReturnsEntries(t *testing.T) {
+	err := New("Resource does not exist", WithCode(CodeNotFound))
+
+	entries := EntriesOf(err)
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Resource does not exist", entries[0].Message)
+	assert.Equal(t, CodeNotFound, entries[0].Extensions["code"])
+}
+
+func TestEntriesOf_PlainErrorFallsBackToInternal(t *testing.T) {
+	entries := EntriesOf(errors.New("connection refused"))
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "connection refused", entries[0].Message)
+	assert.Equal(t, CodeInternalError, entries[0].Extensions["code"])
+}
+
+func TestHTTPStatusToCode_AllSupportedCodes(t *testing.T) {
 	testcases := []struct {
-		name     string
-		input    Validation
+		status   int
 		expected string
 	}{
-		{
-			name:     "message only",
-			input:    Validation{Message: "field required"},
-			expected: `{"message":"field required"}`,
-		},
-		{
-			name: "message with path",
-			input: Validation{
-				Message: "field invalid",
-				Path:    []string{"request", "body"},
-			},
-			expected: `{"message":"field invalid","path":["request","body"]}`,
-		},
+		{http.StatusBadRequest, CodeBadRequest},
+		{http.StatusUnauthorized, CodeUnauthorized},
+		{http.StatusPaymentRequired, CodePaymentRequired},
+		{http.StatusForbidden, CodeForbidden},
+		{http.StatusNotFound, CodeNotFound},
+		{http.StatusMethodNotAllowed, CodeMethodNotAllowed},
+		{http.StatusConflict, CodeConflict},
+		{http.StatusRequestEntityTooLarge, CodePayloadTooLarge},
+		{http.StatusTooManyRequests, CodeTooManyRequests},
+		{http.StatusInternalServerError, CodeInternalError},
+		{http.StatusNotImplemented, CodeNotImplemented},
+		{http.StatusBadGateway, CodeBadGateway},
+		{http.StatusServiceUnavailable, CodeServiceUnavailable},
 	}
 
 	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			b, err := json.Marshal(tc.input)
-
-			assert.NoError(t, err)
-			assert.JSONEq(t, tc.expected, string(b))
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			assert.Equal(t, tc.expected, HTTPStatusToCode(tc.status))
 		})
 	}
 }
 
-func TestValidation_UnmarshalJSON(t *testing.T) {
-	input := `{"message":"field required","path":["body","name"]}`
-
-	var v Validation
-	err := json.Unmarshal([]byte(input), &v)
-
-	assert.NoError(t, err)
-	assert.Equal(t, "field required", v.Message)
-	assert.Equal(t, []string{"body", "name"}, v.Path)
+func TestHTTPStatusToCode_UnknownReturnsInternalError(t *testing.T) {
+	assert.Equal(t, CodeInternalError, HTTPStatusToCode(418))
 }

@@ -41,22 +41,24 @@ func (d *driverAzure) string() string {
 validate ensures Config and environment variables are valid for the Azure bucket
 driver.
 */
-func (d *driverAzure) validate(cfg *Config) []errorstack.Validation {
-	var validations []errorstack.Validation
+func (d *driverAzure) validate(cfg *Config) []errorstack.Entry {
+	var entries []errorstack.Entry
 
 	if os.Getenv("AZURE_STORAGE_ACCOUNT") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "Environment variable `AZURE_STORAGE_ACCOUNT` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"env", "azure_storage_account"},
 		})
 	}
 
 	if os.Getenv("AZURE_STORAGE_KEY") == "" && os.Getenv("AZURE_STORAGE_SAS_TOKEN") == "" {
-		validations = append(validations, errorstack.Validation{
-			Message: "One of environment variable `AZURE_STORAGE_KEY` or `AZURE_STORAGE_SAS_TOKEN` must be set and not be empty",
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be one of: azure_storage_key, azure_storage_sas_token",
+			Path:    []any{"env"},
 		})
 	}
 
-	return validations
+	return entries
 }
 
 /*

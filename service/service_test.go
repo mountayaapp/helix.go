@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountayaapp/helix.go/internal/telemetry/log"
+	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,7 +150,7 @@ func TestServe_NilServer(t *testing.T) {
 	err := Serve(svc, nil)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "must not be nil")
+	assert.Contains(t, err.Error(), "Must be set")
 }
 
 func TestServe_EmptyName(t *testing.T) {
@@ -159,7 +159,7 @@ func TestServe_EmptyName(t *testing.T) {
 	err := Serve(svc, &mockServer{name: ""})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "name must be set")
+	assert.Contains(t, err.Error(), "Must be set")
 }
 
 func TestServe_Twice(t *testing.T) {
@@ -169,7 +169,7 @@ func TestServe_Twice(t *testing.T) {
 	err := Serve(svc, &mockServer{name: "second"})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been registered")
+	assert.Contains(t, err.Error(), "is already registered")
 }
 
 func TestServe_AfterStart(t *testing.T) {
@@ -219,7 +219,7 @@ func TestAttach_NilDep(t *testing.T) {
 	err := Attach(svc, nil)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "must not be nil")
+	assert.Contains(t, err.Error(), "Must be set")
 }
 
 func TestAttach_EmptyName(t *testing.T) {
@@ -228,7 +228,7 @@ func TestAttach_EmptyName(t *testing.T) {
 	err := Attach(svc, &mockDep{name: ""})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "name must be set")
+	assert.Contains(t, err.Error(), "Must be set")
 }
 
 func TestAttach_DuplicateNamesAllowed(t *testing.T) {
@@ -268,7 +268,7 @@ func TestStart_NoServer(t *testing.T) {
 	err := svc.Start(t.Context())
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "must have a server registered")
+	assert.Contains(t, err.Error(), "Must be set")
 }
 
 func TestStart_ServerError(t *testing.T) {
@@ -639,10 +639,10 @@ func TestContext_EnrichesWithLoggerAndTracer(t *testing.T) {
 
 	ctx := Context(svc, t.Context())
 
-	assert.NotNil(t, internallog.LoggerFromContext(ctx))
-	assert.NotNil(t, internaltrace.TracerFromContext(ctx))
-	assert.Same(t, svc.logger, internallog.LoggerFromContext(ctx))
-	assert.Same(t, svc.tracer, internaltrace.TracerFromContext(ctx))
+	assert.NotNil(t, log.LoggerFromContext(ctx))
+	assert.NotNil(t, trace.TracerFromContext(ctx))
+	assert.Same(t, svc.logger, log.LoggerFromContext(ctx))
+	assert.Same(t, svc.tracer, trace.TracerFromContext(ctx))
 }
 
 func TestContext_Idempotent(t *testing.T) {
@@ -651,8 +651,8 @@ func TestContext_Idempotent(t *testing.T) {
 	ctx1 := Context(svc, t.Context())
 	ctx2 := Context(svc, ctx1)
 
-	assert.Same(t, internallog.LoggerFromContext(ctx1), internallog.LoggerFromContext(ctx2))
-	assert.Same(t, internaltrace.TracerFromContext(ctx1), internaltrace.TracerFromContext(ctx2))
+	assert.Same(t, log.LoggerFromContext(ctx1), log.LoggerFromContext(ctx2))
+	assert.Same(t, trace.TracerFromContext(ctx1), trace.TracerFromContext(ctx2))
 }
 
 func TestContext_PreservesExistingValues(t *testing.T) {
@@ -663,8 +663,8 @@ func TestContext_PreservesExistingValues(t *testing.T) {
 	ctx = Context(svc, ctx)
 
 	assert.Equal(t, "preserved", ctx.Value(customKey{}))
-	assert.NotNil(t, internallog.LoggerFromContext(ctx))
-	assert.NotNil(t, internaltrace.TracerFromContext(ctx))
+	assert.NotNil(t, log.LoggerFromContext(ctx))
+	assert.NotNil(t, trace.TracerFromContext(ctx))
 }
 
 func TestTracerProvider(t *testing.T) {
@@ -741,8 +741,8 @@ func TestNew_OTELSDKEnabled_ExporterNone(t *testing.T) {
 	assert.NotNil(t, LoggerProvider(svc))
 
 	ctx := Context(svc, t.Context())
-	assert.NotNil(t, internallog.LoggerFromContext(ctx))
-	assert.NotNil(t, internaltrace.TracerFromContext(ctx))
+	assert.NotNil(t, log.LoggerFromContext(ctx))
+	assert.NotNil(t, trace.TracerFromContext(ctx))
 }
 
 func TestNew_OTELSDKEnabled_ExporterConsole(t *testing.T) {

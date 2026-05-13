@@ -9,9 +9,11 @@ linters:
     - unused
   exclusions:
     rules:
-      # Builder-style methods where the return value is the same receiver.
+      # Builder-style methods on errorstack.Error where the return value is
+      # the same receiver. Anchored to the errorstack package so unrelated
+      # types named Append/SetExtension still trip errcheck.
       - linters: [errcheck]
-        text: "WithValidations|WithChildren"
+        text: "errorstack\\.Error\\)\\.(Append|SetExtension)"
 
       # HTTP response writes where errors can't be meaningfully handled.
       - linters: [errcheck]

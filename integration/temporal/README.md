@@ -272,7 +272,7 @@ The `temporal` integration sets the following trace attributes:
 - `temporal.namespace`
 
 When applicable, these attributes can be set as well:
-- `temporal.worker.taskqueue`
+- `temporal.worker.task_queue`
 - `temporal.workflow.id`
 - `temporal.workflow.run_id`
 - `temporal.workflow.namespace`
@@ -287,7 +287,7 @@ Example:
 ```
 temporal.server.address: "temporal.mydomain.tld"
 temporal.namespace: "default"
-temporal.worker.taskqueue: "orders"
+temporal.worker.task_queue: "orders"
 temporal.workflow.namespace: "default"
 temporal.workflow.type: "process-order"
 temporal.workflow.attempt: 1

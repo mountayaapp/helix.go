@@ -134,7 +134,7 @@ sanitize sets default values - when applicable - and validates the configuration
 Returns an error if configuration is not valid.
 */
 func (cfg *Config) sanitize() error {
-	stack := errorstack.New("Failed to validate configuration", errorstack.WithIntegration(identifier))
+	var entries []errorstack.Entry
 
 	if cfg.Address == "" {
 		cfg.Address = ":8080"
@@ -145,23 +145,21 @@ func (cfg *Config) sanitize() error {
 	}
 
 	if cfg.Schema == nil {
-		stack.WithValidations(errorstack.Validation{
-			Message: "Schema must be set and not be nil",
-			Path:    []string{"Config", "Schema"},
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be set",
+			Path:    []any{"config", "schema"},
 		})
 	}
 
-	if cfg.GraphiQL.Enabled {
-		if cfg.GraphiQL.Path == "" {
-			cfg.GraphiQL.Path = "/graphiql"
-		}
+	if cfg.GraphiQL.Enabled && cfg.GraphiQL.Path == "" {
+		cfg.GraphiQL.Path = "/graphiql"
 	}
 
 	if cfg.APQ.Enabled {
 		if cfg.APQ.Valkey == nil {
-			stack.WithValidations(errorstack.Validation{
-				Message: "Valkey must be set and not be nil when APQ is enabled",
-				Path:    []string{"Config", "APQ", "Valkey"},
+			entries = append(entries, errorstack.Entry{
+				Message: "Must be set",
+				Path:    []any{"config", "apq", "valkey"},
 			})
 		}
 
@@ -174,9 +172,9 @@ func (cfg *Config) sanitize() error {
 		}
 	}
 
-	stack.WithValidations(cfg.TLS.Sanitize()...)
-	if stack.HasValidations() {
-		return stack
+	entries = append(entries, cfg.TLS.Sanitize()...)
+	if len(entries) > 0 {
+		return errorstack.NewValidation(entries...)
 	}
 
 	return nil

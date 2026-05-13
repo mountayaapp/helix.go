@@ -13,7 +13,7 @@ type Driver interface {
 	string() string
 
 	// validate ensures Config and environment variables are valid for the driver.
-	validate(cfg *Config) []errorstack.Validation
+	validate(cfg *Config) []errorstack.Entry
 
 	// url returns the Go Cloud bucket URL of the bucket driver.
 	url(cfg *Config) string

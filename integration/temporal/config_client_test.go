@@ -64,16 +64,12 @@ func TestConfigClient_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with only KeyPEM returns error",
@@ -91,16 +87,12 @@ func TestConfigClient_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
 				},
-			},
+			),
 		},
 		{
 			name: "TLS with both CertPEM and KeyPEM is valid",

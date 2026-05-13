@@ -36,10 +36,8 @@ func (d *driverLocal) string() string {
 validate ensures Config and environment variables are valid for the local bucket
 driver.
 */
-func (d *driverLocal) validate(cfg *Config) []errorstack.Validation {
-	var validations []errorstack.Validation
-
-	return validations
+func (d *driverLocal) validate(cfg *Config) []errorstack.Entry {
+	return nil
 }
 
 /*

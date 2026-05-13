@@ -10,6 +10,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var schemaEntry = errorstack.Entry{
+	Message: "Must be set",
+	Path:    []any{"config", "schema"},
+}
+
+var valkeyEntry = errorstack.Entry{
+	Message: "Must be set",
+	Path:    []any{"config", "apq", "valkey"},
+}
+
+var tlsPairEntry = errorstack.Entry{
+	Message: "Must be set together; cert_pem and key_pem are required as a pair",
+	Path:    []any{"config", "tls"},
+}
+
 func TestConfig_Sanitize(t *testing.T) {
 	testcases := []struct {
 		name   string
@@ -24,16 +39,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				Address: ":8080",
 				Path:    "/graphql",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "custom address and path are preserved",
@@ -45,16 +51,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				Address: ":9090",
 				Path:    "/api/graphql",
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "APQ enabled without valkey returns schema and valkey errors",
@@ -72,20 +69,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					TTL:     1 * time.Hour,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-					{
-						Message: "Valkey must be set and not be nil when APQ is enabled",
-						Path:    []string{"Config", "APQ", "Valkey"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry, valkeyEntry),
 		},
 		{
 			name: "APQ enabled with custom prefix and TTL preserves values",
@@ -105,20 +89,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					TTL:     30 * time.Minute,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-					{
-						Message: "Valkey must be set and not be nil when APQ is enabled",
-						Path:    []string{"Config", "APQ", "Valkey"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry, valkeyEntry),
 		},
 		{
 			name: "APQ disabled only returns schema error",
@@ -134,16 +105,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: false,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "GraphiQL enabled applies default path",
@@ -160,16 +122,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Path:    "/graphiql",
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "GraphiQL enabled with custom path preserves path",
@@ -187,16 +140,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Path:    "/custom/graphiql",
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "GraphiQL disabled only returns schema error",
@@ -212,16 +156,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: false,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "GraphiQL disabled does not apply default path",
@@ -239,16 +174,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Path:    "",
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "Introspection enabled only returns schema error",
@@ -264,16 +190,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: true,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "Introspection disabled only returns schema error",
@@ -289,16 +206,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: false,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "TLS with only CertPEM returns schema and TLS errors",
@@ -316,20 +224,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry, tlsPairEntry),
 		},
 		{
 			name: "TLS with only KeyPEM returns schema and TLS errors",
@@ -347,20 +242,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry, tlsPairEntry),
 		},
 		{
 			name: "TLS with both CertPEM and KeyPEM returns only schema error",
@@ -380,16 +262,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "disabled TLS ignores invalid certs",
@@ -407,16 +280,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "TLS with InsecureSkipVerify returns only schema error",
@@ -434,16 +298,7 @@ func TestConfig_Sanitize(t *testing.T) {
 					InsecureSkipVerify: true,
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "Schema must be set and not be nil",
-						Path:    []string{"Config", "Schema"},
-					},
-				},
-			},
+			err: errorstack.NewValidation(schemaEntry),
 		},
 	}
 

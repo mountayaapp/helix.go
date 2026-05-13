@@ -57,21 +57,9 @@ func TestResponseSuccess_MarshalJSON(t *testing.T) {
 		status   int
 		expected string
 	}{
-		{
-			name:     "200 OK",
-			status:   http.StatusOK,
-			expected: `{"status":"OK"}`,
-		},
-		{
-			name:     "201 Created",
-			status:   http.StatusCreated,
-			expected: `{"status":"Created"}`,
-		},
-		{
-			name:     "204 No Content",
-			status:   http.StatusNoContent,
-			expected: `{"status":"No Content"}`,
-		},
+		{name: "200 OK", status: http.StatusOK, expected: `{"data":null}`},
+		{name: "201 Created", status: http.StatusCreated, expected: `{"data":null}`},
+		{name: "204 No Content", status: http.StatusNoContent, expected: `{"data":null}`},
 	}
 
 	for _, tc := range testcases {
@@ -105,7 +93,7 @@ func TestResponseSuccess_MarshalJSON_WithMetadataAndData(t *testing.T) {
 	b, err := json.Marshal(res)
 
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"status":"OK","metadata":{"total":1},"data":{"name":"test"}}`, string(b))
+	assert.JSONEq(t, `{"data":{"name":"test"},"extensions":{"metadata":{"total":1}}}`, string(b))
 }
 
 func TestResponseSuccess_Write(t *testing.T) {
@@ -118,7 +106,7 @@ func TestResponseSuccess_Write(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"OK"}`, rw.Body.String())
+	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 }
 
 func TestResponseSuccess_Write_WithData(t *testing.T) {
@@ -137,7 +125,7 @@ func TestResponseSuccess_Write_WithData(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rw.Code)
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"status":"OK","data":{"id":"123","name":"test"}}`, rw.Body.String())
+	assert.JSONEq(t, `{"data":{"id":"123","name":"test"}}`, rw.Body.String())
 }
 
 func TestResponseSuccess_ChainedCalls(t *testing.T) {
@@ -158,7 +146,7 @@ func TestResponseSuccess_ChainedCalls(t *testing.T) {
 	b, err := json.Marshal(res)
 
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"status":"OK","metadata":{"page":1,"total":2},"data":[{"name":"a"},{"name":"b"}]}`, string(b))
+	assert.JSONEq(t, `{"data":[{"name":"a"},{"name":"b"}],"extensions":{"metadata":{"page":1,"total":2}}}`, string(b))
 }
 
 func TestResponseSuccess_MarshalJSON_NoMetadataNoData(t *testing.T) {
@@ -169,9 +157,9 @@ func TestResponseSuccess_MarshalJSON_NoMetadataNoData(t *testing.T) {
 	b, err := json.Marshal(res)
 
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"status":"No Content"}`, string(b))
+	assert.JSONEq(t, `{"data":null}`, string(b))
 	assert.NotContains(t, string(b), "metadata")
-	assert.NotContains(t, string(b), "data")
+	assert.NotContains(t, string(b), "extensions")
 }
 
 func TestResponseSuccess_Write_SetsHeaders(t *testing.T) {
@@ -191,35 +179,9 @@ func TestFallbackSuccessResponse_ValidJSON(t *testing.T) {
 	err := json.Unmarshal(fallbackSuccessResponse, &result)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Internal Server Error", result["status"])
-}
-
-func TestResponseSuccess_MarshalJSON_StatusText(t *testing.T) {
-	testcases := []struct {
-		name           string
-		status         int
-		expectedStatus string
-	}{
-		{name: "200", status: http.StatusOK, expectedStatus: "OK"},
-		{name: "201", status: http.StatusCreated, expectedStatus: "Created"},
-		{name: "202", status: http.StatusAccepted, expectedStatus: "Accepted"},
-		{name: "204", status: http.StatusNoContent, expectedStatus: "No Content"},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			res := NewResponseSuccess[NoMetadata, NoData](req).SetStatus(tc.status)
-
-			b, err := json.Marshal(res)
-
-			require.NoError(t, err)
-
-			var result map[string]any
-			json.Unmarshal(b, &result)
-			assert.Equal(t, tc.expectedStatus, result["status"])
-		})
-	}
+	_, ok := result["data"]
+	require.True(t, ok, "fallback success response must contain data field per schema invariant")
+	assert.Nil(t, result["data"])
 }
 
 func TestResponseSuccess_SetData_ComplexType(t *testing.T) {

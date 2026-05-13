@@ -25,16 +25,12 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 					Namespace: "default",
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "TaskQueue must be set and not be empty",
-						Path:    []string{"Config", "Worker", "TaskQueue"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set",
+					Path:    []any{"config", "worker", "task_queue"},
 				},
-			},
+			),
 		},
 		{
 			name: "valid config with task queue applies client defaults",
@@ -118,16 +114,12 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 					Namespace: "production",
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "TaskQueue must be set and not be empty",
-						Path:    []string{"Config", "Worker", "TaskQueue"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set",
+					Path:    []any{"config", "worker", "task_queue"},
 				},
-			},
+			),
 		},
 		{
 			name: "enable session worker is preserved",
@@ -179,20 +171,16 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 					},
 				},
 			},
-			err: &errorstack.Error{
-				Integration: identifier,
-				Message:     "Failed to validate configuration",
-				Validations: []errorstack.Validation{
-					{
-						Message: "TaskQueue must be set and not be empty",
-						Path:    []string{"Config", "Worker", "TaskQueue"},
-					},
-					{
-						Message: "CertPEM and KeyPEM must be set together or neither must be set",
-						Path:    []string{"Config", "TLS"},
-					},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be set",
+					Path:    []any{"config", "worker", "task_queue"},
 				},
-			},
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
+				},
+			),
 		},
 	}
 

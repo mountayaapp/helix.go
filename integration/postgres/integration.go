@@ -38,10 +38,7 @@ func (conn *connection) Status(ctx context.Context) (int, error) {
 		return 200, nil
 	}
 
-	stack := errorstack.New("Integration is not in a healthy state", errorstack.WithIntegration(identifier))
-	stack.WithValidations(errorstack.Validation{
-		Message: err.Error(),
-	})
-
-	return 503, stack
+	return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
+		errorstack.WithCode(errorstack.CodeServiceUnavailable),
+	)
 }

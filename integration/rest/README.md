@@ -89,7 +89,10 @@ Multiple parameters are supported: `/orgs/:org_id/users/:user_id`.
 ### Success responses
 
 `ResponseSuccess[Metadata, Data]` is a generic type for `2xx` responses. The JSON
-body has the shape `{"status":"...","metadata":{...},"data":{...}}`.
+body follows the GraphQL-spec envelope shape `{"data": {...}, "extensions": {...}}`
+(no `status` field — the HTTP status code carries that). Typed metadata is
+folded under top-level `extensions.metadata` for symmetry with the error
+envelope.
 
 ```go
 type Pagination struct {
@@ -114,14 +117,15 @@ router.GET("/users/:id", func(rw http.ResponseWriter, req *http.Request) {
 Response JSON:
 ```json
 {
-  "status": "OK",
-  "metadata": {
-    "page": 1,
-    "total": 42
-  },
   "data": {
     "id": "usr_123",
     "name": "Alice"
+  },
+  "extensions": {
+    "metadata": {
+      "page": 1,
+      "total": 42
+    }
   }
 }
 ```
@@ -136,15 +140,29 @@ rest.NewResponseSuccess[rest.NoMetadata, rest.NoData](req).
 
 Response JSON:
 ```json
-{
-  "status": "Created"
-}
+{"data":null}
 ```
+
+The `data` field is always present on 2xx responses — `null` when no payload
+is set, an object/array otherwise — so consumers can rely on its presence.
 
 ### Error responses
 
-`ResponseError[Metadata]` is a generic type for `3xx`/`4xx`/`5xx` responses. The
-error message is automatically localized based on the `Accept-Language` header.
+REST error responses follow the [GraphQL spec error envelope](https://spec.graphql.org/draft/#sec-Errors):
+
+```json
+{
+  "errors": [
+    {"message": "…", "path": [...], "extensions": {"code": "…"}}
+  ],
+  "extensions": {"metadata": {...}}
+}
+```
+
+`ResponseError[Metadata]` is the typed builder. `SetStatus` seeds a single
+fallback entry built from the localized message (selected via the
+`Accept-Language` header) and the canonical machine code from
+`errorstack.HTTPStatusToCode`.
 
 ```go
 router.GET("/users/:id", func(rw http.ResponseWriter, req *http.Request) {
@@ -157,50 +175,54 @@ router.GET("/users/:id", func(rw http.ResponseWriter, req *http.Request) {
 Response JSON:
 ```json
 {
-  "status": "Not Found",
-  "error": {
-    "message": "The requested resource could not be found"
-  }
+  "errors": [
+    {
+      "message": "Resource does not exist",
+      "extensions": {"code": "NOT_FOUND"}
+    }
+  ]
 }
 ```
 
-Add structured validation errors with `SetErrorValidations`:
+`SetValidations` replaces `errors[]` with one entry per validation. Each entry
+is forced to `extensions.code = "VALIDATION_FAILED"` (the seeded fallback entry
+is dropped — validations supersede it):
 
 ```go
 rest.NewResponseError[rest.NoMetadata](req).
   SetStatus(http.StatusBadRequest).
-  SetErrorValidations([]errorstack.Validation{
-    {
-      Message: "must be a valid email address", 
-      Path: []string{"request", "body", "email"},
+  SetValidations(
+    errorstack.Entry{
+      Message: "Must be a valid email address",
+      Path:    []any{"request", "body", "email"},
     },
-    {
-      Message: "is required", 
-      Path: []string{"request", "body", "name"},
+    errorstack.Entry{
+      Message: "Must be set",
+      Path:    []any{"request", "body", "name"},
     },
-  }).
+  ).
   Write(rw)
 ```
 
 Response JSON:
 ```json
 {
-  "status": "Bad Request",
-  "error": {
-    "message": "The request was invalid or malformed",
-    "validations": [
-      {
-        "message": "must be a valid email address",
-        "path": ["request", "body", "email"]
-      },
-      {
-        "message": "is required",
-        "path": ["request", "body", "name"]
-      }
-    ]
-  }
+  "errors": [
+    {
+      "message": "Must be a valid email address",
+      "path": ["request", "body", "email"],
+      "extensions": {"code": "VALIDATION_FAILED"}
+    },
+    {
+      "message": "Must be set",
+      "path": ["request", "body", "name"],
+      "extensions": {"code": "VALIDATION_FAILED"}
+    }
+  ]
 }
 ```
+
+`SetMetadata` folds typed metadata under top-level `extensions.metadata`.
 
 ### OpenAPI validation
 
@@ -279,12 +301,24 @@ $ curl --request GET \
 ```
 
 Aggregates the health status of all dependencies attached to the service,
-returning the highest HTTP status code. If all dependencies are healthy (`200`)
-but one is temporarily unavailable (`503`), the response is:
+returning the highest HTTP status code. When all dependencies are healthy,
+the response is:
+
+```json
+{"data":null}
+```
+
+When at least one dependency is temporarily unavailable (`503`), the
+response uses the canonical error envelope:
 
 ```json
 {
-  "status": "Service Unavailable"
+  "errors": [
+    {
+      "message": "Service is temporarily unavailable",
+      "extensions": {"code": "SERVICE_UNAVAILABLE"}
+    }
+  ]
 }
 ```
 
