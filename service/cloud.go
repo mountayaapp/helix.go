@@ -4,6 +4,7 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/kubernetes"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/nomad"
+	"github.com/mountayaapp/helix.go/internal/cloudprovider/qovery"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/render"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/unknown"
 
@@ -32,6 +33,9 @@ detected. Falls back to "unknown" if none match.
 */
 func detectCloudProvider() *cloud {
 	providers := []cloudprovider.CloudProvider{
+
+		// qovery must precede kubernetes: Qovery runs on K8s and sets KUBERNETES_SERVICE_HOST.
+		qovery.Get(),
 		kubernetes.Get(),
 		nomad.Get(),
 		render.Get(),

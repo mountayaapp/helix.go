@@ -583,6 +583,34 @@ When recognized, traces and logs are enriched with platform-specific attributes.
 </details>
 
 <details>
+  <summary>Qovery</summary>
+
+  Additional OpenTelemetry attributes (traces and logs exported via OTLP):
+
+  - `qovery.application_id`
+  - `qovery.cloud_provider_region`
+  - `qovery.environment_id`
+  - `qovery.environment_name`
+  - `qovery.environment_type`
+  - `qovery.kubernetes_cluster_domain`
+  - `qovery.kubernetes_cluster_name`
+  - `qovery.kubernetes_namespace_name`
+  - `qovery.project_id`
+
+  Additional stderr log fields:
+
+  - `qovery_application_id`
+  - `qovery_cloud_provider_region`
+  - `qovery_environment_id`
+  - `qovery_environment_name`
+  - `qovery_environment_type`
+  - `qovery_kubernetes_cluster_domain`
+  - `qovery_kubernetes_cluster_name`
+  - `qovery_kubernetes_namespace_name`
+  - `qovery_project_id`
+</details>
+
+<details>
   <summary>Render</summary>
 
   Additional OpenTelemetry attributes (traces and logs exported via OTLP):
