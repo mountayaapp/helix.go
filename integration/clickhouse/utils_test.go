@@ -13,7 +13,7 @@ import (
 
 type testRow struct {
 	Date    string `ch:"date"`
-	OrgID   string `ch:"organization_id"`
+	Path    string `ch:"path"`
 	Ignored string `ch:"-"`
 	Count   uint64 `ch:"count"`
 }
@@ -61,13 +61,14 @@ func TestPreComputedSpanNames(t *testing.T) {
 	assert.Equal(t, "ClickHouse: Batch / Begin", spanBatchBegin)
 	assert.Equal(t, "ClickHouse: Batch / Send", spanBatchSend)
 	assert.Equal(t, "ClickHouse: Async Insert", spanAsyncInsert)
+	assert.Equal(t, "ClickHouse: Select", spanSelect)
 }
 
 func TestReflectStructInfo_ColumnsAndIndexes(t *testing.T) {
 	info, err := reflectStructInfo(reflect.TypeOf(testRow{}))
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"date", "organization_id", "count"}, info.columns)
+	assert.Equal(t, []string{"date", "path", "count"}, info.columns)
 	assert.Len(t, info.indexes, 3)
 }
 
@@ -102,8 +103,8 @@ func TestReflectStructInfo_AllFieldsSkipped(t *testing.T) {
 }
 
 func TestBuildInsertQuery(t *testing.T) {
-	query := buildInsertQuery("usage.tiles", []string{"date", "organization_id", "count"})
-	assert.Equal(t, "INSERT INTO usage.tiles (`date`, `organization_id`, `count`) VALUES (?, ?, ?)", query)
+	query := buildInsertQuery("events", []string{"date", "path", "count"})
+	assert.Equal(t, "INSERT INTO events (`date`, `path`, `count`) VALUES (?, ?, ?)", query)
 }
 
 func TestBuildInsertQuery_SingleColumn(t *testing.T) {
@@ -114,53 +115,53 @@ func TestBuildInsertQuery_SingleColumn(t *testing.T) {
 func TestPrepareAsyncInsert_Struct(t *testing.T) {
 	row := testRow{
 		Date:    "2026-04-15",
-		OrgID:   "org-1",
+		Path:    "/pricing",
 		Ignored: "skip-me",
 		Count:   42,
 	}
 
-	query, args, err := prepareAsyncInsert("usage.tiles", row)
+	query, args, err := prepareAsyncInsert("events", row)
 	require.NoError(t, err)
-	assert.Equal(t, "INSERT INTO usage.tiles (`date`, `organization_id`, `count`) VALUES (?, ?, ?)", query)
-	assert.Equal(t, []any{"2026-04-15", "org-1", uint64(42)}, args)
+	assert.Equal(t, "INSERT INTO events (`date`, `path`, `count`) VALUES (?, ?, ?)", query)
+	assert.Equal(t, []any{"2026-04-15", "/pricing", uint64(42)}, args)
 }
 
 func TestPrepareAsyncInsert_Pointer(t *testing.T) {
-	row := &testRow{Date: "2026-04-15", OrgID: "org-1", Count: 1}
+	row := &testRow{Date: "2026-04-15", Path: "/pricing", Count: 1}
 
-	_, args, err := prepareAsyncInsert("usage.tiles", row)
+	_, args, err := prepareAsyncInsert("events", row)
 	require.NoError(t, err)
-	assert.Equal(t, []any{"2026-04-15", "org-1", uint64(1)}, args)
+	assert.Equal(t, []any{"2026-04-15", "/pricing", uint64(1)}, args)
 }
 
 func TestPrepareAsyncInsert_NilPointer(t *testing.T) {
 	var row *testRow
 
-	_, _, err := prepareAsyncInsert("usage.tiles", row)
+	_, _, err := prepareAsyncInsert("events", row)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nil pointer")
 }
 
 func TestPrepareAsyncInsert_NotAStruct(t *testing.T) {
-	_, _, err := prepareAsyncInsert("usage.tiles", "not-a-struct")
+	_, _, err := prepareAsyncInsert("events", "not-a-struct")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expected a struct")
 }
 
 func TestPrepareAsyncInsert_EmptyColumns(t *testing.T) {
-	_, _, err := prepareAsyncInsert("usage.tiles", testRowAllSkipped{})
+	_, _, err := prepareAsyncInsert("events", testRowAllSkipped{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no exportable columns")
 }
 
 func TestPrepareAsyncInsert_OnlyUnexportedFieldsYieldEmptyColumns(t *testing.T) {
-	_, _, err := prepareAsyncInsert("usage.tiles", testRowOnlyUnexported{})
+	_, _, err := prepareAsyncInsert("events", testRowOnlyUnexported{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no exportable columns")
 }
 
 func TestPrepareAsyncInsert_InvalidStructLayoutPropagates(t *testing.T) {
-	_, _, err := prepareAsyncInsert("usage.tiles", testRowUntaggedField{})
+	_, _, err := prepareAsyncInsert("events", testRowUntaggedField{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing a `ch` tag")
 }

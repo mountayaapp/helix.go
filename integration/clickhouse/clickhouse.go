@@ -18,6 +18,7 @@ Pre-computed span names to avoid allocations on every call.
 const (
 	spanBatchBegin  = humanized + ": Batch / Begin"
 	spanAsyncInsert = humanized + ": Async Insert"
+	spanSelect      = humanized + ": Select"
 )
 
 /*
@@ -27,6 +28,7 @@ automatic distributed tracing as well as error recording within traces.
 type ClickHouse interface {
 	NewBatchInsert(ctx context.Context, table string) (Batch, error)
 	AsyncInsertStruct(ctx context.Context, table string, value any) error
+	Select(ctx context.Context, dest any, query string, args ...any) error
 }
 
 /*
@@ -130,7 +132,7 @@ and flushes them in the background, so this call does not pay the
 prepare/append/send roundtrip cost of a batch insert. The call returns as soon
 as the server acknowledges receipt; it does not wait for the flush.
 
-Intended for high-frequency, low-latency per-request writes such as usage
+Intended for high-frequency, low-latency per-request writes such as request
 counters. For bulk loads, prefer NewBatchInsert. Server-side buffering is
 governed by `async_insert_max_data_size`, `async_insert_busy_timeout_ms`, and
 `async_insert_max_query_number`.
@@ -156,6 +158,31 @@ func (conn *connection) AsyncInsertStruct(ctx context.Context, table string, val
 	asyncCtx := clickhouse.Context(ctx, clickhouse.WithAsync(false))
 	if err := conn.client.Exec(asyncCtx, query, args...); err != nil {
 		span.RecordError("failed to async insert struct", err)
+		return err
+	}
+
+	return nil
+}
+
+/*
+Select runs a read query against ClickHouse and scans the result set into dest,
+which must be a pointer to a slice of structs whose exported fields carry `ch`
+struct tags matching the selected columns. Pass query arguments as variadic args
+so the driver binds them as parameters rather than interpolating into the SQL.
+
+Intended for analytical reads such as aggregations over large datasets. For
+writes, use NewBatchInsert or AsyncInsertStruct.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Select(ctx context.Context, dest any, query string, args ...any) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSelect)
+	defer span.End()
+
+	setDefaultAttributes(span, conn.config)
+
+	if err := conn.client.Select(ctx, dest, query, args...); err != nil {
+		span.RecordError("failed to select", err)
 		return err
 	}
 

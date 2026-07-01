@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The ClickHouse integration provides an opinionated way to interact with ClickHouse
-as an OLAP database, supporting both batch writes and per-row async inserts. It
-is a **dependency** integration — calling `clickhouse.Connect(svc, cfg)`
+as an OLAP database, supporting batch writes, per-row async inserts, and analytical
+reads. It is a **dependency** integration — calling `clickhouse.Connect(svc, cfg)`
 automatically registers it via `service.Attach()`.
 
 ## Installation
@@ -98,7 +98,7 @@ if err != nil {
 
 ### Async inserts
 
-For high-frequency, low-latency per-request writes (e.g. usage counters), use
+For high-frequency, low-latency per-request writes (e.g. request counters), use
 `AsyncInsertStruct`. It relies on ClickHouse's native `async_insert` mechanism:
 the server buffers incoming rows and flushes them in the background, so the
 call returns as soon as the server acknowledges receipt without waiting for
@@ -109,16 +109,16 @@ Embedded (anonymous) struct fields are rejected — unlike the batch API,
 `AsyncInsertStruct` does not recurse into child fields.
 
 ```go
-type UsageRow struct {
-  Date           string `ch:"date"`
-  OrganizationID string `ch:"organization_id"`
-  Count          uint64 `ch:"count"`
+type PageView struct {
+  Date  time.Time `ch:"date"`
+  Path  string    `ch:"path"`
+  Count uint64    `ch:"count"`
 }
 
-err = db.AsyncInsertStruct(ctx, "usage.tiles", UsageRow{
-  Date:           "2026-04-16",
-  OrganizationID: "org_123",
-  Count:          1,
+err = db.AsyncInsertStruct(ctx, "page_views", PageView{
+  Date:  time.Now().UTC(),
+  Path:  "/pricing",
+  Count: 1,
 })
 if err != nil {
   // ...
@@ -127,6 +127,35 @@ if err != nil {
 
 Server-side buffering is governed by `async_insert_max_data_size`,
 `async_insert_busy_timeout_ms`, and `async_insert_max_query_number`.
+
+### Reading rows
+
+For analytical reads (e.g. aggregations over large datasets), use `Select`. It
+scans the result set into a pointer to a slice of structs whose exported fields
+carry `ch` struct tags matching the selected columns. Pass query arguments as
+variadic parameters so the driver binds them rather than interpolating into the
+SQL.
+
+```go
+type PageViewStat struct {
+  Date  time.Time `ch:"date"`
+  Path  string    `ch:"path"`
+  Views uint64    `ch:"views"`
+}
+
+var stats []PageViewStat
+err = db.Select(ctx, &stats,
+  `SELECT date, path, sum(count) AS views
+   FROM page_views
+   WHERE date >= ? AND date <= ?
+   GROUP BY date, path
+   ORDER BY date`,
+  startAt, endAt,
+)
+if err != nil {
+  // ...
+}
+```
 
 ## Trace attributes
 
