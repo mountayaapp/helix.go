@@ -203,6 +203,9 @@ to a single service.
   caching.
 - **[Bucket](./integration/bucket/README.md)** — Blob storage with drivers for AWS
   S3, Azure Blob Storage, Google Cloud Storage.
+- **[HTTP Client](./integration/httpclient/README.md)** — Client for external HTTP
+  APIs with round-robin across endpoints, automatic failover, and per-endpoint
+  health checks reflected in the service status.
 
 > **Note:** Integrations in this repository are maintained exclusively by the helix
 > team. We do not accept new integrations via pull requests, but you are free to

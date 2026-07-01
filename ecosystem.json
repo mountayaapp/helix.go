@@ -41,6 +41,11 @@
       "description": "as key/value cache database"
     },
     {
+      "id": "httpclient",
+      "name": "HTTP Client",
+      "description": "for calling external HTTP APIs"
+    },
+    {
       "id": "temporal",
       "name": "Temporal",
       "description": "for durable, fault-tolerant executions"

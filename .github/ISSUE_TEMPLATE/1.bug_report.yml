@@ -45,6 +45,7 @@ body:
         - bucket
         - clickhouse
         - graphql
+        - httpclient
         - postgres
         - rest
         - temporal
