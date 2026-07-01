@@ -32,9 +32,9 @@ func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) 
 	// Set the default Temporal config, using custom logger, context propagator, and
 	// tracer.
 	var opts = client.Options{
-		HostPort:           cfg.Address,
-		Namespace:          cfg.Namespace,
-		Logger:             newCustomLogger(svc),
+		HostPort:  cfg.Address,
+		Namespace: cfg.Namespace,
+		Logger:    newCustomLogger(svc),
 		ContextPropagators: []workflow.ContextPropagator{
 			&custompropagator{
 				cachedCtx: service.Context(svc, context.Background()),

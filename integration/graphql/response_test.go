@@ -198,4 +198,3 @@ func TestWriteSuccess_StatusText(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rw.Code)
 	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
 }
-

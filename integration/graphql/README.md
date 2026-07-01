@@ -74,7 +74,7 @@ in Valkey.
 
 ## Usage
 
-### Basic setup
+### Creating a server
 
 ```go
 import (

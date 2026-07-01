@@ -64,7 +64,7 @@ type Config struct {
 	// adding a chain of middlewares.
 	Middleware func(next http.Handler) http.Handler `json:"-"`
 
-	// TLS configures TLS for the HTTP server. Only CertPEM and KeyPEM are took
+	// TLS configures TLS for the HTTP server. Only CertPEM and KeyPEM are taken
 	// into consideration. PEM-encoded certificate and matching private key for
 	// the server must be provided. If the certificate is signed by a certificate
 	// authority, the CertPEM should be the concatenation of the server's

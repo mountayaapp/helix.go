@@ -297,4 +297,3 @@ func TestResponseError_Write_SetsHeaders(t *testing.T) {
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
 	assert.Equal(t, http.StatusBadRequest, rw.Code)
 }
-
