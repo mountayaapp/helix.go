@@ -41,6 +41,14 @@ type Workflow[Input, Result any] interface {
 	// the [Result] type.
 	GetResult(ctx context.Context, run WorkflowRun[Result]) (Result, error)
 
+	// GetResultIfClosed retrieves a workflow run's result by workflowID (runID
+	// optional; empty targets the latest run) WITHOUT blocking on a run still in
+	// progress. The bool reports whether the run had closed: false (with the zero
+	// [Result]) on an in-progress or unknown run, true once it has closed — in which
+	// case result holds the deserialized [Result] for a completed run, or err carries a
+	// failed run's error. It is the non-blocking counterpart to GetResult.
+	GetResultIfClosed(ctx context.Context, c Client, workflowID, runID string) (result Result, closed bool, err error)
+
 	// CreateSchedule creates a new Temporal Schedule for this workflow definition.
 	// If a schedule with the same ID already exists and has identical properties
 	// (workflow name, task queue, overlap policy), the call is a no-op: no error
@@ -110,6 +118,23 @@ func (d *workflowDefinition[Input, Result]) GetResult(
 	err := run.GetResult(ctx, &output)
 
 	return output, err
+}
+
+/*
+GetResultIfClosed retrieves the workflow result into the correct [Result] type
+without blocking on a run still in progress. It is the non-blocking counterpart to
+GetResult: the bool reports whether the run had closed, and the [Result] is the zero
+value until it has.
+*/
+func (d *workflowDefinition[Input, Result]) GetResultIfClosed(
+	ctx context.Context,
+	c Client,
+	workflowID, runID string,
+) (Result, bool, error) {
+	var output Result
+	closed, err := c.closedWorkflowResult(ctx, workflowID, runID, &output)
+
+	return output, closed, err
 }
 
 /*

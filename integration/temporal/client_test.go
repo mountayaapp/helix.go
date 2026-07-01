@@ -8,6 +8,8 @@ import (
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	workflow "go.temporal.io/api/workflow/v1"
+	workflowservice "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/temporal"
@@ -322,4 +324,70 @@ func TestSchedulesMatch(t *testing.T) {
 
 		assert.False(t, schedulesMatch(desc, opts))
 	})
+}
+
+func TestClosedWorkflowResult_Running(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	desc := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflow.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		},
+	}
+
+	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").Return(desc, nil)
+
+	c := &iclient{client: mockClient}
+
+	var got string
+	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)
+
+	assert.NoError(t, err)
+	assert.False(t, closed)
+	assert.Empty(t, got)
+	mockClient.AssertNotCalled(t, "GetWorkflow", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestClosedWorkflowResult_Completed(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+	mockRun := mocks.NewWorkflowRun(t)
+
+	desc := &workflowservice.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflow.WorkflowExecutionInfo{
+			Status: enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		},
+	}
+
+	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").Return(desc, nil)
+	mockClient.On("GetWorkflow", mock.Anything, "my-workflow", "my-run").Return(mockRun)
+	mockRun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		valuePtr := args.Get(1).(*string)
+		*valuePtr = "the-result"
+	}).Return(nil)
+
+	c := &iclient{client: mockClient}
+
+	var got string
+	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)
+
+	assert.NoError(t, err)
+	assert.True(t, closed)
+	assert.Equal(t, "the-result", got)
+}
+
+func TestClosedWorkflowResult_NotFound(t *testing.T) {
+	mockClient := mocks.NewClient(t)
+
+	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").
+		Return(nil, serviceerror.NewNotFound("workflow not found"))
+
+	c := &iclient{client: mockClient}
+
+	var got string
+	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)
+
+	assert.NoError(t, err)
+	assert.False(t, closed)
+	assert.Empty(t, got)
+	mockClient.AssertNotCalled(t, "GetWorkflow", mock.Anything, mock.Anything, mock.Anything)
 }

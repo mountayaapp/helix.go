@@ -27,7 +27,16 @@ Client exposes an opinionated way to interact with Temporal's client capabilitie
 */
 type Client interface {
 	executeWorkflow(ctx context.Context, opts client.StartWorkflowOptions, workflowType string, payload ...any) (client.WorkflowRun, error)
+	signalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg any) error
 	createSchedule(ctx context.Context, opts client.ScheduleOptions) error
+
+	// closedWorkflowResult deserializes the result of a workflow run that has already
+	// closed into valuePtr, without blocking on a run still in progress. The bool
+	// reports whether the run had closed: false on an in-progress or unknown run (so a
+	// caller polling a long-lived run never parks a goroutine on it), true once it has
+	// closed — in which case valuePtr holds a completed run's deserialized result, or
+	// the error carries a failed run's failure (and valuePtr should not be relied on).
+	closedWorkflowResult(ctx context.Context, workflowID, runID string, valuePtr any) (bool, error)
 }
 
 /*
@@ -77,6 +86,16 @@ func (c *iclient) executeWorkflow(ctx context.Context, opts client.StartWorkflow
 }
 
 /*
+signalWorkflow sends a signal to a running workflow execution. A run Id is
+optional; an empty string targets the latest run for the workflow Id.
+
+It automatically handles tracing and error recording via interceptor.
+*/
+func (c *iclient) signalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg any) error {
+	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, arg)
+}
+
+/*
 createSchedule creates a new schedule of a workflow type. If a schedule with the
 same ID already exists and has identical properties, the error is silently ignored.
 If properties differ, the error is returned.
@@ -106,6 +125,39 @@ func (c *iclient) createSchedule(ctx context.Context, opts client.ScheduleOption
 	_, err := c.client.ScheduleClient().Create(ctx, opts)
 
 	return err
+}
+
+/*
+closedWorkflowResult deserializes the result of a workflow run that has already
+closed into valuePtr, without blocking on a run still in progress. The bool reports
+whether the run had closed: an in-progress or unknown run reports false and leaves
+valuePtr untouched, so a caller polling a long-lived run never parks a goroutine on
+it; a closed run reports true, with valuePtr holding a completed run's result or the
+returned error carrying a failed run's failure (in which case valuePtr is unreliable).
+*/
+func (c *iclient) closedWorkflowResult(ctx context.Context, workflowID, runID string, valuePtr any) (bool, error) {
+	desc, err := c.client.DescribeWorkflowExecution(ctx, workflowID, runID)
+	if err != nil {
+
+		// An unknown or history-expired run is not an error for a best-effort terminal
+		// read: report it as not-closed so the caller proceeds rather than failing.
+		var notFound *serviceerror.NotFound
+		if errors.As(err, &notFound) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	// A still-running execution must not be read with Get, which blocks until the run
+	// closes; report it as not-closed so the caller never parks a goroutine on it.
+	if desc.GetWorkflowExecutionInfo().GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return false, nil
+	}
+
+	// The run has closed, so Get returns immediately: it deserializes a completed run's
+	// result into valuePtr, or returns a failed or terminated run's error.
+	return true, c.client.GetWorkflow(ctx, workflowID, runID).Get(ctx, valuePtr)
 }
 
 /*
