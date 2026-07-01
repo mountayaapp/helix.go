@@ -2,6 +2,8 @@ package valkey
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
@@ -25,6 +27,11 @@ const (
 	spanScan      = humanized + ": Scan"
 	spanMGet      = humanized + ": MGet"
 	spanDelete    = humanized + ": Delete"
+	spanPublish   = humanized + ": Publish"
+	spanSubscribe = humanized + ": Subscribe"
+	spanXAdd      = humanized + ": XAdd"
+	spanXRange    = humanized + ": XRange"
+	spanSetNX     = humanized + ": SetNX"
 )
 
 /*
@@ -33,6 +40,23 @@ Entry represents a key/value pair in Valkey.
 type Entry struct {
 	Key   string `json:"key"`
 	Value []byte `json:"value"`
+}
+
+/*
+PubSubMessage is a single message received on a subscribed channel.
+*/
+type PubSubMessage struct {
+	Channel string `json:"channel"`
+	Payload []byte `json:"payload"`
+}
+
+/*
+StreamEntry is a single entry read from a stream, identified by its server-assigned
+id and carrying the field/value pairs of the entry.
+*/
+type StreamEntry struct {
+	Id     string            `json:"id"`
+	Fields map[string]string `json:"fields"`
 }
 
 /*
@@ -49,6 +73,11 @@ type Valkey interface {
 	Scan(ctx context.Context, pattern string) ([]string, error)
 	MGet(ctx context.Context, keys []string) ([]Entry, error)
 	Delete(ctx context.Context, keys []string) error
+	SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
+	Publish(ctx context.Context, channel string, message []byte) error
+	Subscribe(ctx context.Context, channel string, handler func(PubSubMessage)) error
+	XAdd(ctx context.Context, stream string, maxLen int64, fields map[string]string) (string, error)
+	XRange(ctx context.Context, stream, start, end string) ([]StreamEntry, error)
 }
 
 /*
@@ -345,4 +374,148 @@ func (conn *connection) Delete(ctx context.Context, keys []string) error {
 	}
 
 	return err
+}
+
+/*
+SetNX sets key to value only if it does not already exist, with an optional TTL.
+Returns true when the value was set (the caller won the race) and false when the
+key already existed. A pre-existing key is not treated as an error.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSetNX)
+	defer span.End()
+
+	cmd := conn.client.B().Set().Key(key).Value(bytesToString(value)).Nx()
+	if ttl > 0 {
+		cmd.Ex(ttl)
+	}
+
+	setKeyAttributes(span, key)
+
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		if errors.Is(err, valkey.Nil) {
+			return false, nil
+		}
+
+		span.RecordError("failed to set key if not exists", err)
+		return false, err
+	}
+
+	return true, nil
+}
+
+/*
+Publish publishes a message to a channel for live fan-out to current subscribers.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Publish(ctx context.Context, channel string, message []byte) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanPublish)
+	defer span.End()
+
+	cmd := conn.client.B().Publish().Channel(channel).Message(bytesToString(message))
+	err := conn.client.Do(ctx, cmd.Build()).Error()
+	if err != nil {
+		span.RecordError("failed to publish message", err)
+	}
+
+	return err
+}
+
+/*
+Subscribe subscribes to a channel and invokes handler for every message until ctx
+is cancelled. It blocks for the lifetime of the subscription on a dedicated
+connection, so callers run it in a goroutine and cancel ctx to tear it down. A
+cancellation is normal teardown and is not recorded as an error.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) Subscribe(ctx context.Context, channel string, handler func(PubSubMessage)) error {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSubscribe)
+	defer span.End()
+
+	cmd := conn.client.B().Subscribe().Channel(channel).Build()
+	err := conn.client.Receive(ctx, cmd, func(msg valkey.PubSubMessage) {
+		handler(PubSubMessage{
+			Channel: msg.Channel,
+			Payload: []byte(msg.Message),
+		})
+	})
+	if err != nil && !errors.Is(err, context.Canceled) {
+		span.RecordError("failed to subscribe to channel", err)
+		return err
+	}
+
+	return nil
+}
+
+/*
+XAdd appends an entry of field/value pairs to a stream and returns the
+server-assigned entry id. When maxLen is greater than zero the stream is capped to
+approximately that many entries (MAXLEN ~).
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) XAdd(ctx context.Context, stream string, maxLen int64, fields map[string]string) (string, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanXAdd)
+	defer span.End()
+
+	setKeyAttributes(span, stream)
+
+	var built valkey.Completed
+	if maxLen > 0 {
+		entry := conn.client.B().Xadd().Key(stream).Maxlen().Almost().Threshold(strconv.FormatInt(maxLen, 10)).Id("*").FieldValue()
+		for field, value := range fields {
+			entry = entry.FieldValue(field, value)
+		}
+
+		built = entry.Build()
+	} else {
+		entry := conn.client.B().Xadd().Key(stream).Id("*").FieldValue()
+		for field, value := range fields {
+			entry = entry.FieldValue(field, value)
+		}
+
+		built = entry.Build()
+	}
+
+	id, err := conn.client.Do(ctx, built).ToString()
+	if err != nil {
+		span.RecordError("failed to append to stream", err)
+	}
+
+	return id, err
+}
+
+/*
+XRange returns stream entries within the inclusive id range [start, end]. Pass "-"
+and "+" for the full range, or an exclusive "(id" start to resume after a known id.
+
+It automatically handles tracing and error recording.
+*/
+func (conn *connection) XRange(ctx context.Context, stream, start, end string) ([]StreamEntry, error) {
+	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanXRange)
+	defer span.End()
+
+	setKeyAttributes(span, stream)
+
+	cmd := conn.client.B().Xrange().Key(stream).Start(start).End(end)
+	entries, err := conn.client.Do(ctx, cmd.Build()).AsXRange()
+	if err != nil {
+		span.RecordError("failed to read stream range", err)
+		return nil, err
+	}
+
+	result := make([]StreamEntry, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, StreamEntry{
+			Id:     entry.ID,
+			Fields: entry.FieldValues,
+		})
+	}
+
+	return result, nil
 }
