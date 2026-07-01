@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 helix is a Go library for building observable microservices. Every integration
-— REST, GraphQL, Temporal, PostgreSQL, and more — ships with distributed tracing,
+— REST, GraphQL, MCP, Temporal, PostgreSQL, and more — ships with distributed tracing,
 structured logging, error recording, and health checks via
 [OpenTelemetry](https://opentelemetry.io/). No manual instrumentation, no
 boilerplate.
@@ -184,6 +184,9 @@ registered per service.
   validation, typed responses, and path parameters.
 - **[GraphQL API](./integration/graphql/README.md)** — GraphQL server with
   schema-first design, optional GraphiQL playground and automatic persisted queries.
+- **[MCP server](./integration/mcp/README.md)** — Model Context Protocol server
+  over Streamable HTTP, with swappable authentication including OAuth 2.0 Resource
+  Server support.
 - **[Temporal worker](./integration/temporal/README.md)** — Workflow and activity
   worker with automatic tracing across workflow executions.
 
@@ -386,6 +389,58 @@ processing requests, and all telemetry is flushed before the process exits.
       SetStatus(http.StatusAccepted).
       Write(rw)
   })
+  ```
+</details>
+
+<details>
+  <summary>MCP server with a tool</summary>
+
+  The MCP integration serves Model Context Protocol tools, resources, and prompts
+  over Streamable HTTP. Attach your tools through the `Register` hook; typed input
+  and output structs drive the tool's JSON schemas automatically.
+
+  ```go
+  import (
+    "context"
+
+    "github.com/mountayaapp/helix.go/service"
+    "github.com/mountayaapp/helix.go/integration/mcp"
+  )
+
+  type GreetInput struct {
+    Name string `json:"name" jsonschema:"the person to greet"`
+  }
+
+  type GreetOutput struct {
+    Greeting string `json:"greeting" jsonschema:"the rendered greeting"`
+  }
+
+  func main() {
+    svc, err := service.New()
+    if err != nil {
+      panic(err)
+    }
+
+    err = mcp.New(svc, mcp.Config{
+      ServerInfo: mcp.ServerInfo{Name: "greeter", Version: "v1.0.0"},
+      Register: func(server *mcp.Server) {
+        mcp.AddTool(server, &mcp.Tool{
+          Name:        "greet",
+          Description: "Greets a person by name.",
+          Annotations: &mcp.ToolAnnotations{Title: "Greet", ReadOnlyHint: true},
+        }, func(ctx context.Context, req *mcp.CallToolRequest, in GreetInput) (*mcp.CallToolResult, GreetOutput, error) {
+          return nil, GreetOutput{Greeting: "Hi " + in.Name}, nil
+        })
+      },
+    })
+    if err != nil {
+      panic(err)
+    }
+
+    if err := svc.Start(context.Background()); err != nil {
+      panic(err)
+    }
+  }
   ```
 </details>
 

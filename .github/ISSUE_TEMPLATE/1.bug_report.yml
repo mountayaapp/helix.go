@@ -46,6 +46,7 @@ body:
         - clickhouse
         - graphql
         - httpclient
+        - mcp
         - postgres
         - rest
         - temporal

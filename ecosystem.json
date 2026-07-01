@@ -59,6 +59,11 @@
       "id": "graphql",
       "name": "GraphQL API",
       "description": "for building GraphQL APIs"
+    },
+    {
+      "id": "mcp",
+      "name": "MCP Server",
+      "description": "for building Model Context Protocol servers"
     }
   ]
 }
