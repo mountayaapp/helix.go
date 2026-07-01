@@ -204,7 +204,7 @@ func attributesToFields(res *resource.Resource) []zap.Field {
 		case attribute.BOOL:
 			fields = append(fields, zap.Bool(key, kv.Value.AsBool()))
 		default:
-			fields = append(fields, zap.String(key, kv.Value.Emit()))
+			fields = append(fields, zap.String(key, kv.Value.String()))
 		}
 	}
 
