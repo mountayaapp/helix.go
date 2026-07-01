@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -38,12 +39,47 @@ type responseWriter struct {
 	// buf is the HTTP response body sets by a handler function. This allows to
 	// ensure if the body respects the one defined in the OpenAPI description.
 	buf *bytes.Buffer
+
+	// streaming reports whether the response is an incremental stream, detected
+	// from a text/event-stream Content-Type. A streamed response is flushed as
+	// written and is neither buffered nor validated against the OpenAPI
+	// description, which only describes finite bodies.
+	streaming bool
+}
+
+/*
+Unwrap returns the underlying http.ResponseWriter so http.ResponseController can
+reach optional interfaces such as http.Flusher, enabling incremental streaming.
+*/
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
+/*
+detectStreaming flags the response as an incremental stream when the handler sets a
+text/event-stream Content-Type. It is idempotent and cheap to call before a write.
+*/
+func (rw *responseWriter) detectStreaming() {
+	if strings.HasPrefix(rw.Header().Get("Content-Type"), "text/event-stream") {
+		rw.streaming = true
+	}
 }
 
 /*
 Write writes the data to the connection as part of an HTTP reply.
 */
 func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.streaming {
+		rw.detectStreaming()
+	}
+
+	// A streamed response is flushed as written and must not be buffered: an
+	// unbounded stream would grow the buffer without limit, and its body can not
+	// be validated against a finite OpenAPI schema.
+	if rw.streaming {
+		return rw.ResponseWriter.Write(b)
+	}
+
 	rw.ResponseWriter.Write(b)
 	return rw.buf.Write(b)
 }
@@ -53,6 +89,7 @@ WriteHeader sends an HTTP response header with the provided status code.
 */
 func (rw *responseWriter) WriteHeader(status int) {
 	rw.status = status
+	rw.detectStreaming()
 	rw.ResponseWriter.WriteHeader(status)
 }
 
@@ -110,6 +147,13 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 		// like we did for the request. If the response is not valid, an error is
 		// recorded but the response is still returned to the client.
 		defer func() {
+
+			// A streamed response is flushed incrementally and has no finite body to
+			// validate against the OpenAPI description.
+			if rw.streaming {
+				return
+			}
+
 			ctx, spanRes := trace.Start(req.Context(), trace.SpanKindServer, spanOpenAPIRes)
 
 			out := &openapi3filter.ResponseValidationInput{

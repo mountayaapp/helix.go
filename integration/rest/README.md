@@ -16,6 +16,19 @@ Only one server can be registered per Service.
 $ go get github.com/mountayaapp/helix.go/integration/rest
 ```
 
+## About bunrouter
+
+[`bunrouter`](https://github.com/uptrace/bunrouter) is a fast, flexible HTTP
+router for Go that keeps the standard `net/http` handler signature. This
+integration builds on it for routing, path parameters, and the middleware chain,
+while owning the HTTP server lifecycle, health endpoints, and observability. The
+router stays an implementation detail — routes are registered through the router
+returned by `rest.New`, not against bunrouter directly, so the underlying router
+can be swapped without changing consumer code.
+
+Refer to the [bunrouter documentation](https://bunrouter.uptrace.dev/) for the
+underlying routing semantics.
+
 ## Configuration
 
 - `Address` (`string`) — HTTP address to listen on. Default: `":8080"`.
@@ -146,7 +159,24 @@ Response JSON:
 The `data` field is always present on 2xx responses — `null` when no payload
 is set, an object/array otherwise — so consumers can rely on its presence.
 
-### Error responses
+### With OpenAPI validation
+
+Enable automatic request/response validation against an OpenAPI spec:
+
+```go
+router, err := rest.New(svc, rest.Config{
+  Address: ":8080",
+  OpenAPI: rest.ConfigOpenAPI{
+    Enabled:     true,
+    Description: "./descriptions/openapi.yaml",
+  },
+})
+```
+
+Invalid requests are rejected with `400` and structured validation errors.
+Invalid responses are traced as errors but still returned to the client.
+
+## Error responses
 
 REST error responses follow the [GraphQL spec error envelope](https://spec.graphql.org/draft/#sec-Errors):
 
@@ -223,23 +253,6 @@ Response JSON:
 ```
 
 `SetMetadata` folds typed metadata under top-level `extensions.metadata`.
-
-### OpenAPI validation
-
-Enable automatic request/response validation against an OpenAPI spec:
-
-```go
-router, err := rest.New(svc, rest.Config{
-  Address: ":8080",
-  OpenAPI: rest.ConfigOpenAPI{
-    Enabled:     true,
-    Description: "./descriptions/openapi.yaml",
-  },
-})
-```
-
-Invalid requests are rejected with `400` and structured validation errors.
-Invalid responses are traced as errors but still returned to the client.
 
 ## Trace attributes
 

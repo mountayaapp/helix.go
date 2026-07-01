@@ -1,9 +1,13 @@
 package rest
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsValidUrl(t *testing.T) {
@@ -91,4 +95,110 @@ func TestIsValidUrl(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newTestResponseWriter builds a responseWriter wrapping rec, mirroring how
+// middlewareValidation constructs it.
+func newTestResponseWriter(rec http.ResponseWriter) *responseWriter {
+	return &responseWriter{
+		status:         200,
+		ResponseWriter: rec,
+		buf:            &bytes.Buffer{},
+	}
+}
+
+func TestResponseWriter_DetectStreaming(t *testing.T) {
+	testcases := []struct {
+		name        string
+		contentType string
+		streaming   bool
+	}{
+		{name: "event stream", contentType: "text/event-stream", streaming: true},
+		{name: "event stream with charset", contentType: "text/event-stream; charset=utf-8", streaming: true},
+		{name: "json", contentType: "application/json", streaming: false},
+		{name: "plain text", contentType: "text/plain", streaming: false},
+		{name: "unset", contentType: "", streaming: false},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := newTestResponseWriter(httptest.NewRecorder())
+			if tc.contentType != "" {
+				rw.Header().Set("Content-Type", tc.contentType)
+			}
+
+			rw.detectStreaming()
+			assert.Equal(t, tc.streaming, rw.streaming)
+		})
+	}
+}
+
+func TestResponseWriter_Unwrap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newTestResponseWriter(rec)
+
+	// Unwrap must expose the wrapped writer so http.ResponseController can reach it.
+	assert.Same(t, rec, rw.Unwrap())
+}
+
+func TestResponseWriter_WriteBuffersNonStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newTestResponseWriter(rec)
+	rw.Header().Set("Content-Type", "application/json")
+
+	payload := `{"data":null}`
+	n, err := rw.Write([]byte(payload))
+
+	require.NoError(t, err)
+	assert.Equal(t, len(payload), n)
+	assert.False(t, rw.streaming)
+
+	// A non-streamed body is mirrored to both the client and the validation buffer.
+	assert.Equal(t, payload, rec.Body.String())
+	assert.Equal(t, payload, rw.buf.String())
+}
+
+func TestResponseWriter_WriteBypassesBufferWhenStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newTestResponseWriter(rec)
+	rw.Header().Set("Content-Type", "text/event-stream")
+
+	event := "data: hello\n\n"
+	n, err := rw.Write([]byte(event))
+
+	require.NoError(t, err)
+	assert.Equal(t, len(event), n)
+	assert.True(t, rw.streaming)
+
+	// A streamed body goes straight to the client and is never buffered, so it is
+	// not validated against the finite OpenAPI schema.
+	assert.Equal(t, event, rec.Body.String())
+	assert.Equal(t, 0, rw.buf.Len())
+}
+
+func TestResponseWriter_WriteHeaderDetectsStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newTestResponseWriter(rec)
+	rw.Header().Set("Content-Type", "text/event-stream")
+
+	rw.WriteHeader(http.StatusOK)
+
+	assert.True(t, rw.streaming)
+	assert.Equal(t, http.StatusOK, rw.status)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestResponseWriter_StreamingSupportsFlush(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newTestResponseWriter(rec)
+	rw.Header().Set("Content-Type", "text/event-stream")
+
+	_, _ = rw.Write([]byte("data: tick\n\n"))
+
+	// Unwrap lets http.ResponseController reach the underlying Flusher, so an SSE
+	// handler can flush each event as it is produced.
+	err := http.NewResponseController(rw).Flush()
+
+	require.NoError(t, err)
+	assert.True(t, rec.Flushed)
 }
