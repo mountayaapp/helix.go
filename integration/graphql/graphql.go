@@ -7,8 +7,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 /*
@@ -55,6 +57,12 @@ func New(svc *service.Service, cfg Config) error {
 	gqlHandler := handler.New(cfg.Schema)
 	gqlHandler.AddTransport(transport.POST{})
 	gqlHandler.SetErrorPresenter(errorPresenter)
+
+	// Cache parsed documents. handler.New installs no caches at all — only the
+	// deprecated NewDefaultServer does — so without this every request re-lexes,
+	// re-parses and re-validates its query against the schema, including the
+	// handful of operations a typical client sends over and over.
+	gqlHandler.SetQueryCache(lru.New[*ast.QueryDocument](cfg.QueryCacheSize))
 
 	// Enable introspection when configured, so clients can discover the schema
 	// via __schema and __type queries.

@@ -36,8 +36,9 @@ func TestConfig_Sanitize(t *testing.T) {
 			name:   "empty config applies defaults and returns schema error",
 			before: Config{},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 			},
 			err: errorstack.NewValidation(schemaEntry),
 		},
@@ -48,8 +49,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				Path:    "/api/graphql",
 			},
 			after: Config{
-				Address: ":9090",
-				Path:    "/api/graphql",
+				Address:        ":9090",
+				Path:           "/api/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 			},
 			err: errorstack.NewValidation(schemaEntry),
 		},
@@ -61,8 +63,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				APQ: ConfigAPQ{
 					Enabled: true,
 					Prefix:  "apq:",
@@ -81,8 +84,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				APQ: ConfigAPQ{
 					Enabled: true,
 					Prefix:  "custom:",
@@ -99,8 +103,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				APQ: ConfigAPQ{
 					Enabled: false,
 				},
@@ -115,8 +120,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				GraphiQL: ConfigGraphiQL{
 					Enabled: true,
 					Path:    "/graphiql",
@@ -133,8 +139,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				GraphiQL: ConfigGraphiQL{
 					Enabled: true,
 					Path:    "/custom/graphiql",
@@ -150,8 +157,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				GraphiQL: ConfigGraphiQL{
 					Enabled: false,
 				},
@@ -167,8 +175,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				GraphiQL: ConfigGraphiQL{
 					Enabled: false,
 					Path:    "",
@@ -184,8 +193,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				Introspection: ConfigIntrospection{
 					Enabled: true,
 				},
@@ -200,8 +210,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				Introspection: ConfigIntrospection{
 					Enabled: false,
 				},
@@ -217,8 +228,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -235,8 +247,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					KeyPEM:  []byte("key"),
@@ -254,8 +267,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -273,8 +287,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				TLS: integration.ConfigTLS{
 					Enabled: false,
 					CertPEM: []byte("cert"),
@@ -291,8 +306,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
-				Path:    "/graphql",
+				Address:        ":8080",
+				Path:           "/graphql",
+				QueryCacheSize: defaultQueryCacheSize,
 				TLS: integration.ConfigTLS{
 					Enabled:            true,
 					InsecureSkipVerify: true,
@@ -308,6 +324,38 @@ func TestConfig_Sanitize(t *testing.T) {
 
 			assert.Equal(t, tc.after, tc.before)
 			assert.Equal(t, tc.err, err)
+		})
+	}
+}
+
+/*
+TestConfig_Sanitize_QueryCacheSize covers the field's own rules, which the table
+above cannot: every case there leaves it unset, so only the default is exercised.
+
+The non-positive cases are not cosmetic. gqlgen's lru.New panics on a size below
+one, and sanitize is the only thing standing between a zero-valued Config and
+that panic at startup — so "0 becomes the default" is a crash guard, not a
+convenience.
+*/
+func TestConfig_Sanitize_QueryCacheSize(t *testing.T) {
+	testcases := []struct {
+		name string
+		size int
+		want int
+	}{
+		{name: "unset falls back to the default", size: 0, want: defaultQueryCacheSize},
+		{name: "negative falls back to the default", size: -1, want: defaultQueryCacheSize},
+		{name: "an explicit size is preserved", size: 32, want: 32},
+		{name: "one is a valid floor", size: 1, want: 1},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{QueryCacheSize: tc.size}
+			_ = cfg.sanitize()
+
+			assert.Equal(t, tc.want, cfg.QueryCacheSize)
+			assert.Positive(t, cfg.QueryCacheSize, "lru.New panics below one, so sanitize must never leave a non-positive size")
 		})
 	}
 }

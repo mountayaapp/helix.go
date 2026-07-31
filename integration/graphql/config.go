@@ -18,6 +18,14 @@ consumers only need to import this package.
 type ExecutableSchema = gqlgen.ExecutableSchema
 
 /*
+defaultQueryCacheSize is the parsed-document cache size applied when Config
+leaves QueryCacheSize unset. It matches the size gqlgen's own default server
+uses, so an integration that configures nothing gets the same behaviour the
+upstream default would have given it.
+*/
+const defaultQueryCacheSize = 1000
+
+/*
 Config is used to configure the GraphQL integration.
 */
 type Config struct {
@@ -51,6 +59,21 @@ type Config struct {
 	// When enabled, clients can send a query hash instead of the full query string,
 	// reducing bandwidth on subsequent requests.
 	APQ ConfigAPQ `json:"apq"`
+
+	// QueryCacheSize bounds how many PARSED query documents are kept in memory, so a
+	// repeated operation is not re-lexed, re-parsed and re-validated against the
+	// schema on every request. Defaults to 1000 when unset.
+	//
+	// This is a different cache from APQ, and the two do not substitute for each
+	// other: APQ maps a hash to a query STRING so a client can avoid re-sending it,
+	// and the string it resolves to still has to be parsed. An API serving a small
+	// set of operations at volume — which is the usual shape — spends most of its
+	// parsing budget on documents it has already seen.
+	//
+	// It is bounded rather than unbounded because the key is the query text, which
+	// is caller-supplied: an unbounded map would let clients decide how much memory
+	// the process holds.
+	QueryCacheSize int `json:"query_cache_size,omitempty"`
 
 	// Readiness allows to define custom logic for the readiness probe endpoint at:
 	//
@@ -153,6 +176,10 @@ func (cfg *Config) sanitize() error {
 
 	if cfg.GraphiQL.Enabled && cfg.GraphiQL.Path == "" {
 		cfg.GraphiQL.Path = "/graphiql"
+	}
+
+	if cfg.QueryCacheSize <= 0 {
+		cfg.QueryCacheSize = defaultQueryCacheSize
 	}
 
 	if cfg.APQ.Enabled {
