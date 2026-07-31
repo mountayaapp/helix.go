@@ -4,6 +4,7 @@ import (
 	"github.com/mountayaapp/helix.go/service"
 
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/contrib/sysinfo"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
@@ -49,6 +50,7 @@ func New(svc *service.Service, cfg ConfigWorker) (Client, Worker, error) {
 		WorkerActivitiesPerSecond:    cfg.WorkerActivitiesPerSecond,
 		TaskQueueActivitiesPerSecond: cfg.TaskQueueActivitiesPerSecond,
 		EnableSessionWorker:          cfg.EnableSessionWorker,
+		SysInfoProvider:              sysinfo.SysInfoProvider(),
 	}
 
 	w := worker.New(c, cfg.TaskQueue, optsWorker)
