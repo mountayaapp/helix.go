@@ -121,9 +121,17 @@ type Config struct {
 
 	// Stateful controls whether the MCP server keeps server-side session state.
 	// When false (the default), the server is stateless: the Mcp-Session-Id
-	// header is not validated and a temporary session is used for each request,
+	// header is not read or set and a temporary session is used for each request,
 	// which is the recommended mode for horizontally scaled HTTP deployments. Set
 	// it to true only when a single instance must retain per-session state.
+	//
+	// This flag also selects the protocol revision the server speaks. Stateless
+	// servers serve revision 2026-07-28, which is POST-only: GET and DELETE on the
+	// MCP path are answered with 405 Method Not Allowed, resumability
+	// (Last-Event-ID, standalone GET) is gone, and ping, logging/setLevel,
+	// resources/subscribe, and resources/unsubscribe are rejected as
+	// MethodNotFound. Setting Stateful to true negotiates down to revision
+	// 2025-11-25, where those methods and the session lifecycle remain available.
 	//
 	// Default:
 	//

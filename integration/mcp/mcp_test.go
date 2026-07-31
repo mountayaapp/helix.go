@@ -121,6 +121,10 @@ func TestMCP_UnknownRoute_ReturnsNotFound(t *testing.T) {
 	assert.Contains(t, rw.Body.String(), `"code":"NOT_FOUND"`)
 }
 
+// TestMCP_MethodNotAllowed covers the integration's own method-not-allowed
+// fallback, which answers methods the mux does not route to the transport at all
+// (GET, POST, and DELETE are routed; PUT is not). It is therefore the only 405
+// carrying the helix response envelope.
 func TestMCP_MethodNotAllowed(t *testing.T) {
 	m := newTestMCP(t, toyConfig())
 
@@ -130,6 +134,28 @@ func TestMCP_MethodNotAllowed(t *testing.T) {
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rw.Code)
 	assert.Contains(t, rw.Body.String(), `"code":"METHOD_NOT_ALLOWED"`)
+}
+
+// TestMCP_Stateless_GetAndDeleteNotAllowed pins the POST-only contract of the
+// stateless protocol revision that Config.Stateful defaults to. GET and DELETE
+// are routed to the transport by the mux, so the 405 here comes from the MCP SDK
+// rather than from the fallback above: it advertises Allow: POST and carries no
+// helix response envelope.
+func TestMCP_Stateless_GetAndDeleteNotAllowed(t *testing.T) {
+	m := newTestMCP(t, toyConfig())
+	require.False(t, m.config.Stateful)
+
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/mcp", nil)
+			rw := httptest.NewRecorder()
+			m.mux.ServeHTTP(rw, req)
+
+			assert.Equal(t, http.StatusMethodNotAllowed, rw.Code)
+			assert.Equal(t, http.MethodPost, rw.Header().Get("Allow"))
+			assert.NotContains(t, rw.Body.String(), `"code":"METHOD_NOT_ALLOWED"`)
+		})
+	}
 }
 
 // TestMCP_CrossOrigin_Rejected verifies the always-on DNS-rebinding defense: a

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 export GOPRIVATE="github.com/mountayaapp/*"
+
+# go.work is gitignored, so it does not exist on a fresh clone. Create it before
+# `go work use`, which is fatal without it.
+[ -f go.work ] || go work init
 
 go work use -r ./
 
