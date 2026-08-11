@@ -3,7 +3,7 @@ module github.com/mountayaapp/helix.go/integration/valkey
 go 1.25.4
 
 require (
-	github.com/mountayaapp/helix.go v0.27.0
+	github.com/mountayaapp/helix.go v0.28.0
 	github.com/stretchr/testify v1.11.1
 	github.com/valkey-io/valkey-go v1.0.76
 	go.opentelemetry.io/otel v1.45.0
@@ -58,5 +58,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/mountayaapp/helix.go => ../../
