@@ -1,7 +1,6 @@
 # helix.go - HTTP Client integration
 
 [![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/httpclient)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mountayaapp/helix.go/integration/httpclient)](https://goreportcard.com/report/github.com/mountayaapp/helix.go/integration/httpclient)
 [![GitHub Release](https://img.shields.io/github/v/release/mountayaapp/helix.go)](https://github.com/mountayaapp/helix.go/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 

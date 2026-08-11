@@ -1,7 +1,6 @@
 # helix.go - ClickHouse integration
 
 [![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/clickhouse)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mountayaapp/helix.go/integration/clickhouse)](https://goreportcard.com/report/github.com/mountayaapp/helix.go/integration/clickhouse)
 [![GitHub Release](https://img.shields.io/github/v/release/mountayaapp/helix.go)](https://github.com/mountayaapp/helix.go/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
