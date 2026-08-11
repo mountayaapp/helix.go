@@ -402,6 +402,7 @@ func TestHTTPStatusToCode_AllSupportedCodes(t *testing.T) {
 		{http.StatusNotImplemented, CodeNotImplemented},
 		{http.StatusBadGateway, CodeBadGateway},
 		{http.StatusServiceUnavailable, CodeServiceUnavailable},
+		{http.StatusGatewayTimeout, CodeGatewayTimeout},
 	}
 
 	for _, tc := range testcases {

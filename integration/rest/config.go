@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -33,6 +34,36 @@ type Config struct {
 
 	// OpenAPI configures OpenAPI behavior within the REST API.
 	OpenAPI ConfigOpenAPI `json:"openapi"`
+
+	// RequestTimeout bounds how long any route may spend handling a request. The
+	// budget rides the request context, so every call derived from it is cancelled
+	// once it is spent, and the handler's own error path reports the failure.
+	//
+	// A route deviates from it with WithTimeout, or waives it with WithoutTimeout
+	// when its response is long-lived by design. Zero leaves every route unbounded
+	// unless it sets a budget of its own.
+	//
+	// Default:
+	//
+	//   0
+	RequestTimeout time.Duration `json:"request_timeout"`
+
+	// ReadHeaderTimeout bounds how long a client may take to send its request
+	// headers, so a connection that stalls mid-handshake cannot hold a goroutine
+	// open indefinitely.
+	//
+	// Default:
+	//
+	//   10s
+	ReadHeaderTimeout time.Duration `json:"read_header_timeout"`
+
+	// IdleTimeout bounds how long a keep-alive connection may sit idle between
+	// requests before the server closes it.
+	//
+	// Default:
+	//
+	//   120s
+	IdleTimeout time.Duration `json:"idle_timeout"`
 
 	// TLS configures TLS for the HTTP server. Only CertPEM and KeyPEM are taken
 	// into consideration. PEM-encoded certificate and matching private key for
@@ -72,6 +103,40 @@ func (cfg *Config) sanitize() error {
 
 	if cfg.Address == "" {
 		cfg.Address = ":8080"
+	}
+
+	// The two connection-level timeouts default to a value rather than to "off":
+	// left unset, a client that never finishes sending its headers holds a
+	// goroutine for as long as it likes, and keep-alive connections are never
+	// reclaimed. RequestTimeout is deliberately not defaulted — how long a handler
+	// legitimately needs is the API's own business, not this package's.
+	if cfg.ReadHeaderTimeout == 0 {
+		cfg.ReadHeaderTimeout = 10 * time.Second
+	}
+
+	if cfg.IdleTimeout == 0 {
+		cfg.IdleTimeout = 120 * time.Second
+	}
+
+	if cfg.RequestTimeout < 0 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be a positive duration",
+			Path:    []any{"config", "request_timeout"},
+		})
+	}
+
+	if cfg.ReadHeaderTimeout < 0 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be a positive duration",
+			Path:    []any{"config", "read_header_timeout"},
+		})
+	}
+
+	if cfg.IdleTimeout < 0 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be a positive duration",
+			Path:    []any{"config", "idle_timeout"},
+		})
 	}
 
 	if cfg.OpenAPI.Enabled && cfg.OpenAPI.Description == "" {

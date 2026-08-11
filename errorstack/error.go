@@ -34,6 +34,7 @@ const (
 	CodeNotImplemented     = "NOT_IMPLEMENTED"
 	CodeBadGateway         = "BAD_GATEWAY"
 	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
+	CodeGatewayTimeout     = "GATEWAY_TIMEOUT"
 	CodeValidationFailed   = "VALIDATION_FAILED"
 )
 
@@ -397,6 +398,8 @@ func HTTPStatusToCode(status int) string {
 		return CodeBadGateway
 	case http.StatusServiceUnavailable:
 		return CodeServiceUnavailable
+	case http.StatusGatewayTimeout:
+		return CodeGatewayTimeout
 	default:
 		return CodeInternalError
 	}

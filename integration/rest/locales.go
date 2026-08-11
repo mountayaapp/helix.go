@@ -28,6 +28,7 @@ Supported status code:
   - [http.StatusNotImplemented]
   - [http.StatusBadGateway]
   - [http.StatusServiceUnavailable]
+  - [http.StatusGatewayTimeout]
 
 Example:
 
@@ -45,6 +46,7 @@ Example:
 		http.StatusNotImplemented:        "<locale>",
 		http.StatusBadGateway:            "<locale>",
 		http.StatusServiceUnavailable:    "<locale>",
+		http.StatusGatewayTimeout:        "<locale>",
 	})
 */
 func AddOrEditLanguage(lang language.Tag, m map[int]string) {

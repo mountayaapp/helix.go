@@ -214,6 +214,7 @@ func TestLocales_MatchCanonicalCatalog(t *testing.T) {
 		http.StatusNotImplemented:        "Endpoint is not implemented",
 		http.StatusBadGateway:            "Upstream gateway is unavailable",
 		http.StatusServiceUnavailable:    "Service is temporarily unavailable",
+		http.StatusGatewayTimeout:        "Upstream gateway timed out",
 	}
 
 	for status, expected := range canonical {

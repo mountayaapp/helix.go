@@ -53,9 +53,16 @@ func (r *rest) Start(ctx context.Context) error {
 	)
 
 	// Create the HTTP server with the given configuration and the handler built.
+	// WriteTimeout is deliberately left unset: it is an absolute deadline on the
+	// whole response with no awareness of the request context, so it would sever
+	// every long-lived response - server-sent events above all - that the router's
+	// own per-route budget exists to keep alive. Bounding how long a handler runs
+	// is Config.RequestTimeout's job, not the server's.
 	r.server = &http.Server{
-		Addr:    r.config.Address,
-		Handler: h,
+		Addr:              r.config.Address,
+		Handler:           h,
+		IdleTimeout:       r.config.IdleTimeout,
+		ReadHeaderTimeout: r.config.ReadHeaderTimeout,
 	}
 
 	// Start the HTTP server with or without TLS depending on the Config, and catch

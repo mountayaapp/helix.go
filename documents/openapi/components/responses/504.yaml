@@ -1,0 +1,6 @@
+description: Gateway Timeout
+
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/rest/504.yaml

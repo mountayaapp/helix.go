@@ -1,0 +1,12 @@
+x-go-type: errorstack.Error
+x-go-type-import:
+  path: github.com/mountayaapp/helix.go/errorstack
+
+allOf:
+  - $ref: ../Errors.yaml
+
+example:
+  errors:
+    - message: Upstream gateway timed out
+      extensions:
+        code: GATEWAY_TIMEOUT

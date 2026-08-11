@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/mountayaapp/helix.go/errorstack"
@@ -13,14 +14,16 @@ import (
 )
 
 /*
-REST exposes the HTTP REST API functions.
+REST exposes the HTTP REST API functions. Every verb accepts RouteOption
+variadically, so a route declares its own policy where its path is declared —
+the only place the route is known before the router has matched anything.
 */
 type REST interface {
-	GET(path string, handler http.HandlerFunc)
-	DELETE(path string, handler http.HandlerFunc)
-	PATCH(path string, handler http.HandlerFunc)
-	POST(path string, handler http.HandlerFunc)
-	PUT(path string, handler http.HandlerFunc)
+	GET(path string, handler http.HandlerFunc, opts ...RouteOption)
+	DELETE(path string, handler http.HandlerFunc, opts ...RouteOption)
+	PATCH(path string, handler http.HandlerFunc, opts ...RouteOption)
+	POST(path string, handler http.HandlerFunc, opts ...RouteOption)
+	PUT(path string, handler http.HandlerFunc, opts ...RouteOption)
 }
 
 /*
@@ -87,7 +90,75 @@ func New(svc *service.Service, cfg Config) (REST, error) {
 		return nil, err
 	}
 
-	return r.bun, nil
+	// The integration itself is the router handed back, not the underlying one it
+	// delegates to: registration is the only point at which a route's path is
+	// known without re-matching it, so it is where per-route policy has to be
+	// applied.
+	return r, nil
+}
+
+/*
+GET registers a handler for the GET method at path, under the policy resolved
+from opts.
+*/
+func (r *rest) GET(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.bun.GET(path, r.applyRouteOptions(handler, opts))
+}
+
+/*
+DELETE registers a handler for the DELETE method at path, under the policy
+resolved from opts.
+*/
+func (r *rest) DELETE(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.bun.DELETE(path, r.applyRouteOptions(handler, opts))
+}
+
+/*
+PATCH registers a handler for the PATCH method at path, under the policy
+resolved from opts.
+*/
+func (r *rest) PATCH(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.bun.PATCH(path, r.applyRouteOptions(handler, opts))
+}
+
+/*
+POST registers a handler for the POST method at path, under the policy resolved
+from opts.
+*/
+func (r *rest) POST(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.bun.POST(path, r.applyRouteOptions(handler, opts))
+}
+
+/*
+PUT registers a handler for the PUT method at path, under the policy resolved
+from opts.
+*/
+func (r *rest) PUT(path string, handler http.HandlerFunc, opts ...RouteOption) {
+	r.bun.PUT(path, r.applyRouteOptions(handler, opts))
+}
+
+/*
+applyRouteOptions wraps a handler with the policy its route resolved to. A route
+that ends up with no budget is handed to the underlying router untouched, so the
+unbounded case costs nothing per request.
+
+The budget is applied here rather than in Config.Middleware because middleware
+wraps the whole router and therefore runs before any route has matched, where
+only the concrete request path is known — recognising a route there would mean
+maintaining a second copy of the routing table.
+*/
+func (r *rest) applyRouteOptions(handler http.HandlerFunc, opts []RouteOption) http.HandlerFunc {
+	timeout := r.resolveRouteOptions(opts)
+	if timeout <= 0 {
+		return handler
+	}
+
+	return func(rw http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), timeout)
+		defer cancel()
+
+		handler(rw, req.WithContext(ctx))
+	}
 }
 
 /*

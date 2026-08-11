@@ -2,6 +2,7 @@ package rest
 
 import (
 	"testing"
+	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -20,7 +21,9 @@ func TestConfig_Sanitize(t *testing.T) {
 			name:   "empty config applies default address",
 			before: Config{},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 			},
 			err: nil,
 		},
@@ -30,7 +33,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				Address: ":9090",
 			},
 			after: Config{
-				Address: ":9090",
+				Address:           ":9090",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 			},
 			err: nil,
 		},
@@ -42,7 +47,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				OpenAPI: ConfigOpenAPI{
 					Enabled: true,
 				},
@@ -60,7 +67,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				OpenAPI: ConfigOpenAPI{
 					Enabled:     true,
 					Description: "./openapi.yaml",
@@ -76,7 +85,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				OpenAPI: ConfigOpenAPI{
 					Enabled: false,
 				},
@@ -92,7 +103,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				OpenAPI: ConfigOpenAPI{
 					Enabled:     false,
 					Description: "",
@@ -109,7 +122,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -131,7 +146,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					KeyPEM:  []byte("key"),
@@ -154,7 +171,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -172,7 +191,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				TLS: integration.ConfigTLS{
 					Enabled: false,
 					CertPEM: []byte("cert"),
@@ -189,7 +210,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				TLS: integration.ConfigTLS{
 					Enabled:            true,
 					InsecureSkipVerify: true,
@@ -209,7 +232,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: ":8080",
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
 				OpenAPI: ConfigOpenAPI{
 					Enabled: true,
 				},
@@ -224,6 +249,52 @@ func TestConfig_Sanitize(t *testing.T) {
 					Message: "Must be set together; cert_pem and key_pem are required as a pair",
 					Path:    []any{"config", "tls"},
 				},
+			),
+		},
+		{
+			name: "custom timeouts are preserved",
+			before: Config{
+				IdleTimeout:       30 * time.Second,
+				ReadHeaderTimeout: 5 * time.Second,
+				RequestTimeout:    45 * time.Second,
+			},
+			after: Config{
+				Address:           ":8080",
+				IdleTimeout:       30 * time.Second,
+				ReadHeaderTimeout: 5 * time.Second,
+				RequestTimeout:    45 * time.Second,
+			},
+			err: nil,
+		},
+		{
+			name: "zero RequestTimeout is left alone rather than defaulted",
+			before: Config{
+				RequestTimeout: 0,
+			},
+			after: Config{
+				Address:           ":8080",
+				IdleTimeout:       120 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
+			},
+			err: nil,
+		},
+		{
+			name: "negative timeouts return errors",
+			before: Config{
+				IdleTimeout:       -1 * time.Second,
+				ReadHeaderTimeout: -1 * time.Second,
+				RequestTimeout:    -1 * time.Second,
+			},
+			after: Config{
+				Address:           ":8080",
+				IdleTimeout:       -1 * time.Second,
+				ReadHeaderTimeout: -1 * time.Second,
+				RequestTimeout:    -1 * time.Second,
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be a positive duration", Path: []any{"config", "request_timeout"}},
+				errorstack.Entry{Message: "Must be a positive duration", Path: []any{"config", "read_header_timeout"}},
+				errorstack.Entry{Message: "Must be a positive duration", Path: []any{"config", "idle_timeout"}},
 			),
 		},
 	}

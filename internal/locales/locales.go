@@ -37,6 +37,7 @@ var defaults = map[int]string{
 	http.StatusNotImplemented:        "Endpoint is not implemented",
 	http.StatusBadGateway:            "Upstream gateway is unavailable",
 	http.StatusServiceUnavailable:    "Service is temporarily unavailable",
+	http.StatusGatewayTimeout:        "Upstream gateway timed out",
 }
 
 /*
@@ -45,10 +46,10 @@ to be called at init time before serving, but locking keeps the package safe
 against accidental concurrent edits and against reads racing a late edit.
 */
 var (
-	mu           sync.RWMutex
-	languages    = []language.Tag{language.English}
-	matcher      = language.NewMatcher(languages)
-	catalog      = map[language.Tag]map[int]string{language.English: cloneDefaults()}
+	mu        sync.RWMutex
+	languages = []language.Tag{language.English}
+	matcher   = language.NewMatcher(languages)
+	catalog   = map[language.Tag]map[int]string{language.English: cloneDefaults()}
 )
 
 func cloneDefaults() map[int]string {
