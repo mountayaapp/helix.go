@@ -6,9 +6,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 var (
 	attrKeyDriver    = attribute.Key(identifier + ".driver")
 	attrKeyBucket    = attribute.Key(identifier + ".bucket")
@@ -16,10 +14,8 @@ var (
 	attrKeyKey       = attribute.Key(identifier + ".key")
 )
 
-/*
-setAttributes sets integration and key attributes to a trace span in a single
-call, reducing per-operation overhead.
-*/
+// setAttributes sets integration and key attributes to a trace span in a single
+// call, reducing per-operation overhead.
 func setAttributes(span *trace.Span, cfg *Config, key string) {
 	if cfg == nil {
 		span.SetAttributes(attrKeyKey.String(key))

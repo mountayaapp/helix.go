@@ -7,209 +7,91 @@ import (
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/workflow"
 )
 
-/*
-NoInput is a placeholder struct used to denote a workflow that takes no specific
-input.
-*/
+// NoInput is a placeholder struct used to denote a workflow that takes no specific
+// input.
 type NoInput struct{}
 
-/*
-NoResult is a placeholder struct used to denote a workflow that produces no
-specific result.
-*/
+// NoResult is a placeholder struct used to denote a workflow that produces no
+// specific result.
 type NoResult struct{}
 
-/*
-Workflow defines the type-safe contract for a Temporal workflow definition.
-Generics [Input, Result] enforce correct type usage across registration, execution,
-and result retrieval.
-*/
-type Workflow[Input, Result any] interface {
-
-	// Register links the workflow implementation to its name on a worker. The
-	// function signature of impl is strictly checked against [Input] and [Result].
-	Register(worker Worker, impl func(ctx workflow.Context, input Input) (Result, error))
-
-	// Execute starts the workflow via the Temporal Client, enforcing the [Input]
-	// type.
-	Execute(ctx context.Context, c Client, options client.StartWorkflowOptions, input Input) (WorkflowRun[Result], error)
-
-	// GetResult retrieves the final result of a completed workflow run, enforcing
-	// the [Result] type.
-	GetResult(ctx context.Context, run WorkflowRun[Result]) (Result, error)
-
-	// GetResultIfClosed retrieves a workflow run's result by workflowID (runID
-	// optional; empty targets the latest run) WITHOUT blocking on a run still in
-	// progress. The bool reports whether the run had closed: false (with the zero
-	// [Result]) on an in-progress or unknown run, true once it has closed — in which
-	// case result holds the deserialized [Result] for a completed run, or err carries a
-	// failed run's error. It is the non-blocking counterpart to GetResult.
-	GetResultIfClosed(ctx context.Context, c Client, workflowID, runID string) (result Result, closed bool, err error)
-
-	// CreateSchedule creates a new Temporal Schedule for this workflow definition.
-	// If a schedule with the same ID already exists and has identical properties
-	// (workflow name, task queue, overlap policy), the call is a no-op: no error
-	// is returned and no error is recorded in traces. If the existing schedule
-	// differs, an error is returned.
-	CreateSchedule(ctx context.Context, c Client, opts ScheduleOptions) error
-}
-
-/*
-workflowDefinition is the concrete implementation of a type-safe Temporal workflow.
-*/
-type workflowDefinition[Input, Result any] struct {
+// Workflow is the type-safe handle for a Temporal workflow definition. Generics
+// [Input, Result] enforce correct type usage across registration, execution, and
+// result retrieval.
+//
+// A Workflow carries no connection state, so handles are meant to be declared as
+// package-level variables and shared between the client and worker sides of a
+// service:
+//
+//	var ProcessOrder = temporal.NewWorkflow[OrderInput, OrderResult]("process-order")
+//
+// Pass the handle to Worker.RegisterWorkflow to bind an implementation, and to
+// Client.ExecuteWorkflow to start a run. Both infer [Input] and [Result] from it.
+type Workflow[Input, Result any] struct {
 	name string
 }
 
-/*
-NewWorkflow is the factory function for creating a new type-safe Workflow handle.
-*/
+// NewWorkflow is the factory function for creating a new type-safe Workflow handle.
 func NewWorkflow[Input, Result any](name string) Workflow[Input, Result] {
-	return &workflowDefinition[Input, Result]{
+	return Workflow[Input, Result]{
 		name: name,
 	}
 }
 
-/*
-Register registers the workflow implementation with the worker. The primary value
-of this wrapper is ensuring the function signature matches the defined Workflow
-contract ([Input], [Result]) at compile time.
-*/
-func (d *workflowDefinition[Input, Result]) Register(
-	worker Worker,
-	impl func(ctx workflow.Context, input Input) (Result, error),
-) {
-	worker.registerWorkflow(impl, workflow.RegisterOptions{
-		Name: d.name,
-	})
+// Name returns the workflow's name as registered with Temporal. Use it when
+// correlating runs or for observability.
+func (wf Workflow[Input, Result]) Name() string {
+	return wf.name
 }
 
-/*
-Execute starts the workflow via the client. The [Input] type constraint on input
-prevents runtime errors from passing incorrectly typed arguments to the workflow
-via interface{}.
-*/
-func (d *workflowDefinition[Input, Result]) Execute(
-	ctx context.Context,
-	c Client,
-	options client.StartWorkflowOptions,
-	input Input,
-) (WorkflowRun[Result], error) {
-	run, err := c.executeWorkflow(ctx, options, d.name, input)
-	result := workflowRun[Result]{
-		run: run,
-	}
-
-	return &result, err
+// WorkflowRun wraps the Temporal SDK's client.WorkflowRun, adding type safety for
+// result retrieval via the generic [Result] type.
+type WorkflowRun[Result any] struct {
+	run client.WorkflowRun
 }
 
-/*
-GetResult retrieves the workflow result into the correct [Result] type. This
-function performs the final type-safe deserialization of the workflow output.
-*/
-func (d *workflowDefinition[Input, Result]) GetResult(
-	ctx context.Context,
-	run WorkflowRun[Result],
-) (Result, error) {
+// ID returns the immutable workflow Id.
+func (wr *WorkflowRun[Result]) ID() string {
+	return wr.run.GetID()
+}
+
+// RunID returns the unique run Id for this specific execution.
+func (wr *WorkflowRun[Result]) RunID() string {
+	return wr.run.GetRunID()
+}
+
+// Await blocks until the workflow run completes and returns its result, deserialized
+// into the generic [Result] type. It is the blocking counterpart to
+// Client.WorkflowResultIfClosed.
+func (wr *WorkflowRun[Result]) Await(ctx context.Context) (Result, error) {
 	var output Result
-	err := run.GetResult(ctx, &output)
+	err := wr.run.Get(ctx, &output)
 
 	return output, err
 }
 
-/*
-GetResultIfClosed retrieves the workflow result into the correct [Result] type
-without blocking on a run still in progress. It is the non-blocking counterpart to
-GetResult: the bool reports whether the run had closed, and the [Result] is the zero
-value until it has.
-*/
-func (d *workflowDefinition[Input, Result]) GetResultIfClosed(
-	ctx context.Context,
-	c Client,
-	workflowID, runID string,
-) (Result, bool, error) {
-	var output Result
-	closed, err := c.closedWorkflowResult(ctx, workflowID, runID, &output)
-
-	return output, closed, err
-}
-
-/*
-WorkflowRun abstracts the Temporal SDK's client.WorkflowRun, adding type safety
-for result retrieval via the generic [Result] type.
-*/
-type WorkflowRun[Result any] interface {
-
-	// GetId returns the immutable Workflow Id.
-	GetId() string
-
-	// GetRunId returns the unique run Id for this specific execution.
-	GetRunId() string
-
-	// GetResult blocks and attempts to unmarshal the result into the provided
-	// pointer. Enforcing [Result] prevents runtime errors when reading results.
-	GetResult(ctx context.Context, valuePtr *Result) error
-
-	// GetMetadata returns an external utility struct containing key run identifiers.
-	GetMetadata() *temporalrest.Metadata
-}
-
-/*
-workflowRun is the concrete implementation around the Temporal client.WorkflowRun.
-*/
-type workflowRun[Result any] struct {
-	run client.WorkflowRun
-}
-
-/*
-GetId returns the immutable Workflow Id.
-*/
-func (wr *workflowRun[Result]) GetId() string {
-	return wr.run.GetID()
-}
-
-/*
-GetRunId returns the unique run Id for this specific execution.
-*/
-func (wr *workflowRun[Result]) GetRunId() string {
-	return wr.run.GetRunID()
-}
-
-/*
-GetResult delegates to client.WorkflowRun.Get, ensuring the target pointer is of
-the correct generic [Result] type.
-*/
-func (wr *workflowRun[Result]) GetResult(ctx context.Context, valuePtr *Result) error {
-	return wr.run.Get(ctx, valuePtr)
-}
-
-/*
-GetMetadata constructs a Temporal metadata struct suitable for external REST
-responses. This is used to expose workflow and run identifiers without exposing
-the entire Temporal client object.
-*/
-func (wr *workflowRun[Result]) GetMetadata() *temporalrest.Metadata {
+// Metadata constructs a Temporal metadata struct suitable for external REST
+// responses. This is used to expose workflow and run identifiers without exposing
+// the entire Temporal client object.
+func (wr *WorkflowRun[Result]) Metadata() *temporalrest.Metadata {
 	if wr == nil {
 		return nil
 	}
 
 	return &temporalrest.Metadata{
 		Workflow: &temporalrest.MetadataWorkflow{
-			Id: wr.run.GetID(),
+			ID: wr.run.GetID(),
 			Run: &temporalrest.MetadataRun{
-				Id: wr.run.GetRunID(),
+				ID: wr.run.GetRunID(),
 			},
 		},
 	}
 }
 
-/*
-ScheduleOptions holds the options to pass for creating a new schedule of a
-workflow.
-*/
+// ScheduleOptions holds the options to pass for creating a new schedule of a
+// workflow.
 type ScheduleOptions struct {
 	TaskQueue       string
 	CronExpressions []string
@@ -219,28 +101,4 @@ type ScheduleOptions struct {
 	//
 	// Optional: defaults to SCHEDULE_OVERLAP_POLICY_SKIP.
 	OverlapPolicy enumspb.ScheduleOverlapPolicy
-}
-
-/*
-CreateSchedule wraps the Temporal Client's schedule creation, defining a Schedule
-that executes this specific workflow. If a schedule with the same ID already exists
-and has identical properties (workflow name, task queue, overlap policy), the call
-is a no-op: no error is returned and no error is recorded in traces. If the
-existing schedule differs, an error is returned.
-*/
-func (wr *workflowDefinition[Input, Result]) CreateSchedule(ctx context.Context, c Client, opts ScheduleOptions) error {
-	cfg := client.ScheduleOptions{
-		ID: wr.name,
-		Spec: client.ScheduleSpec{
-			CronExpressions: opts.CronExpressions,
-		},
-		Action: &client.ScheduleWorkflowAction{
-			ID:        wr.name,
-			Workflow:  wr.name,
-			TaskQueue: opts.TaskQueue,
-		},
-		Overlap: opts.OverlapPolicy,
-	}
-
-	return c.createSchedule(ctx, cfg)
 }

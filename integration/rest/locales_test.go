@@ -10,13 +10,11 @@ import (
 	"golang.org/x/text/language"
 )
 
-/*
-TestAddOrEditLanguage_DelegatesToSharedCatalog verifies that the package-level
-AddOrEditLanguage forwards to the internal shared catalog. The catalog
-behavior itself (matcher rebuilding, partial updates, cookie/header priority)
-is exhaustively tested in internal/locales — this test exists only to guard
-against accidental decoupling of the wrapper from the shared backing state.
-*/
+// TestAddOrEditLanguage_DelegatesToSharedCatalog verifies that the package-level
+// AddOrEditLanguage forwards to the internal shared catalog. The catalog
+// behavior itself (matcher rebuilding, partial updates, cookie/header priority)
+// is exhaustively tested in internal/locales — this test exists only to guard
+// against accidental decoupling of the wrapper from the shared backing state.
 func TestAddOrEditLanguage_DelegatesToSharedCatalog(t *testing.T) {
 	defer func() {
 		// internal/locales has no public removal API; mutate via package-level

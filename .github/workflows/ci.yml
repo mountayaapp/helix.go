@@ -15,12 +15,18 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.25.4"
+          # Read the version from go.mod so the toolchain can never drift from
+          # the modules. Every module in the repo is bumped in lockstep.
+          go-version-file: go.mod
 
+      # Installed from source rather than from a release binary on purpose:
+      # golangci-lint refuses to run when the Go version it was built with is
+      # older than the module's `go` directive, and `go install` builds it with
+      # the toolchain selected above.
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
@@ -32,11 +38,11 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.25.4"
+          go-version-file: go.mod
 
       - name: Download dependencies
         run: go mod download

@@ -15,29 +15,25 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-/*
-Tracer wraps an OpenTelemetry TracerProvider. Created by service.New, stored in
-context, and used by the public telemetry/trace.Start function.
-*/
+// Tracer wraps an OpenTelemetry TracerProvider. Created by service.New, stored in
+// context, and used by the public telemetry/trace.Start function.
 type Tracer struct {
 	provider    oteltrace.TracerProvider
 	tracer      oteltrace.Tracer
 	sdkProvider *sdk.TracerProvider
 }
 
-/*
-Start creates an OpenTelemetry Span and a context containing it.
-
-If the context contains a Span then the newly-created Span will be a child of
-that Span, otherwise it will be a root Span.
-
-Any Span that is created must also be ended. This is the responsibility of the
-caller.
-*/
+// Start creates an OpenTelemetry Span and a context containing it.
+//
+// If the context contains a Span then the newly-created Span will be a child of
+// that Span, otherwise it will be a root Span.
+//
+// Any Span that is created must also be ended. This is the responsibility of the
+// caller.
 func (t *Tracer) Start(ctx context.Context, kind oteltrace.SpanKind, name string) (context.Context, oteltrace.Span) {
 	var attrs []attribute.KeyValue
 
-	if e, ok := event.EventFromContext(ctx); ok {
+	if e, ok := event.FromContext(ctx); ok {
 		if mapped := event.ToFlatMap(e); len(mapped) > 0 {
 			members := make([]baggage.Member, 0, len(mapped))
 			attrs = make([]attribute.KeyValue, 0, len(mapped))
@@ -64,17 +60,13 @@ func (t *Tracer) Start(ctx context.Context, kind oteltrace.SpanKind, name string
 	return ctx, span
 }
 
-/*
-Provider returns the underlying OpenTelemetry TracerProvider. Integrations that
-need to wire OTEL-native interceptors (e.g., Temporal) use this.
-*/
+// Provider returns the underlying OpenTelemetry TracerProvider. Integrations that
+// need to wire OTEL-native interceptors (e.g., Temporal) use this.
 func (t *Tracer) Provider() oteltrace.TracerProvider {
 	return t.provider
 }
 
-/*
-Shutdown gracefully shuts down the tracer's provider, flushing pending spans.
-*/
+// Shutdown gracefully shuts down the tracer's provider, flushing pending spans.
 func (t *Tracer) Shutdown(ctx context.Context) error {
 	if t.sdkProvider == nil {
 		return nil
@@ -83,13 +75,11 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 	return t.sdkProvider.Shutdown(ctx)
 }
 
-/*
-NewTracer creates a new Tracer with an exporter auto-detected from the
-OTEL_TRACES_EXPORTER environment variable (defaults to OTLP). The OTLP
-exporter respects all standard OTEL_EXPORTER_OTLP_* environment variables.
-The caller is responsible for global OpenTelemetry registration
-(otel.SetTracerProvider, otel.SetTextMapPropagator).
-*/
+// NewTracer creates a new Tracer with an exporter auto-detected from the
+// OTEL_TRACES_EXPORTER environment variable (defaults to OTLP). The OTLP
+// exporter respects all standard OTEL_EXPORTER_OTLP_* environment variables.
+// The caller is responsible for global OpenTelemetry registration
+// (otel.SetTracerProvider, otel.SetTextMapPropagator).
 func NewTracer(res *resource.Resource) (*Tracer, error) {
 	ctx := context.Background()
 
@@ -117,9 +107,7 @@ func NewTracer(res *resource.Resource) (*Tracer, error) {
 	}, nil
 }
 
-/*
-NewNopTracer creates a Tracer that produces no-op spans and does not export.
-*/
+// NewNopTracer creates a Tracer that produces no-op spans and does not export.
 func NewNopTracer() *Tracer {
 	provider := noop.NewTracerProvider()
 	return &Tracer{
@@ -128,10 +116,8 @@ func NewNopTracer() *Tracer {
 	}
 }
 
-/*
-flatMapKeyToBaggageKey converts a flat map key (e.g. "event[app][name]") to a
-dot-separated baggage key (e.g. "event.app.name").
-*/
+// flatMapKeyToBaggageKey converts a flat map key (e.g. "event[app][name]") to a
+// dot-separated baggage key (e.g. "event.app.name").
 func flatMapKeyToBaggageKey(k string) string {
 	k = strings.ReplaceAll(k, "[", ".")
 	k = strings.ReplaceAll(k, "].", ".")

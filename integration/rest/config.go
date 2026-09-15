@@ -8,9 +8,7 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-/*
-Config is used to configure the HTTP REST integration.
-*/
+// Config is used to configure the HTTP REST integration.
 type Config struct {
 
 	// Address is the HTTP address to listen on.
@@ -73,12 +71,10 @@ type Config struct {
 	TLS integration.ConfigTLS `json:"tls"`
 }
 
-/*
-ConfigOpenAPI configures OpenAPI behavior within the REST API. When enabled, HTTP
-requests and responses are automatically validated againt the description passed.
-If a request is not valid, a 4xx error is returned to the client. If a response
-is not valid, an error is logged but the response is still returned to the client.
-*/
+// ConfigOpenAPI configures OpenAPI behavior within the REST API. When enabled, HTTP
+// requests and responses are automatically validated againt the description passed.
+// If a request is not valid, a 4xx error is returned to the client. If a response
+// is not valid, an error is logged but the response is still returned to the client.
 type ConfigOpenAPI struct {
 
 	// Enabled enables OpenAPI within the REST API.
@@ -94,10 +90,8 @@ type ConfigOpenAPI struct {
 	Description string `json:"description,omitempty"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 

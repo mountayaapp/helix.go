@@ -10,21 +10,15 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-/*
-Ensure *rest complies to the integration.Server type.
-*/
+// Ensure *rest complies to the integration.Server type.
 var _ integration.Server = (*rest)(nil)
 
-/*
-Name returns the string representation of the HTTP REST integration.
-*/
+// Name returns the string representation of the HTTP REST integration.
 func (r *rest) Name() string {
 	return identifier
 }
 
-/*
-Start starts the HTTP server of the HTTP REST integration.
-*/
+// Start starts the HTTP server of the HTTP REST integration.
 func (r *rest) Start(ctx context.Context) error {
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
@@ -87,9 +81,7 @@ func (r *rest) Start(ctx context.Context) error {
 	return nil
 }
 
-/*
-Stop tries to gracefully stop the HTTP server.
-*/
+// Stop tries to gracefully stop the HTTP server.
 func (r *rest) Stop(ctx context.Context) error {
 	if err := errorstack.Wrap(r.server.Shutdown(ctx), "Failed to gracefully stop server"); err != nil {
 		return err
@@ -98,9 +90,7 @@ func (r *rest) Stop(ctx context.Context) error {
 	return nil
 }
 
-/*
-Status always returns a `200` status.
-*/
+// Status always returns a `200` status.
 func (r *rest) Status(ctx context.Context) (int, error) {
 	return 200, nil
 }

@@ -11,50 +11,40 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 var (
 	attrKeyDatabase = attribute.Key(identifier + ".database")
 	attrKeyTable    = attribute.Key(identifier + ".table")
 )
 
-/*
-setDefaultAttributes sets integration attributes to a trace span.
-*/
+// setDefaultAttributes sets integration attributes to a trace span.
 func setDefaultAttributes(span *trace.Span, cfg *Config) {
 	if cfg != nil {
 		span.SetAttributes(attrKeyDatabase.String(cfg.Database))
 	}
 }
 
-/*
-structInfo caches the reflected column names and field indexes for a struct
-type, so hot-path AsyncInsertStruct calls avoid repeated reflection.
-*/
+// structInfo caches the reflected column names and field indexes for a struct
+// type, so hot-path AsyncInsertStruct calls avoid repeated reflection.
 type structInfo struct {
 	columns []string
 	indexes [][]int
 }
 
-/*
-structCache memoizes structInfo values by reflect.Type.
-*/
+// structCache memoizes structInfo values by reflect.Type.
 var structCache sync.Map
 
-/*
-reflectStructInfo extracts column names from `ch` struct tags and field indexes
-for a struct type. Results are cached per type.
-
-Every exported field must carry a `ch` tag; a tag of "-" explicitly opts the
-field out. Untagged exported fields would otherwise leak as literal column
-names (e.g. "Untagged") and only fail at insert time with a cryptic server
-error, so we reject them at registration time.
-
-Embedded (anonymous) struct fields are also rejected: unlike the batch API's
-AppendStruct, AsyncInsertStruct does not recurse into child fields. Returning
-an error at registration time is safer than silently missing columns.
-*/
+// reflectStructInfo extracts column names from `ch` struct tags and field indexes
+// for a struct type. Results are cached per type.
+//
+// Every exported field must carry a `ch` tag; a tag of "-" explicitly opts the
+// field out. Untagged exported fields would otherwise leak as literal column
+// names (e.g. "Untagged") and only fail at insert time with a cryptic server
+// error, so we reject them at registration time.
+//
+// Embedded (anonymous) struct fields are also rejected: unlike the batch API's
+// AppendStruct, AsyncInsertStruct does not recurse into child fields. Returning
+// an error at registration time is safer than silently missing columns.
 func reflectStructInfo(t reflect.Type) (*structInfo, error) {
 	if cached, ok := structCache.Load(t); ok {
 		return cached.(*structInfo), nil
@@ -88,12 +78,10 @@ func reflectStructInfo(t reflect.Type) (*structInfo, error) {
 	return actual.(*structInfo), nil
 }
 
-/*
-buildInsertQuery returns an `INSERT INTO <table> (`col1`, `col2`) VALUES (?, ?)`
-SQL string for the given table and columns. Column names are backtick-quoted so
-that tag values containing reserved words or unusual characters still produce
-valid SQL.
-*/
+// buildInsertQuery returns an `INSERT INTO <table> (`col1`, `col2`) VALUES (?, ?)`
+// SQL string for the given table and columns. Column names are backtick-quoted so
+// that tag values containing reserved words or unusual characters still produce
+// valid SQL.
 func buildInsertQuery(table string, columns []string) string {
 	var b strings.Builder
 	b.Grow(len(table) + 32 + len(columns)*18)
@@ -126,12 +114,10 @@ func buildInsertQuery(table string, columns []string) string {
 	return b.String()
 }
 
-/*
-prepareAsyncInsert validates the input value, reflects its columns and field
-values, and builds the INSERT query. It contains all the logic of
-AsyncInsertStruct that does not require a live ClickHouse connection, so it
-can be unit-tested in isolation.
-*/
+// prepareAsyncInsert validates the input value, reflects its columns and field
+// values, and builds the INSERT query. It contains all the logic of
+// AsyncInsertStruct that does not require a live ClickHouse connection, so it
+// can be unit-tested in isolation.
 func prepareAsyncInsert(table string, value any) (string, []any, error) {
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Pointer {

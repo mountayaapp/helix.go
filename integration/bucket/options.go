@@ -1,8 +1,6 @@
 package bucket
 
-/*
-OptionsWrite is used to set options when writing blob.
-*/
+// OptionsWrite is used to set options when writing blob.
 type OptionsWrite struct {
 
 	// CacheControl specifies caching attributes that services may use when serving

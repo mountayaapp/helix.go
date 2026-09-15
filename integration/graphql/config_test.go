@@ -328,15 +328,13 @@ func TestConfig_Sanitize(t *testing.T) {
 	}
 }
 
-/*
-TestConfig_Sanitize_QueryCacheSize covers the field's own rules, which the table
-above cannot: every case there leaves it unset, so only the default is exercised.
-
-The non-positive cases are not cosmetic. gqlgen's lru.New panics on a size below
-one, and sanitize is the only thing standing between a zero-valued Config and
-that panic at startup — so "0 becomes the default" is a crash guard, not a
-convenience.
-*/
+// TestConfig_Sanitize_QueryCacheSize covers the field's own rules, which the table
+// above cannot: every case there leaves it unset, so only the default is exercised.
+//
+// The non-positive cases are not cosmetic. gqlgen's lru.New panics on a size below
+// one, and sanitize is the only thing standing between a zero-valued Config and
+// that panic at startup — so "0 becomes the default" is a crash guard, not a
+// convenience.
 func TestConfig_Sanitize_QueryCacheSize(t *testing.T) {
 	testcases := []struct {
 		name string

@@ -8,15 +8,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-cp is set if the service is running in Qovery, nil otherwise.
-*/
+// cp is set if the service is running in Qovery, nil otherwise.
 var cp cloudprovider.CloudProvider
 
-/*
-qovery holds some details about the service currently running in Qovery and
-implements the CloudProvider interface.
-*/
+// qovery holds some details about the service currently running in Qovery and
+// implements the CloudProvider interface.
 type qovery struct {
 	applicationId           string
 	cloudProviderRegion     string
@@ -29,17 +25,13 @@ type qovery struct {
 	projectId               string
 }
 
-/*
-init populates the cloud provider if the service is running in Qovery.
-*/
+// init populates the cloud provider if the service is running in Qovery.
 func init() {
 	cp = build()
 }
 
-/*
-build populates the cloud provider if the service is running in Qovery. Returns
-nil otherwise.
-*/
+// build populates the cloud provider if the service is running in Qovery. Returns
+// nil otherwise.
 func build() cloudprovider.CloudProvider {
 	_, exists := os.LookupEnv("QOVERY_APPLICATION_ID")
 	if !exists {
@@ -61,24 +53,18 @@ func build() cloudprovider.CloudProvider {
 	return q
 }
 
-/*
-Get returns the cloud provider interface for Qovery. Returns nil if not running
-in Qovery.
-*/
+// Get returns the cloud provider interface for Qovery. Returns nil if not running
+// in Qovery.
 func Get() cloudprovider.CloudProvider {
 	return cp
 }
 
-/*
-String returns the string representation of the Qovery cloud provider.
-*/
+// String returns the string representation of the Qovery cloud provider.
 func (q *qovery) String() string {
 	return "qovery"
 }
 
-/*
-Attributes returns OpenTelemetry attributes when running in Qovery.
-*/
+// Attributes returns OpenTelemetry attributes when running in Qovery.
 func (q *qovery) Attributes() []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("qovery.application_id", q.applicationId),

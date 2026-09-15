@@ -1,17 +1,16 @@
 package event
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEventFromJSON(t *testing.T) {
+func TestFromJSON(t *testing.T) {
 	testcases := []struct {
 		name     string
-		input    json.RawMessage
+		input    []byte
 		expected Event
 		success  bool
 	}{
@@ -89,7 +88,7 @@ func TestEventFromJSON(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, ok := EventFromJSON(tc.input)
+			actual, ok := FromJSON(tc.input)
 
 			assert.Equal(t, tc.expected, actual)
 			assert.Equal(t, tc.success, ok)
@@ -97,7 +96,7 @@ func TestEventFromJSON(t *testing.T) {
 	}
 }
 
-func TestEventFromJSON_WithFullEvent(t *testing.T) {
+func TestFromJSON_WithFullEvent(t *testing.T) {
 	input := []byte(`{
 		"event": {
 			"id": "evt_full_001",
@@ -194,7 +193,7 @@ func TestEventFromJSON_WithFullEvent(t *testing.T) {
 		}
 	}`)
 
-	actual, ok := EventFromJSON(input)
+	actual, ok := FromJSON(input)
 
 	assert.True(t, ok)
 	assert.Equal(t, "evt_full_001", actual.ID)

@@ -33,7 +33,7 @@ func TestCreateSchedule_ScheduleDoesNotExist(t *testing.T) {
 	mockHandle.On("Describe", mock.Anything).Return(nil, serviceerror.NewNotFound("schedule not found"))
 	mockScheduleClient.On("Create", mock.Anything, opts).Return(mockHandle, nil)
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 	err := c.createSchedule(t.Context(), opts)
 
 	assert.NoError(t, err)
@@ -69,7 +69,7 @@ func TestCreateSchedule_ScheduleExistsWithSameProperties(t *testing.T) {
 	mockScheduleClient.On("GetHandle", mock.Anything, "my-schedule").Return(mockHandle)
 	mockHandle.On("Describe", mock.Anything).Return(desc, nil)
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 	err := c.createSchedule(t.Context(), opts)
 
 	assert.NoError(t, err)
@@ -106,7 +106,7 @@ func TestCreateSchedule_ScheduleExistsWithDifferentProperties(t *testing.T) {
 	mockScheduleClient.On("GetHandle", mock.Anything, "my-schedule").Return(mockHandle)
 	mockHandle.On("Describe", mock.Anything).Return(desc, nil)
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 	err := c.createSchedule(t.Context(), opts)
 
 	assert.ErrorIs(t, err, temporal.ErrScheduleAlreadyRunning)
@@ -130,7 +130,7 @@ func TestCreateSchedule_DescribeFailsWithUnexpectedError(t *testing.T) {
 	mockScheduleClient.On("GetHandle", mock.Anything, "my-schedule").Return(mockHandle)
 	mockHandle.On("Describe", mock.Anything).Return(nil, serviceerror.NewInternal("something broke"))
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 	err := c.createSchedule(t.Context(), opts)
 
 	assert.Error(t, err)
@@ -337,7 +337,7 @@ func TestClosedWorkflowResult_Running(t *testing.T) {
 
 	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").Return(desc, nil)
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 
 	var got string
 	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)
@@ -365,7 +365,7 @@ func TestClosedWorkflowResult_Completed(t *testing.T) {
 		*valuePtr = "the-result"
 	}).Return(nil)
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 
 	var got string
 	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)
@@ -381,7 +381,7 @@ func TestClosedWorkflowResult_NotFound(t *testing.T) {
 	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").
 		Return(nil, serviceerror.NewNotFound("workflow not found"))
 
-	c := &iclient{client: mockClient}
+	c := &Client{client: mockClient}
 
 	var got string
 	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", &got)

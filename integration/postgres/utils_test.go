@@ -59,6 +59,111 @@ func TestPreComputedSpanNames(t *testing.T) {
 	assert.Equal(t, "PostgreSQL: Transaction / QueryRow", spanTxQueryRow)
 }
 
+func TestBuildAddress(t *testing.T) {
+	testcases := []struct {
+		name     string
+		config   Config
+		expected string
+	}{
+		{
+			name: "plain credentials",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "s3cret",
+			},
+			expected: "postgres://helix:s3cret@127.0.0.1:5432/app",
+		},
+		{
+			name: "at sign in password is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "p@ssword",
+			},
+			expected: "postgres://helix:p%40ssword@127.0.0.1:5432/app",
+		},
+		{
+			name: "space in password is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "pa ss",
+			},
+			expected: "postgres://helix:pa%20ss@127.0.0.1:5432/app",
+		},
+		{
+			name: "number sign in password is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "pa#ss",
+			},
+			expected: "postgres://helix:pa%23ss@127.0.0.1:5432/app",
+		},
+		{
+			name: "slash in password is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "pa/ss",
+			},
+			expected: "postgres://helix:pa%2Fss@127.0.0.1:5432/app",
+		},
+		{
+			name: "percent sign in password is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "pa%ss",
+			},
+			expected: "postgres://helix:pa%25ss@127.0.0.1:5432/app",
+		},
+		{
+			name: "at sign in user is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "app",
+				User:     "he@lix",
+				Password: "s3cret",
+			},
+			expected: "postgres://he%40lix:s3cret@127.0.0.1:5432/app",
+		},
+		{
+			name: "space in database is escaped",
+			config: Config{
+				Address:  "127.0.0.1:5432",
+				Database: "my app",
+				User:     "helix",
+				Password: "s3cret",
+			},
+			expected: "postgres://helix:s3cret@127.0.0.1:5432/my%20app",
+		},
+		{
+			name: "bracketed IPv6 address is preserved",
+			config: Config{
+				Address:  "[::1]:5432",
+				Database: "app",
+				User:     "helix",
+				Password: "s3cret",
+			},
+			expected: "postgres://helix:s3cret@[::1]:5432/app",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, buildAddress(&tc.config))
+		})
+	}
+}
+
 func BenchmarkSetDefaultAttributes(b *testing.B) {
 	span := trace.NewSpan(nil)
 	cfg := &Config{

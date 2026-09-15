@@ -10,9 +10,7 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-/*
-Config is used to configure the HTTP client integration.
-*/
+// Config is used to configure the HTTP client integration.
 type Config struct {
 
 	// Name is a human-readable name for the client, used for logging, tracing,
@@ -68,10 +66,8 @@ type Config struct {
 	TLS integration.ConfigTLS `json:"tls"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 

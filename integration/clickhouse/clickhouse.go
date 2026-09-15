@@ -12,29 +12,23 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanBatchBegin  = humanized + ": Batch / Begin"
 	spanAsyncInsert = humanized + ": Async Insert"
 	spanSelect      = humanized + ": Select"
 )
 
-/*
-ClickHouse exposes an opinionated way to interact with ClickHouse, by bringing
-automatic distributed tracing as well as error recording within traces.
-*/
+// ClickHouse exposes an opinionated way to interact with ClickHouse, by bringing
+// automatic distributed tracing as well as error recording within traces.
 type ClickHouse interface {
 	NewBatchInsert(ctx context.Context, table string) (Batch, error)
 	AsyncInsertStruct(ctx context.Context, table string, value any) error
 	Select(ctx context.Context, dest any, query string, args ...any) error
 }
 
-/*
-connection represents the clickhouse integration. It respects the
-integration.Dependency and ClickHouse interfaces.
-*/
+// connection represents the clickhouse integration. It respects the
+// integration.Dependency and ClickHouse interfaces.
 type connection struct {
 
 	// config holds the Config initially passed when creating a new ClickHouse client.
@@ -44,10 +38,8 @@ type connection struct {
 	client clickhouse.Conn
 }
 
-/*
-Connect tries to connect to the ClickHouse database given the Config. Returns an
-error if Config is not valid or if the connection failed.
-*/
+// Connect tries to connect to the ClickHouse database given the Config. Returns an
+// error if Config is not valid or if the connection failed.
 func Connect(svc *service.Service, cfg Config) (ClickHouse, error) {
 
 	// No need to continue if Config is not valid.
@@ -101,11 +93,9 @@ func Connect(svc *service.Service, cfg Config) (ClickHouse, error) {
 	return conn, nil
 }
 
-/*
-NewBatchInsert starts a new transaction for inserting batch data into a table.
-
-It automatically handles tracing and error recording.
-*/
+// NewBatchInsert starts a new transaction for inserting batch data into a table.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBatchBegin)
 
@@ -125,20 +115,18 @@ func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch
 	return b, err
 }
 
-/*
-AsyncInsertStruct inserts a single struct row into the given table using
-ClickHouse's native async_insert mechanism. The server buffers incoming rows
-and flushes them in the background, so this call does not pay the
-prepare/append/send roundtrip cost of a batch insert. The call returns as soon
-as the server acknowledges receipt; it does not wait for the flush.
-
-Intended for high-frequency, low-latency per-request writes such as request
-counters. For bulk loads, prefer NewBatchInsert. Server-side buffering is
-governed by `async_insert_max_data_size`, `async_insert_busy_timeout_ms`, and
-`async_insert_max_query_number`.
-
-It automatically handles tracing and error recording.
-*/
+// AsyncInsertStruct inserts a single struct row into the given table using
+// ClickHouse's native async_insert mechanism. The server buffers incoming rows
+// and flushes them in the background, so this call does not pay the
+// prepare/append/send roundtrip cost of a batch insert. The call returns as soon
+// as the server acknowledges receipt; it does not wait for the flush.
+//
+// Intended for high-frequency, low-latency per-request writes such as request
+// counters. For bulk loads, prefer NewBatchInsert. Server-side buffering is
+// governed by `async_insert_max_data_size`, `async_insert_busy_timeout_ms`, and
+// `async_insert_max_query_number`.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) AsyncInsertStruct(ctx context.Context, table string, value any) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanAsyncInsert)
 	defer span.End()
@@ -164,17 +152,15 @@ func (conn *connection) AsyncInsertStruct(ctx context.Context, table string, val
 	return nil
 }
 
-/*
-Select runs a read query against ClickHouse and scans the result set into dest,
-which must be a pointer to a slice of structs whose exported fields carry `ch`
-struct tags matching the selected columns. Pass query arguments as variadic args
-so the driver binds them as parameters rather than interpolating into the SQL.
-
-Intended for analytical reads such as aggregations over large datasets. For
-writes, use NewBatchInsert or AsyncInsertStruct.
-
-It automatically handles tracing and error recording.
-*/
+// Select runs a read query against ClickHouse and scans the result set into dest,
+// which must be a pointer to a slice of structs whose exported fields carry `ch`
+// struct tags matching the selected columns. Pass query arguments as variadic args
+// so the driver binds them as parameters rather than interpolating into the SQL.
+//
+// Intended for analytical reads such as aggregations over large datasets. For
+// writes, use NewBatchInsert or AsyncInsertStruct.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Select(ctx context.Context, dest any, query string, args ...any) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSelect)
 	defer span.End()

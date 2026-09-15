@@ -1,4 +1,4 @@
-.PHONY: init lint tests release
+.PHONY: init lint test release
 
 #
 # Install and replace required dependencies.

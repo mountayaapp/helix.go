@@ -4,10 +4,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-CloudProvider defines the requirements each cloud provider must meet to be
-compatible with the helix.go ecosystem.
-*/
+// CloudProvider defines the requirements each cloud provider must meet to be
+// compatible with the helix.go ecosystem.
 type CloudProvider interface {
 
 	// String returns the string representation of the cloud provider.

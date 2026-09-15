@@ -5,9 +5,7 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-/*
-Config is used to configure the ClickHouse integration.
-*/
+// Config is used to configure the ClickHouse integration.
 type Config struct {
 
 	// Address is the ClickHouse address to connect to.
@@ -42,10 +40,8 @@ type Config struct {
 	TLS integration.ConfigTLS `json:"tls"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	if cfg.Address == "" {
 		cfg.Address = "127.0.0.1:9000"

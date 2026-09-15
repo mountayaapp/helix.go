@@ -32,7 +32,7 @@ var (
 		Path:    []any{"config", "tls"},
 	}
 
-	oauthResourceIdEntry = errorstack.Entry{
+	oauthResourceIDEntry = errorstack.Entry{
 		Message: "Must be set",
 		Path:    []any{"config", "oauth", "resource_id"},
 	}
@@ -61,7 +61,7 @@ func validConfig() Config {
 func validOAuth() OAuthResourceServer {
 	return OAuthResourceServer{
 		Enabled:              true,
-		ResourceId:           "https://api.example.com",
+		ResourceID:           "https://api.example.com",
 		AuthorizationServers: []string{"https://auth.example.com"},
 		ValidateToken: func(_ context.Context, _ string) (any, time.Time, error) {
 			return nil, time.Now().Add(time.Hour), nil
@@ -162,7 +162,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				cfg.OAuth = OAuthResourceServer{Enabled: true}
 				return cfg
 			}(),
-			wantErr: errorstack.NewValidation(oauthResourceIdEntry, oauthAuthServersEntry, oauthValidateTokenEntry),
+			wantErr: errorstack.NewValidation(oauthResourceIDEntry, oauthAuthServersEntry, oauthValidateTokenEntry),
 		},
 		{
 			name: "compose-mode OAuth without validate token passes",
@@ -185,7 +185,7 @@ func TestConfig_Sanitize(t *testing.T) {
 				cfg.OAuth = OAuthResourceServer{Enabled: true, Compose: true}
 				return cfg
 			}(),
-			wantErr: errorstack.NewValidation(oauthResourceIdEntry, oauthAuthServersEntry),
+			wantErr: errorstack.NewValidation(oauthResourceIDEntry, oauthAuthServersEntry),
 		},
 	}
 

@@ -62,7 +62,7 @@ func TestNewNopLogger(t *testing.T) {
 	})
 }
 
-func TestDefaultLogLevel(t *testing.T) {
+func TestDefaultLevel(t *testing.T) {
 	tests := []struct {
 		name     string
 		envValue string
@@ -81,7 +81,7 @@ func TestDefaultLogLevel(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OTEL_LOG_LEVEL", tc.envValue)
-			assert.Equal(t, tc.expected, DefaultLogLevel())
+			assert.Equal(t, tc.expected, DefaultLevel())
 		})
 	}
 }
@@ -204,8 +204,8 @@ func TestNewLogger_ExporterNone_AllLevelsWork(t *testing.T) {
 		l, err := NewLogger(level, newTestResource(t))
 		require.NoError(t, err)
 
-		ctx := ContextWithLogger(t.Context(), l)
-		if ll := LoggerFromContext(ctx); ll != nil {
+		ctx := NewContext(t.Context(), l)
+		if ll := FromContext(ctx); ll != nil {
 			ll.Debug(ctx, "debug")
 			ll.Info(ctx, "info")
 			ll.Warn(ctx, "warn")

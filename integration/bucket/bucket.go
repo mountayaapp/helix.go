@@ -11,9 +11,7 @@ import (
 	"gocloud.dev/blob"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanBucketExists = humanized + ": Exists"
 	spanBucketRead   = humanized + ": Read"
@@ -21,10 +19,8 @@ const (
 	spanBucketDelete = humanized + ": Delete"
 )
 
-/*
-Bucket exposes an opinionated and standardized way to interact with buckets across
-different providers through drivers.
-*/
+// Bucket exposes an opinionated and standardized way to interact with buckets across
+// different providers through drivers.
 type Bucket interface {
 	Exists(ctx context.Context, key string) bool
 	Read(ctx context.Context, key string) ([]byte, error)
@@ -32,10 +28,8 @@ type Bucket interface {
 	Delete(ctx context.Context, key string) error
 }
 
-/*
-connection represents the bucket integration. It respects the integration.Dependency
-and Bucket interfaces.
-*/
+// connection represents the bucket integration. It respects the integration.Dependency
+// and Bucket interfaces.
 type connection struct {
 
 	// config holds the Config initially passed when creating a new Bucket client.
@@ -45,10 +39,8 @@ type connection struct {
 	client *blob.Bucket
 }
 
-/*
-Connect tries to create a Bucket client given the Config. Returns an error if
-Config is not valid or if the initialization failed.
-*/
+// Connect tries to create a Bucket client given the Config. Returns an error if
+// Config is not valid or if the initialization failed.
 func Connect(svc *service.Service, cfg Config) (Bucket, error) {
 
 	// No need to continue if Config is not valid.
@@ -83,11 +75,9 @@ func Connect(svc *service.Service, cfg Config) (Bucket, error) {
 	return conn, nil
 }
 
-/*
-Exists returns true if a blob exists at key, false otherwise.
-
-It automatically handles tracing.
-*/
+// Exists returns true if a blob exists at key, false otherwise.
+//
+// It automatically handles tracing.
 func (conn *connection) Exists(ctx context.Context, key string) bool {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketExists)
 	defer span.End()
@@ -98,11 +88,9 @@ func (conn *connection) Exists(ctx context.Context, key string) bool {
 	return exists
 }
 
-/*
-Read reads the blob at key and returns its byte representation.
-
-It automatically handles tracing and error recording.
-*/
+// Read reads the blob at key and returns its byte representation.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Read(ctx context.Context, key string) ([]byte, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketRead)
 	defer span.End()
@@ -117,11 +105,9 @@ func (conn *connection) Read(ctx context.Context, key string) ([]byte, error) {
 	return value, err
 }
 
-/*
-Write writes bytes representation of blob at key, with some optional options.
-
-It automatically handles tracing and error recording.
-*/
+// Write writes bytes representation of blob at key, with some optional options.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Write(ctx context.Context, key string, value []byte, opts *OptionsWrite) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketWrite)
 	defer span.End()
@@ -149,11 +135,9 @@ func (conn *connection) Write(ctx context.Context, key string, value []byte, opt
 	return err
 }
 
-/*
-Delete deletes existing blob at key.
-
-It automatically handles tracing and error recording.
-*/
+// Delete deletes existing blob at key.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Delete(ctx context.Context, key string) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanBucketDelete)
 	defer span.End()

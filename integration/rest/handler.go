@@ -6,20 +6,14 @@ import (
 	"github.com/uptrace/bunrouter"
 )
 
-/*
-NoMetadata allows to set no "metadata" object in the HTTP response.
-*/
+// NoMetadata allows to set no "metadata" object in the HTTP response.
 type NoMetadata struct{}
 
-/*
-NoData allows to set no "data" object in the HTTP response.
-*/
+// NoData allows to set no "data" object in the HTTP response.
 type NoData struct{}
 
-/*
-handlerLiveness is the handler function for the liveness probe endpoint.
-Returns 200 immediately without checking any dependencies.
-*/
+// handlerLiveness is the handler function for the liveness probe endpoint.
+// Returns 200 immediately without checking any dependencies.
 func (r *rest) handlerLiveness(rw http.ResponseWriter, req bunrouter.Request) error {
 	NewResponseSuccess[NoMetadata, NoData](req.Request).
 		SetStatus(http.StatusOK).
@@ -28,11 +22,9 @@ func (r *rest) handlerLiveness(rw http.ResponseWriter, req bunrouter.Request) er
 	return nil
 }
 
-/*
-handlerReadiness is the handler function for the readiness probe endpoint.
-Calls the custom function defined in the Config if applicable, otherwise
-aggregates all dependency statuses via the service.
-*/
+// handlerReadiness is the handler function for the readiness probe endpoint.
+// Calls the custom function defined in the Config if applicable, otherwise
+// aggregates all dependency statuses via the service.
 func (r *rest) handlerReadiness(rw http.ResponseWriter, req bunrouter.Request) error {
 	var status int
 	if r.config.Readiness != nil {
@@ -54,10 +46,8 @@ func (r *rest) handlerReadiness(rw http.ResponseWriter, req bunrouter.Request) e
 	return nil
 }
 
-/*
-handlerNotFound is the default handler function if the path is not found (error
-404).
-*/
+// handlerNotFound is the default handler function if the path is not found (error
+// 404).
 func (r *rest) handlerNotFound(rw http.ResponseWriter, req bunrouter.Request) error {
 	NewResponseError[NoMetadata](req.Request).
 		SetStatus(http.StatusNotFound).
@@ -65,10 +55,8 @@ func (r *rest) handlerNotFound(rw http.ResponseWriter, req bunrouter.Request) er
 	return nil
 }
 
-/*
-handlerMethodNotAllowed is the default handler function if the method is not
-allowed (error 405).
-*/
+// handlerMethodNotAllowed is the default handler function if the method is not
+// allowed (error 405).
 func (r *rest) handlerMethodNotAllowed(rw http.ResponseWriter, req bunrouter.Request) error {
 	NewResponseError[NoMetadata](req.Request).
 		SetStatus(http.StatusMethodNotAllowed).

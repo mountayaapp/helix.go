@@ -15,74 +15,56 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-/*
-Logger wraps zap with structured field support, automatic trace correlation,
-and OpenTelemetry log export. Created by service.New, stored in context, and
-used by the public telemetry/log package-level functions.
-*/
+// Logger wraps zap with structured field support, automatic trace correlation,
+// and OpenTelemetry log export. Created by service.New, stored in context, and
+// used by the public telemetry/log package-level functions.
 type Logger struct {
 	zap      *zap.Logger
 	provider *log.LoggerProvider
 }
 
-/*
-Debug logs a message at the debug level with optional structured fields. It
-automatically extracts trace_id and span_id from the context.
-*/
+// Debug logs a message at the debug level with optional structured fields. It
+// automatically extracts trace_id and span_id from the context.
 func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
 	l.zap.Debug(msg, l.fieldsWithTrace(ctx, fields)...)
 }
 
-/*
-Info logs a message at the info level with optional structured fields. It
-automatically extracts trace_id and span_id from the context.
-*/
+// Info logs a message at the info level with optional structured fields. It
+// automatically extracts trace_id and span_id from the context.
 func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
 	l.zap.Info(msg, l.fieldsWithTrace(ctx, fields)...)
 }
 
-/*
-Warn logs a message at the warn level with optional structured fields. It
-automatically extracts trace_id and span_id from the context.
-*/
+// Warn logs a message at the warn level with optional structured fields. It
+// automatically extracts trace_id and span_id from the context.
 func (l *Logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
 	l.zap.Warn(msg, l.fieldsWithTrace(ctx, fields)...)
 }
 
-/*
-Error logs a message at the error level with optional structured fields. It
-automatically extracts trace_id and span_id from the context.
-*/
+// Error logs a message at the error level with optional structured fields. It
+// automatically extracts trace_id and span_id from the context.
 func (l *Logger) Error(ctx context.Context, msg string, fields ...zap.Field) {
 	l.zap.Error(msg, l.fieldsWithTrace(ctx, fields)...)
 }
 
-/*
-With returns a child Logger that always includes the given fields.
-*/
+// With returns a child Logger that always includes the given fields.
 func (l *Logger) With(fields ...zap.Field) *Logger {
 	return &Logger{zap: l.zap.With(fields...), provider: l.provider}
 }
 
-/*
-Sync flushes any buffered log entries.
-*/
+// Sync flushes any buffered log entries.
 func (l *Logger) Sync() error {
 	return l.zap.Sync()
 }
 
-/*
-Provider returns the underlying OpenTelemetry LoggerProvider. Integrations that
-need to wire OpenTelemetry-native log processors use this.
-*/
+// Provider returns the underlying OpenTelemetry LoggerProvider. Integrations that
+// need to wire OpenTelemetry-native log processors use this.
 func (l *Logger) Provider() *log.LoggerProvider {
 	return l.provider
 }
 
-/*
-Shutdown gracefully shuts down the logger's OpenTelemetry provider, flushing any
-pending log records.
-*/
+// Shutdown gracefully shuts down the logger's OpenTelemetry provider, flushing any
+// pending log records.
 func (l *Logger) Shutdown(ctx context.Context) error {
 	if l.provider == nil {
 		return nil
@@ -91,11 +73,9 @@ func (l *Logger) Shutdown(ctx context.Context) error {
 	return l.provider.Shutdown(ctx)
 }
 
-/*
-fieldsWithTrace appends trace_id and span_id from the context to the given fields
-slice. This enriches stderr JSON output with trace correlation. The otelzap bridge
-handles correlation automatically on the OpenTelemetry export path.
-*/
+// fieldsWithTrace appends trace_id and span_id from the context to the given fields
+// slice. This enriches stderr JSON output with trace correlation. The otelzap bridge
+// handles correlation automatically on the OpenTelemetry export path.
 func (l *Logger) fieldsWithTrace(ctx context.Context, fields []zap.Field) []zap.Field {
 	sc := trace.SpanContextFromContext(ctx)
 	if sc.HasTraceID() {
@@ -108,15 +88,13 @@ func (l *Logger) fieldsWithTrace(ctx context.Context, fields []zap.Field) []zap.
 	return fields
 }
 
-/*
-NewLogger creates a new Logger with the given level and OpenTelemetry resource.
-It sets up two output paths:
-
-  - A production Zap core that writes JSON to stderr (with resource attributes
-    converted to underscore-separated field keys for log aggregator compatibility).
-  - An otelzap core that exports log records to an OTLP gRPC endpoint via the
-    OpenTelemetry Log SDK.
-*/
+// NewLogger creates a new Logger with the given level and OpenTelemetry resource.
+// It sets up two output paths:
+//
+//   - A production Zap core that writes JSON to stderr (with resource attributes
+//     converted to underscore-separated field keys for log aggregator compatibility).
+//   - An otelzap core that exports log records to an OTLP gRPC endpoint via the
+//     OpenTelemetry Log SDK.
 func NewLogger(level zapcore.Level, res *resource.Resource) (*Logger, error) {
 	ctx := context.Background()
 
@@ -155,18 +133,14 @@ func NewLogger(level zapcore.Level, res *resource.Resource) (*Logger, error) {
 	return &Logger{zap: z, provider: provider}, nil
 }
 
-/*
-NewNopLogger creates a Logger that discards all output.
-*/
+// NewNopLogger creates a Logger that discards all output.
 func NewNopLogger() *Logger {
 	return &Logger{zap: zap.NewNop()}
 }
 
-/*
-DefaultLogLevel determines the log level from the OTEL_LOG_LEVEL environment
-variable (debug, info, warn, error). Defaults to info when unset or invalid.
-*/
-func DefaultLogLevel() zapcore.Level {
+// DefaultLevel determines the log level from the OTEL_LOG_LEVEL environment
+// variable (debug, info, warn, error). Defaults to info when unset or invalid.
+func DefaultLevel() zapcore.Level {
 	switch strings.ToLower(os.Getenv("OTEL_LOG_LEVEL")) {
 	case "debug":
 		return zapcore.DebugLevel
@@ -179,11 +153,9 @@ func DefaultLogLevel() zapcore.Level {
 	}
 }
 
-/*
-attributesToFields converts a resource's attributes to Zap fields for the stderr
-production core. Dots in keys are replaced with underscores for compatibility
-with log aggregators like Elasticsearch that interpret dots as nested paths.
-*/
+// attributesToFields converts a resource's attributes to Zap fields for the stderr
+// production core. Dots in keys are replaced with underscores for compatibility
+// with log aggregators like Elasticsearch that interpret dots as nested paths.
 func attributesToFields(res *resource.Resource) []zap.Field {
 	if res == nil {
 		return nil

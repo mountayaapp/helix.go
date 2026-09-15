@@ -4,10 +4,8 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 )
 
-/*
-ConfigWorker is used to configure a Temporal worker connection registered as a
-server.
-*/
+// ConfigWorker is used to configure a Temporal worker connection registered as a
+// server.
 type ConfigWorker struct {
 
 	// Client holds the shared Temporal client configuration.
@@ -30,7 +28,7 @@ type ConfigWorker struct {
 	// Default:
 	//
 	//   100 000
-	WorkerActivitiesPerSecond float64 `json:"worker_activities_per_second,omitempty"`
+	WorkerActivitiesPerSecond float64 `json:"worker_activities_per_second,omitzero"`
 
 	// TaskQueueActivitiesPerSecond sets the rate limiting on number of activities
 	// that can be executed per second. This is managed by the server and controls
@@ -44,7 +42,7 @@ type ConfigWorker struct {
 	// Default:
 	//
 	//   100 000
-	TaskQueueActivitiesPerSecond float64 `json:"task_queue_activities_per_second,omitempty"`
+	TaskQueueActivitiesPerSecond float64 `json:"task_queue_activities_per_second,omitzero"`
 
 	// EnableSessionWorker enables the session worker, which is required for
 	// workflows that use sessions for stateful activity routing. Only enable this
@@ -56,11 +54,9 @@ type ConfigWorker struct {
 	EnableSessionWorker bool `json:"enable_session_worker"`
 }
 
-/*
-sanitize validates the worker configuration by first sanitizing the embedded
-client configuration, then validating worker-specific fields. Returns an error
-if configuration is not valid.
-*/
+// sanitize validates the worker configuration by first sanitizing the embedded
+// client configuration, then validating worker-specific fields. Returns an error
+// if configuration is not valid.
 func (cfg *ConfigWorker) sanitize() error {
 	var entries []errorstack.Entry
 

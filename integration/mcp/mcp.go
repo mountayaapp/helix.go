@@ -8,10 +8,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-/*
-mcp represents the MCP server integration. It respects the integration.Server
-interface.
-*/
+// mcp represents the MCP server integration. It respects the integration.Server
+// interface.
 type mcp struct {
 
 	// svc is the Service this integration belongs to.
@@ -29,12 +27,10 @@ type mcp struct {
 	server *http.Server
 }
 
-/*
-New tries to build a new MCP server for Config. Returns an error if Config is not
-valid. It is a server integration — on success the server is registered with the
-Service via service.Serve and started during the Service lifecycle. Only one
-server can be registered per Service.
-*/
+// New tries to build a new MCP server for Config. Returns an error if Config is not
+// valid. It is a server integration — on success the server is registered with the
+// Service via service.Serve and started during the Service lifecycle. Only one
+// server can be registered per Service.
 func New(svc *service.Service, cfg Config) error {
 
 	// No need to continue if Config is not valid.
@@ -60,13 +56,11 @@ func New(svc *service.Service, cfg Config) error {
 	return nil
 }
 
-/*
-buildMux builds the integration's HTTP serve mux: the health and readiness
-probes, the MCP Streamable HTTP transport (GET + POST + DELETE), the
-method-not-allowed and not-found fallbacks, and, in OAuth Resource Server mode,
-the public Protected Resource Metadata endpoint. New and the tests share it so
-both exercise the exact same routing.
-*/
+// buildMux builds the integration's HTTP serve mux: the health and readiness
+// probes, the MCP Streamable HTTP transport (GET + POST + DELETE), the
+// method-not-allowed and not-found fallbacks, and, in OAuth Resource Server mode,
+// the public Protected Resource Metadata endpoint. New and the tests share it so
+// both exercise the exact same routing.
 func (m *mcp) buildMux() {
 	cfg := m.config
 
@@ -108,12 +102,10 @@ func (m *mcp) buildMux() {
 	m.mux.HandleFunc("/", m.handlerNotFound)
 }
 
-/*
-buildServer builds a fresh MCP SDK server from the ServerInfo and lets the
-consumer attach tools, resources, and prompts through Config.Register. In
-stateless mode a new server is built per request, so this is called for every
-incoming request.
-*/
+// buildServer builds a fresh MCP SDK server from the ServerInfo and lets the
+// consumer attach tools, resources, and prompts through Config.Register. In
+// stateless mode a new server is built per request, so this is called for every
+// incoming request.
 func (m *mcp) buildServer() *mcpsdk.Server {
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{
 		Name:    m.config.ServerInfo.Name,
@@ -124,11 +116,9 @@ func (m *mcp) buildServer() *mcpsdk.Server {
 	return server
 }
 
-/*
-buildTransport builds the MCP Streamable HTTP handler. It defaults to stateless
-operation and always validates the Origin header as a defense against
-DNS-rebinding attacks.
-*/
+// buildTransport builds the MCP Streamable HTTP handler. It defaults to stateless
+// operation and always validates the Origin header as a defense against
+// DNS-rebinding attacks.
 func (m *mcp) buildTransport() http.Handler {
 	getServer := func(_ *http.Request) *mcpsdk.Server {
 		return m.buildServer()

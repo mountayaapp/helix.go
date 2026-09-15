@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -14,19 +13,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanExec     = humanized + ": Exec"
 	spanQuery    = humanized + ": QueryRows"
 	spanQueryRow = humanized + ": QueryRow"
 )
 
-/*
-PostgreSQL exposes an opinionated way to interact with PostgreSQL, by bringing
-automatic distributed tracing as well as error recording within traces.
-*/
+// PostgreSQL exposes an opinionated way to interact with PostgreSQL, by bringing
+// automatic distributed tracing as well as error recording within traces.
 type PostgreSQL interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (Tx, error)
 	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
@@ -34,10 +29,8 @@ type PostgreSQL interface {
 	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
 }
 
-/*
-connection represents the postgres integration. It respects the
-integration.Dependency and PostgreSQL interfaces.
-*/
+// connection represents the postgres integration. It respects the
+// integration.Dependency and PostgreSQL interfaces.
 type connection struct {
 
 	// config holds the Config initially passed when creating a new PostgreSQL client.
@@ -47,10 +40,8 @@ type connection struct {
 	client *pgxpool.Pool
 }
 
-/*
-Connect tries to connect to the PostgreSQL database given the Config. Returns an
-error if Config is not valid or if the connection failed.
-*/
+// Connect tries to connect to the PostgreSQL database given the Config. Returns an
+// error if Config is not valid or if the connection failed.
 func Connect(svc *service.Service, cfg Config) (PostgreSQL, error) {
 
 	// No need to continue if Config is not valid.
@@ -66,7 +57,7 @@ func Connect(svc *service.Service, cfg Config) (PostgreSQL, error) {
 	}
 
 	// Set the default PostgreSQL options.
-	address := fmt.Sprintf("postgres://%s:%s@%s/%s", cfg.User, cfg.Password, cfg.Address, cfg.Database)
+	address := buildAddress(&cfg)
 	opts, err := pgxpool.ParseConfig(address)
 	if err != nil {
 		entries = append(entries, errorstack.Entry{
@@ -115,12 +106,10 @@ func Connect(svc *service.Service, cfg Config) (PostgreSQL, error) {
 	return conn, nil
 }
 
-/*
-BeginTx starts a transaction. Unlike database/sql, the context only affects the
-begin command: there is no auto-rollback on context cancellation.
-
-It automatically handles tracing and error recording.
-*/
+// BeginTx starts a transaction. Unlike database/sql, the context only affects the
+// begin command: there is no auto-rollback on context cancellation.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) BeginTx(ctx context.Context, opts pgx.TxOptions) (Tx, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxBegin)
 	defer span.End()
@@ -140,13 +129,11 @@ func (conn *connection) BeginTx(ctx context.Context, opts pgx.TxOptions) (Tx, er
 	return tx, err
 }
 
-/*
-Exec executes a SQL query. It can be either a prepared statement name or an SQL
-string. Arguments should be referenced positionally from the query string as
-$1, $2, etc.
-
-It automatically handles tracing and error recording.
-*/
+// Exec executes a SQL query. It can be either a prepared statement name or an SQL
+// string. Arguments should be referenced positionally from the query string as
+// $1, $2, etc.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExec)
 	defer span.End()
@@ -162,30 +149,28 @@ func (conn *connection) Exec(ctx context.Context, query string, args ...any) (pg
 	return stmt, err
 }
 
-/*
-Query sends a query to the server and returns a Rows to read the results. Only
-errors encountered sending the query and initializing Rows will be returned.
-
-Err() on the returned Rows must be checked after the Rows is closed to determine
-if the query executed successfully.
-
-The returned Rows must be closed before the connection can be used again. It is
-safe to attempt to read from the returned Rows even if an error is returned. The
-error will be the available in rows.Err() after rows are closed. It is allowed to
-ignore the error returned from Query and handle it in Rows.
-
-It is possible for a query to return one or more rows before encountering an
-error. In most cases the rows should be collected before processing rather than
-processed while receiving each row. This avoids the possibility of the application
-processing rows from a query that the server rejected. The pgx.CollectRows function
-is useful here.
-
-An implementor of QueryRewriter may be passed as the first element of args. It
-can rewrite the query and change or replace args. For example, pgx.NamedArgs is
-QueryRewriter that implements named arguments.
-
-It automatically handles tracing and error recording.
-*/
+// Query sends a query to the server and returns a Rows to read the results. Only
+// errors encountered sending the query and initializing Rows will be returned.
+//
+// Err() on the returned Rows must be checked after the Rows is closed to determine
+// if the query executed successfully.
+//
+// The returned Rows must be closed before the connection can be used again. It is
+// safe to attempt to read from the returned Rows even if an error is returned. The
+// error will be the available in rows.Err() after rows are closed. It is allowed to
+// ignore the error returned from Query and handle it in Rows.
+//
+// It is possible for a query to return one or more rows before encountering an
+// error. In most cases the rows should be collected before processing rather than
+// processed while receiving each row. This avoids the possibility of the application
+// processing rows from a query that the server rejected. The pgx.CollectRows function
+// is useful here.
+//
+// An implementor of QueryRewriter may be passed as the first element of args. It
+// can rewrite the query and change or replace args. For example, pgx.NamedArgs is
+// QueryRewriter that implements named arguments.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanQuery)
 	defer span.End()
@@ -201,13 +186,11 @@ func (conn *connection) Query(ctx context.Context, query string, args ...any) (p
 	return rows, err
 }
 
-/*
-QueryRow is a convenience wrapper over Query. Any error that occurs while querying
-is deferred until calling Scan on the returned Row. That Row will error with
-pgx.ErrNoRows if no rows are returned.
-
-It automatically handles tracing.
-*/
+// QueryRow is a convenience wrapper over Query. Any error that occurs while querying
+// is deferred until calling Scan on the returned Row. That Row will error with
+// pgx.ErrNoRows if no rows are returned.
+//
+// It automatically handles tracing.
 func (conn *connection) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanQueryRow)
 	defer span.End()

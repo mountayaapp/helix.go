@@ -8,53 +8,47 @@ import (
 	"time"
 )
 
-/*
-ToFlatMap serializes an Event to a flat map using baggage struct tags. Keys are
-prefixed with "event." and struct levels are separated by ".". All values are
-stringified. Zero values are omitted.
-
-Example:
-
-	Event{
-	  Name:   "subscribed",
-	  UserID: "user_2N6YZQLcYy2SPtmHiII69yHp0WE",
-	  Subscriptions: []Subscription{
-	    {
-	      ID:         "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
-	      CustomerID: "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
-	    },
-	  },
-	}
-
-Will produce:
-
-	map[string]string{
-	  "event.name":                        "subscribed",
-	  "event.user_id":                     "user_2N6YZQLcYy2SPtmHiII69yHp0WE",
-	  "event.subscriptions.0.id":          "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
-	  "event.subscriptions.0.customer_id": "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
-	}
-*/
+// ToFlatMap serializes an Event to a flat map using baggage struct tags. Keys are
+// prefixed with "event." and struct levels are separated by ".". All values are
+// stringified. Zero values are omitted.
+//
+// Example:
+//
+//	Event{
+//	  Name:   "subscribed",
+//	  UserID: "user_2N6YZQLcYy2SPtmHiII69yHp0WE",
+//	  Subscriptions: []Subscription{
+//	    {
+//	      ID:         "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
+//	      CustomerID: "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
+//	    },
+//	  },
+//	}
+//
+// Will produce:
+//
+//	map[string]string{
+//	  "event.name":                        "subscribed",
+//	  "event.user_id":                     "user_2N6YZQLcYy2SPtmHiII69yHp0WE",
+//	  "event.subscriptions.0.id":          "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
+//	  "event.subscriptions.0.customer_id": "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
+//	}
 func ToFlatMap(e Event) map[string]string {
 	m := make(map[string]string)
 	flattenValue(reflect.ValueOf(e), "event", m)
 	return m
 }
 
-/*
-FromFlatMap deserializes an Event from a flat map using baggage struct tags.
-Keys must be prefixed with "event." and use "." as the level separator.
-*/
+// FromFlatMap deserializes an Event from a flat map using baggage struct tags.
+// Keys must be prefixed with "event." and use "." as the level separator.
 func FromFlatMap(m map[string]string) Event {
 	var e Event
 	unflattenValue(reflect.ValueOf(&e).Elem(), "event", m)
 	return e
 }
 
-/*
-flattenValue recursively walks a struct value and writes its non-zero fields
-into the flat map with dot-separated keys derived from baggage struct tags.
-*/
+// flattenValue recursively walks a struct value and writes its non-zero fields
+// into the flat map with dot-separated keys derived from baggage struct tags.
 func flattenValue(v reflect.Value, prefix string, m map[string]string) {
 	t := v.Type()
 	for i := range t.NumField() {
@@ -131,10 +125,8 @@ func flattenValue(v reflect.Value, prefix string, m map[string]string) {
 	}
 }
 
-/*
-unflattenValue recursively walks a struct type and populates its fields from the
-flat map using baggage struct tags to determine which keys to read.
-*/
+// unflattenValue recursively walks a struct type and populates its fields from the
+// flat map using baggage struct tags to determine which keys to read.
 func unflattenValue(v reflect.Value, prefix string, m map[string]string) {
 	t := v.Type()
 	for i := range t.NumField() {

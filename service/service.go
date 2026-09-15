@@ -21,9 +21,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-/*
-serviceState represents the current state of a Service.
-*/
+// serviceState represents the current state of a Service.
 type serviceState int
 
 const (
@@ -32,17 +30,13 @@ const (
 	stateStopped
 )
 
-/*
-serviceGuard ensures only one Service is ever created per process. Attempting to
-call New more than once returns an error.
-*/
+// serviceGuard ensures only one Service is ever created per process. Attempting to
+// call New more than once returns an error.
 var serviceGuard sync.Once
 
-/*
-Service is the central dependency container. It owns the logger, tracer, cloud
-provider detection, and the service lifecycle. Only one instance is allowed per
-application.
-*/
+// Service is the central dependency container. It owns the logger, tracer, cloud
+// provider detection, and the service lifecycle. Only one instance is allowed per
+// application.
 type Service struct {
 	logger   *log.Logger
 	tracer   *trace.Tracer
@@ -57,14 +51,12 @@ type Service struct {
 	signals         []os.Signal
 }
 
-/*
-New creates a fully-initialized Service with auto-detected cloud provider,
-configured logger, and configured tracer. Returns an error instead of panicking.
-Options allow overriding defaults for testing.
-
-Only one Service instance is allowed per application. Calling New more than once
-returns an error.
-*/
+// New creates a fully-initialized Service with auto-detected cloud provider,
+// configured logger, and configured tracer. Returns an error instead of panicking.
+// Options allow overriding defaults for testing.
+//
+// Only one Service instance is allowed per application. Calling New more than once
+// returns an error.
 func New(opts ...Option) (*Service, error) {
 	var svc *Service
 	var newErr error
@@ -114,7 +106,7 @@ func New(opts ...Option) (*Service, error) {
 			logger = log.NewNopLogger()
 		} else {
 			var err error
-			logger, err = log.NewLogger(log.DefaultLogLevel(), res)
+			logger, err = log.NewLogger(log.DefaultLevel(), res)
 			if err != nil {
 				newErr = fmt.Errorf("service: failed to create logger: %w", err)
 				return
@@ -153,17 +145,15 @@ func New(opts ...Option) (*Service, error) {
 	})
 
 	if !called {
-		return nil, fmt.Errorf("service: a Service has already been created; only one instance is allowed per process")
+		return nil, errors.New("service: a Service has already been created; only one instance is allowed per process")
 	}
 
 	return svc, newErr
 }
 
-/*
-requireState checks that the Service is in the expected state and returns an
-Error describing the mismatch when it does not. Must be called while holding
-svc.mu.
-*/
+// requireState checks that the Service is in the expected state and returns an
+// Error describing the mismatch when it does not. Must be called while holding
+// svc.mu.
 func (svc *Service) requireState(expected serviceState) *errorstack.Error {
 	if svc.state == expected {
 		return nil
@@ -182,13 +172,11 @@ func (svc *Service) requireState(expected serviceState) *errorstack.Error {
 	return errorstack.New(msg)
 }
 
-/*
-serve registers the server integration for this Service. Only one server can be
-registered — calling serve twice returns an error. Server integrations define
-how the service accepts work: REST API, GraphQL API, or Temporal Worker.
-
-Not exported: use the package-level Serve function instead.
-*/
+// serve registers the server integration for this Service. Only one server can be
+// registered — calling serve twice returns an error. Server integrations define
+// how the service accepts work: REST API, GraphQL API, or Temporal Worker.
+//
+// Not exported: use the package-level Serve function instead.
 func (svc *Service) serve(server integration.Server) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -224,13 +212,11 @@ func (svc *Service) serve(server integration.Server) error {
 	return nil
 }
 
-/*
-attach registers a dependency integration to the Service. Dependencies are
-connections to external systems: databases, caches, blob storage, etc. The
-dependency's Close method is automatically called when the Service stops.
-
-Not exported: use the package-level Attach function instead.
-*/
+// attach registers a dependency integration to the Service. Dependencies are
+// connections to external systems: databases, caches, blob storage, etc. The
+// dependency's Close method is automatically called when the Service stops.
+//
+// Not exported: use the package-level Attach function instead.
 func (svc *Service) attach(dep integration.Dependency) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -261,11 +247,9 @@ func (svc *Service) attach(dep integration.Dependency) error {
 	return nil
 }
 
-/*
-Start initializes the helix Service and starts the server integration registered
-via Serve. This blocks until an interrupting signal is caught or the server
-returns an error while starting.
-*/
+// Start initializes the helix Service and starts the server integration registered
+// via Serve. This blocks until an interrupting signal is caught or the server
+// returns an error while starting.
 func (svc *Service) Start(ctx context.Context) error {
 	svc.mu.Lock()
 
@@ -308,11 +292,9 @@ func (svc *Service) Start(ctx context.Context) error {
 	}
 }
 
-/*
-Stop gracefully stops the server and closes all dependency connections. The
-server is stopped first to drain in-flight requests, then dependencies are
-closed concurrently once idle. It then drains/closes the tracer and logger.
-*/
+// Stop gracefully stops the server and closes all dependency connections. The
+// server is stopped first to drain in-flight requests, then dependencies are
+// closed concurrently once idle. It then drains/closes the tracer and logger.
 func (svc *Service) Stop(ctx context.Context) error {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -370,18 +352,14 @@ func (svc *Service) Stop(ctx context.Context) error {
 	return nil
 }
 
-/*
-statusTimeout is the maximum duration for a readiness check when the caller's
-context has no deadline set.
-*/
+// statusTimeout is the maximum duration for a readiness check when the caller's
+// context has no deadline set.
 const statusTimeout = 5 * time.Second
 
-/*
-Status executes a health check of the server and each dependency attached to the
-Service, and returns the highest HTTP status code returned. This means if all
-integrations are healthy (status 200) but one is temporarily unavailable
-(status 503), the status returned would be 503.
-*/
+// Status executes a health check of the server and each dependency attached to the
+// Service, and returns the highest HTTP status code returned. This means if all
+// integrations are healthy (status 200) but one is temporarily unavailable
+// (status 503), the status returned would be 503.
 func (svc *Service) Status(ctx context.Context) (int, error) {
 	svc.mu.Lock()
 

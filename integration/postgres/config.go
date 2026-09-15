@@ -7,9 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-/*
-Config is used to configure the PostgreSQL integration.
-*/
+// Config is used to configure the PostgreSQL integration.
 type Config struct {
 
 	// Address is the PostgreSQL address to connect to.
@@ -42,10 +40,8 @@ type Config struct {
 	OnNotification func(notif *pgconn.Notification) `json:"-"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 

@@ -10,21 +10,15 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-/*
-Ensure *graphql complies to the integration.Server type.
-*/
+// Ensure *graphql complies to the integration.Server type.
 var _ integration.Server = (*graphql)(nil)
 
-/*
-Name returns the string representation of the GraphQL integration.
-*/
+// Name returns the string representation of the GraphQL integration.
 func (g *graphql) Name() string {
 	return identifier
 }
 
-/*
-Start starts the HTTP server of the GraphQL integration.
-*/
+// Start starts the HTTP server of the GraphQL integration.
 func (g *graphql) Start(ctx context.Context) error {
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
@@ -80,9 +74,7 @@ func (g *graphql) Start(ctx context.Context) error {
 	return nil
 }
 
-/*
-Stop tries to gracefully stop the HTTP server.
-*/
+// Stop tries to gracefully stop the HTTP server.
 func (g *graphql) Stop(ctx context.Context) error {
 	if err := errorstack.Wrap(g.server.Shutdown(ctx), "Failed to gracefully stop server"); err != nil {
 		return err
@@ -91,11 +83,9 @@ func (g *graphql) Stop(ctx context.Context) error {
 	return nil
 }
 
-/*
-Status returns the health status of the GraphQL integration. When APQ cache is
-enabled, it also checks the Valkey connection status. Returns a 200 status if
-healthy, or the status returned by the Valkey integration otherwise.
-*/
+// Status returns the health status of the GraphQL integration. When APQ cache is
+// enabled, it also checks the Valkey connection status. Returns a 200 status if
+// healthy, or the status returned by the Valkey integration otherwise.
 func (g *graphql) Status(ctx context.Context) (int, error) {
 	if g.config.APQ.Enabled {
 		if dep, ok := g.config.APQ.Valkey.(integration.Dependency); ok {

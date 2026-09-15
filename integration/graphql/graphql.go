@@ -13,10 +13,8 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-/*
-graphql represents the graphql integration. It respects the integration.Server
-interface.
-*/
+// graphql represents the graphql integration. It respects the integration.Server
+// interface.
 type graphql struct {
 
 	// svc is the Service this integration belongs to.
@@ -33,10 +31,8 @@ type graphql struct {
 	server *http.Server
 }
 
-/*
-New tries to build a new GraphQL API server for Config. Returns an error if
-Config is not valid.
-*/
+// New tries to build a new GraphQL API server for Config. Returns an error if
+// Config is not valid.
 func New(svc *service.Service, cfg Config) error {
 
 	// No need to continue if Config is not valid.

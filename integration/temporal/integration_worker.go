@@ -10,30 +10,22 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
-/*
-Ensure *serverConnection complies to the integration.Server type.
-*/
+// Ensure *serverConnection complies to the integration.Server type.
 var _ integration.Server = (*serverConnection)(nil)
 
-/*
-serverConnection represents a Temporal worker connection registered as a server.
-*/
+// serverConnection represents a Temporal worker connection registered as a server.
 type serverConnection struct {
 	client client.Client
 	worker worker.Worker
 }
 
-/*
-Name returns the string representation of the Temporal integration.
-*/
+// Name returns the string representation of the Temporal integration.
 func (conn *serverConnection) Name() string {
 	return identifier
 }
 
-/*
-Start starts the Temporal worker. It respects both context cancellation and OS
-interrupt signals (SIGINT/SIGTERM) for graceful shutdown.
-*/
+// Start starts the Temporal worker. It respects both context cancellation and OS
+// interrupt signals (SIGINT/SIGTERM) for graceful shutdown.
 func (conn *serverConnection) Start(ctx context.Context) error {
 	// Merge context cancellation with OS interrupt signals so that the worker
 	// stops on whichever comes first.
@@ -51,20 +43,16 @@ func (conn *serverConnection) Start(ctx context.Context) error {
 	return errorstack.Wrap(conn.worker.Run(doneCh), "Failed to start server")
 }
 
-/*
-Stop gracefully stops the Temporal worker and closes the client's connection
-with the server.
-*/
+// Stop gracefully stops the Temporal worker and closes the client's connection
+// with the server.
 func (conn *serverConnection) Stop(ctx context.Context) error {
 	conn.worker.Stop()
 	conn.client.Close()
 	return nil
 }
 
-/*
-Status indicates if the integration is able to connect to the Temporal server or
-not. Returns `200` if connection is working, `503` otherwise.
-*/
+// Status indicates if the integration is able to connect to the Temporal server or
+// not. Returns `200` if connection is working, `503` otherwise.
 func (conn *serverConnection) Status(ctx context.Context) (int, error) {
 	return checkHealth(ctx, conn.client)
 }

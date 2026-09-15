@@ -39,7 +39,7 @@ boilerplate.
 
 ## Requirements
 
-- Go 1.25 or later
+- Go 1.27 or later
 
 ## Quick start
 
@@ -372,7 +372,7 @@ processing requests, and all telemetry is flushed before the process exits.
     }
 
     // Attach the event to the context.
-    ctx := event.ContextWithEvent(req.Context(), e)
+    ctx := event.NewContext(req.Context(), e)
 
     // The event is automatically propagated to downstream services via ctx.
     // For example, a Temporal workflow will receive it through distributed tracing.
@@ -684,6 +684,68 @@ When recognized, traces and logs are enriched with platform-specific attributes.
   - `render_service_name`
   - `render_service_type`
 </details>
+
+## Migrating to v0.29.0
+
+v0.29.0 requires **Go 1.27** and contains breaking changes.
+
+### Temporal: workflows no longer take a client or a worker
+
+Go 1.27 added generic methods, so the type parameters now live on the client and
+worker instead of being pushed onto a separate handle that had to be passed one.
+`Client` and `Worker` are concrete types rather than interfaces (Go does not allow
+interface methods to declare type parameters).
+
+Handles are still declared as package-level variables; only the call shape moved:
+
+```go
+// before                                     // after
+ProcessOrder.Execute(ctx, c, opts, input)     c.ExecuteWorkflow(ctx, ProcessOrder, opts, input)
+ProcessOrder.Register(worker, impl)           worker.RegisterWorkflow(ProcessOrder, impl)
+ChargeUser.Register(worker, impl)             worker.RegisterActivity(ChargeUser, impl)
+ProcessOrder.CreateSchedule(ctx, c, opts)     c.CreateSchedule(ctx, ProcessOrder, opts)
+ProcessOrder.GetResultIfClosed(ctx, c, w, r)  c.WorkflowResultIfClosed(ctx, ProcessOrder, w, r)
+sig.Signal(ctx, c, workflowID, runID, p)      c.SignalWorkflow(ctx, sig, workflowID, runID, p)
+```
+
+Result retrieval is now a single call that returns the typed value:
+
+```go
+// before                                     // after
+var out OrderResult                           out, err := run.Await(ctx)
+err := run.GetResult(ctx, &out)
+```
+
+`WorkflowRun.GetId`/`GetRunId`/`GetMetadata` became `ID`/`RunID`/`Metadata`, and
+`NewRepeatableActivity` now returns the exported `RepeatableActivity` type.
+
+### Renames
+
+| Before | After |
+| --- | --- |
+| `log.LogLevel`, `log.LogLevelDebug`, … | `log.Level`, `log.LevelDebug`, … |
+| `event.EventFromContext` | `event.FromContext` |
+| `event.ContextWithEvent` | `event.NewContext` |
+| `event.EventFromJSON` | `event.FromJSON` |
+| `valkey.StreamEntry.Id` | `valkey.StreamEntry.ID` |
+| `mcp.OAuthResourceServer.ResourceId` | `mcp.OAuthResourceServer.ResourceID` |
+| `service.Context(svc, ctx)` | `service.Context(ctx, svc)` |
+
+`event.FromJSON` now takes `[]byte` instead of `json.RawMessage`; existing callers
+passing a `RawMessage` keep compiling, since its underlying type is `[]byte`.
+
+### JSON is now handled by `encoding/json/v2`
+
+The wire format is unchanged — every numeric and boolean field tagged `omitempty`
+was moved to `omitzero`, which reproduces v1's behaviour exactly. Two v2 behaviours
+are stricter and *are* visible to consumers:
+
+- **Duplicate object keys are rejected.** v1 silently kept the last one.
+- **Invalid UTF-8 is rejected**, on both marshal and unmarshal. v1 substituted
+  U+FFFD.
+
+If you feed helix untrusted or non-conforming JSON, these now surface as errors
+rather than being silently repaired.
 
 ## Versioning
 

@@ -119,7 +119,7 @@ func TestSpan_NilInternalSpan(t *testing.T) {
 
 func TestSpan_RecordError_NilError(t *testing.T) {
 	tr := internaltrace.NewNopTracer()
-	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	ctx := internaltrace.NewContext(t.Context(), tr)
 	_, s := Start(ctx, SpanKindInternal, "test")
 
 	assert.NotPanics(t, func() {
@@ -131,7 +131,7 @@ func TestSpan_RecordError_NilError(t *testing.T) {
 
 func TestSpan_End_CalledTwice(t *testing.T) {
 	tr := internaltrace.NewNopTracer()
-	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	ctx := internaltrace.NewContext(t.Context(), tr)
 	_, s := Start(ctx, SpanKindInternal, "test")
 
 	assert.NotPanics(t, func() {
@@ -142,7 +142,7 @@ func TestSpan_End_CalledTwice(t *testing.T) {
 
 func TestSpan_FullLifecycle_WithError(t *testing.T) {
 	tr := internaltrace.NewNopTracer()
-	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	ctx := internaltrace.NewContext(t.Context(), tr)
 	_, s := Start(ctx, SpanKindInternal, "test")
 
 	assert.NotPanics(t, func() {

@@ -12,11 +12,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-/*
-checkHealth performs a health check against the Temporal server using the given
-client. Returns 200 on success, 503 with an errorstack on failure. The caller
-is responsible for providing a context with an appropriate deadline.
-*/
+// checkHealth performs a health check against the Temporal server using the given
+// client. Returns 200 on success, 503 with an errorstack on failure. The caller
+// is responsible for providing a context with an appropriate deadline.
 func checkHealth(ctx context.Context, c client.Client) (int, error) {
 	_, err := c.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {
@@ -28,9 +26,7 @@ func checkHealth(ctx context.Context, c client.Client) (int, error) {
 	return 200, nil
 }
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 var (
 	attrKeyWorkerTaskQueue   = attribute.Key(identifier + ".worker.task_queue")
 	attrKeyWorkflowNamespace = attribute.Key(identifier + ".workflow.namespace")
@@ -42,11 +38,9 @@ var (
 	attrKeyNamespace         = attribute.Key(identifier + ".namespace")
 )
 
-/*
-setWorkflowAttributes sets workflow attributes to a trace span. It uses the trace
-type from the OpenTelemetry package since this happens in the interceptor and
-we only have access via type assertion.
-*/
+// setWorkflowAttributes sets workflow attributes to a trace span. It uses the trace
+// type from the OpenTelemetry package since this happens in the interceptor and
+// we only have access via type assertion.
 func setWorkflowAttributes(span oteltrace.Span, info *workflow.Info) {
 	if info != nil {
 		span.SetAttributes(
@@ -58,11 +52,9 @@ func setWorkflowAttributes(span oteltrace.Span, info *workflow.Info) {
 	}
 }
 
-/*
-setActivityAttributes sets activity attributes to a trace span. It uses the trace
-type from the OpenTelemetry package since this happens in the interceptor and
-we only have access via type assertion.
-*/
+// setActivityAttributes sets activity attributes to a trace span. It uses the trace
+// type from the OpenTelemetry package since this happens in the interceptor and
+// we only have access via type assertion.
 func setActivityAttributes(span oteltrace.Span, info activity.Info) {
 	span.SetAttributes(
 		attrKeyWorkerTaskQueue.String(info.TaskQueue),

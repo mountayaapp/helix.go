@@ -122,8 +122,8 @@ func TestNewTracer_ExporterNone_SpansAreNoop(t *testing.T) {
 	tr, err := NewTracer(newTestResource(t))
 	require.NoError(t, err)
 
-	ctx := ContextWithTracer(t.Context(), tr)
-	ctx, span := TracerFromContext(ctx).Start(ctx, SpanKindServer, "test-op")
+	ctx := NewContext(t.Context(), tr)
+	ctx, span := FromContext(ctx).Start(ctx, SpanKindServer, "test-op")
 	assert.NotNil(t, ctx)
 	assert.NotNil(t, span)
 

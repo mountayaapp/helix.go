@@ -6,9 +6,7 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 )
 
-/*
-Config is used to configure the Bucket integration.
-*/
+// Config is used to configure the Bucket integration.
 type Config struct {
 
 	// Driver sets the driver to use.
@@ -43,10 +41,8 @@ type Config struct {
 	Subfolder string `json:"subfolder,omitempty"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 

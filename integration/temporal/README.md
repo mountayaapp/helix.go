@@ -119,7 +119,7 @@ if err != nil {
   panic(err)
 }
 
-run, err := ProcessOrder.Execute(ctx, c, client.StartWorkflowOptions{
+run, err := c.ExecuteWorkflow(ctx, ProcessOrder, client.StartWorkflowOptions{
   TaskQueue: "orders",
 }, OrderInput{
   UserID:  "usr_123",
@@ -129,9 +129,26 @@ if err != nil {
   // ...
 }
 
-result, err := ProcessOrder.GetResult(ctx, run)
+result, err := run.Await(ctx)
 if err != nil {
   // ...
+}
+```
+
+`OrderInput` and `OrderResult` are inferred from the `ProcessOrder` handle, so
+passing the wrong input type or reading the wrong result type is a build error.
+
+To read a result without blocking on a run that may still be in progress, use
+`WorkflowResultIfClosed`. It reports whether the run had closed rather than
+parking a goroutine on it:
+
+```go
+result, closed, err := c.WorkflowResultIfClosed(ctx, ProcessOrder, workflowID, runID)
+if err != nil {
+  // ...
+}
+if !closed {
+  // still running — try again later.
 }
 ```
 
@@ -145,7 +162,7 @@ opts := temporal.ScheduleOptions{
   },
 }
 
-err = ProcessOrder.CreateSchedule(ctx, c, opts)
+err = c.CreateSchedule(ctx, ProcessOrder, opts)
 if err != nil {
   // ...
 }
@@ -168,7 +185,8 @@ if err != nil {
   panic(err)
 }
 
-client, worker, err := temporal.New(svc, temporal.ConfigWorker{
+// A worker service does not need the client, so discard it with _.
+_, worker, err := temporal.New(svc, temporal.ConfigWorker{
   Client: temporal.ConfigClient{
     Address:   "localhost:7233",
     Namespace: "default",
@@ -179,12 +197,11 @@ if err != nil {
   panic(err)
 }
 
-ProcessOrder.Register(worker, func(ctx workflow.Context, input OrderInput) (OrderResult, error) {
-  var chargeResult ChargeResult
-  err := ChargeUser.Execute(ctx, ChargeInput{
+worker.RegisterWorkflow(ProcessOrder, func(ctx workflow.Context, input OrderInput) (OrderResult, error) {
+  chargeResult, err := ChargeUser.Execute(ctx, ChargeInput{
     UserID: input.UserID,
     Amount: 99.99,
-  }).GetResult(ctx, &chargeResult)
+  }).Await(ctx)
   if err != nil {
     return OrderResult{}, err
   }
@@ -195,14 +212,15 @@ ProcessOrder.Register(worker, func(ctx workflow.Context, input OrderInput) (Orde
   }, nil
 })
 
-ChargeUser.Register(worker, func(ctx context.Context, input ChargeInput) (ChargeResult, error) {
+worker.RegisterActivity(ChargeUser, func(ctx context.Context, input ChargeInput) (ChargeResult, error) {
   return ChargeResult{
     TransactionID: "txn_456",
   }, nil
 })
-
-_ = client
 ```
+
+The implementation signature is checked against the handle's declared types at
+compile time, so a mismatched `func` will not build.
 
 ### Repeatable activities
 
@@ -229,22 +247,63 @@ var DownloadImage = temporal.NewRepeatableActivity[
   StartToCloseTimeout: 2 * time.Minute,
 })
 
+// Register it on the worker:
+worker.RegisterRepeatableActivity(DownloadImage, func(ctx context.Context, input DownloadInput, config DownloadConfig) (DownloadResult, error) {
+  return DownloadResult{FilePath: "/tmp/img.jpg"}, nil
+})
+
 // In a workflow, execute once per image:
 for _, img := range images {
-  var result DownloadResult
-  err := DownloadImage.Execute(ctx, DownloadInput{BatchID: "batch_1"}, DownloadConfig{
+  result, err := DownloadImage.Execute(ctx, DownloadInput{BatchID: "batch_1"}, DownloadConfig{
     URL:      img.URL,
     MaxWidth: 1024,
-  }).GetResult(ctx, &result)
+  }).Await(ctx)
   if err != nil {
     // ...
   }
 }
 ```
 
+### Signals
+
+Signals are declared as handles too, with a `Payload` type parameter that is
+enforced on both the sending and receiving side:
+
+```go
+type CancelPayload struct {
+  Reason string
+}
+
+var CancelOrder = temporal.NewSignal[CancelPayload]("cancel-order")
+```
+
+Send from the client side. An empty run Id targets the latest run:
+
+```go
+err := c.SignalWorkflow(ctx, CancelOrder, workflowID, "", CancelPayload{
+  Reason: "out of stock",
+})
+```
+
+Receive from inside a workflow, typically via a `workflow.Selector`:
+
+```go
+worker.RegisterWorkflow(ProcessOrder, func(ctx workflow.Context, input OrderInput) (OrderResult, error) {
+  var payload CancelPayload
+
+  selector := workflow.NewSelector(ctx)
+  selector.AddReceive(CancelOrder.Channel(ctx), func(ch workflow.ReceiveChannel, _ bool) {
+    ch.Receive(ctx, &payload)
+  })
+  selector.Select(ctx)
+
+  // ...
+})
+```
+
 ### Event propagation
 
-Events propagated via `event.ContextWithEvent` are automatically carried across
+Events propagated via `event.NewContext` are automatically carried across
 workflow and activity boundaries through distributed tracing context.
 
 ```go
@@ -254,8 +313,8 @@ import (
 )
 
 // In a REST handler — attach an event before executing a workflow.
-ctx = event.ContextWithEvent(ctx, event.Event{UserID: "usr_123"})
-run, err := ProcessOrder.Execute(ctx, client, opts, input)
+ctx = event.NewContext(ctx, event.Event{UserID: "usr_123"})
+run, err := c.ExecuteWorkflow(ctx, ProcessOrder, opts, input)
 
 // In a workflow — retrieve the event.
 e, ok := temporal.EventFromWorkflow(ctx)

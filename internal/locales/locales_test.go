@@ -10,11 +10,9 @@ import (
 	"golang.org/x/text/language"
 )
 
-/*
-withFrenchTearDown registers French via AddOrEditLanguage and returns a
-cleanup function that removes it. Tests use this to keep the package-level
-catalog pristine across runs.
-*/
+// withFrenchTearDown registers French via AddOrEditLanguage and returns a
+// cleanup function that removes it. Tests use this to keep the package-level
+// catalog pristine across runs.
 func withFrenchTearDown(t *testing.T) func() {
 	t.Helper()
 	originalLen := len(languages)
@@ -194,11 +192,9 @@ func TestGetPreferredLanguage_CookiePriority(t *testing.T) {
 	assert.Equal(t, language.French, GetPreferredLanguage(req))
 }
 
-/*
-TestLocales_MatchCanonicalCatalog pins every English message to its expected
-value, ensuring the wire shape stays consistent with the OpenAPI examples in
-documents/openapi/components/schemas/rest/{status}.yaml.
-*/
+// TestLocales_MatchCanonicalCatalog pins every English message to its expected
+// value, ensuring the wire shape stays consistent with the OpenAPI examples in
+// documents/openapi/components/schemas/rest/{status}.yaml.
 func TestLocales_MatchCanonicalCatalog(t *testing.T) {
 	canonical := map[int]string{
 		http.StatusBadRequest:            "Request is invalid",

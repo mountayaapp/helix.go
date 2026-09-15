@@ -4,10 +4,8 @@ import (
 	"context"
 )
 
-/*
-Dependency defines the lifecycle of a dependency integration (databases, caches,
-blob storage). Multiple dependencies can be attached to a single Service.
-*/
+// Dependency defines the lifecycle of a dependency integration (databases, caches,
+// blob storage). Multiple dependencies can be attached to a single Service.
 type Dependency interface {
 
 	// Name returns a human-readable name for logging and error context.

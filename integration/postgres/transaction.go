@@ -9,9 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanTxBegin    = humanized + ": Transaction / Begin"
 	spanTxCommit   = humanized + ": Transaction / Commit"
@@ -22,33 +20,27 @@ const (
 	spanTxQueryRow = humanized + ": Transaction / QueryRow"
 )
 
-/*
-transaction implements the Tx interface and allows to wrap the PostgreSQL transaction
-functions for automatic tracing and error recording.
-*/
+// transaction implements the Tx interface and allows to wrap the PostgreSQL transaction
+// functions for automatic tracing and error recording.
 type transaction struct {
 	config *Config
 	client pgx.Tx
 }
 
-/*
-Tx represents a database transaction.
-*/
+// Tx represents a database transaction.
 type Tx interface {
 	Begin(ctx context.Context) (Tx, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
-	Exec(ctx context.Context, query string, args ...any) (commandTag pgconn.CommandTag, err error)
+	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
 	Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error)
 	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
 }
 
-/*
-Begin starts a pseudo nested transaction implemented with a savepoint.
-
-It automatically handles tracing and error recording.
-*/
+// Begin starts a pseudo nested transaction implemented with a savepoint.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Begin(ctx context.Context) (Tx, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxBegin)
 	defer span.End()
@@ -68,11 +60,9 @@ func (tx *transaction) Begin(ctx context.Context) (Tx, error) {
 	return sub, err
 }
 
-/*
-Commit commits the transaction.
-
-It automatically handles tracing and error recording.
-*/
+// Commit commits the transaction.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Commit(ctx context.Context) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxCommit)
 	defer span.End()
@@ -87,14 +77,12 @@ func (tx *transaction) Commit(ctx context.Context) error {
 	return err
 }
 
-/*
-Rollback rolls back the transaction. Rollback will return pgx.ErrTxClosed if the
-Tx is already closed, but is otherwise safe to call multiple times. Hence, a
-defer tx.Rollback() is safe even if tx.Commit() will be called first in a non-error
-condition.
-
-It automatically handles tracing and error recording.
-*/
+// Rollback rolls back the transaction. Rollback will return pgx.ErrTxClosed if the
+// Tx is already closed, but is otherwise safe to call multiple times. Hence, a
+// defer tx.Rollback() is safe even if tx.Commit() will be called first in a non-error
+// condition.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Rollback(ctx context.Context) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxRollback)
 	defer span.End()
@@ -109,11 +97,9 @@ func (tx *transaction) Rollback(ctx context.Context) error {
 	return err
 }
 
-/*
-Exec delegates to the underlying connection.
-
-It automatically handles tracing and error recording.
-*/
+// Exec delegates to the underlying connection.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxExec)
 	defer span.End()
@@ -129,11 +115,9 @@ func (tx *transaction) Exec(ctx context.Context, query string, args ...any) (pgc
 	return stmt, err
 }
 
-/*
-Prepare delegates to the underlying connection.
-
-It automatically handles tracing and error recording.
-*/
+// Prepare delegates to the underlying connection.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxPrepare)
 	defer span.End()
@@ -149,11 +133,9 @@ func (tx *transaction) Prepare(ctx context.Context, id string, query string) (*p
 	return stmt, err
 }
 
-/*
-Query delegates to the underlying connection.
-
-It automatically handles tracing and error recording.
-*/
+// Query delegates to the underlying connection.
+//
+// It automatically handles tracing and error recording.
 func (tx *transaction) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQuery)
 	defer span.End()
@@ -169,11 +151,9 @@ func (tx *transaction) Query(ctx context.Context, query string, args ...any) (pg
 	return rows, err
 }
 
-/*
-QueryRow delegates to the underlying connection.
-
-It automatically handles tracing.
-*/
+// QueryRow delegates to the underlying connection.
+//
+// It automatically handles tracing.
 func (tx *transaction) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQueryRow)
 	defer span.End()

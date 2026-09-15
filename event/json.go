@@ -1,30 +1,30 @@
 package event
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 )
 
-/*
-Key is the key that shall be present in a JSON-encoded value representing an Event.
-
-Example:
-
-	{
-	  "key": "value",
-	  "event": {
-	    "name": "subscribed"
-	  }
-	}
-*/
+// Key is the key that shall be present in a JSON-encoded value representing an Event.
+//
+// Example:
+//
+//	{
+//	  "key": "value",
+//	  "event": {
+//	    "name": "subscribed"
+//	  }
+//	}
 const Key string = "event"
 
-/*
-EventFromJSON returns the Event found at the "event" key in the JSON-encoded data
-passed, if any. Returns true if an Event has been found, false otherwise.
-*/
-func EventFromJSON(input json.RawMessage) (Event, bool) {
+// FromJSON returns the Event found at the "event" key in the JSON-encoded data
+// passed, if any. Returns true if an Event has been found, false otherwise.
+//
+// input is plain JSON-encoded bytes, so any named []byte type (such as the v1
+// encoding/json.RawMessage) may be passed directly.
+func FromJSON(input []byte) (Event, bool) {
 	var wrapper struct {
-		Event json.RawMessage `json:"event"`
+		Event jsontext.Value `json:"event"`
 	}
 
 	if err := json.Unmarshal(input, &wrapper); err != nil {

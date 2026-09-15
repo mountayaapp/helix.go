@@ -58,7 +58,7 @@ func TestPropagator_Inject_WritesEventToHeader(t *testing.T) {
 		UserID: "user_123",
 	}
 
-	ctx := event.ContextWithEvent(t.Context(), e)
+	ctx := event.NewContext(t.Context(), e)
 	_, span := newNoopSpan(ctx)
 	ctx = context.WithValue(ctx, spanCtxKey, span)
 
@@ -93,7 +93,7 @@ func TestPropagator_Inject_EventDeserializesCorrectly(t *testing.T) {
 		},
 	}
 
-	ctx := event.ContextWithEvent(t.Context(), input)
+	ctx := event.NewContext(t.Context(), input)
 	_, span := newNoopSpan(ctx)
 	ctx = context.WithValue(ctx, spanCtxKey, span)
 
@@ -127,7 +127,7 @@ func TestPropagator_InjectDeserialize_RoundTrip(t *testing.T) {
 		},
 	}
 
-	ctx := event.ContextWithEvent(t.Context(), input)
+	ctx := event.NewContext(t.Context(), input)
 	_, span := newNoopSpan(ctx)
 	ctx = context.WithValue(ctx, spanCtxKey, span)
 
@@ -180,7 +180,7 @@ func TestPropagator_InjectDeserialize_FullEvent(t *testing.T) {
 		},
 	}
 
-	ctx := event.ContextWithEvent(t.Context(), input)
+	ctx := event.NewContext(t.Context(), input)
 	_, span := newNoopSpan(ctx)
 	ctx = context.WithValue(ctx, spanCtxKey, span)
 
@@ -247,7 +247,7 @@ func TestPropagator_Inject_UsesDefaultConverter(t *testing.T) {
 		Name: "converter_cached",
 	}
 
-	ctx := event.ContextWithEvent(t.Context(), input)
+	ctx := event.NewContext(t.Context(), input)
 
 	headers := newTestHeaderStore()
 	p := &custompropagator{cachedCtx: context.Background()}
@@ -271,7 +271,7 @@ func TestPropagator_Inject_NoSpanInContext(t *testing.T) {
 	}
 
 	// Context has event but no span — should still inject successfully.
-	ctx := event.ContextWithEvent(t.Context(), input)
+	ctx := event.NewContext(t.Context(), input)
 
 	headers := newTestHeaderStore()
 	p := &custompropagator{cachedCtx: context.Background()}

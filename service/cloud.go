@@ -11,10 +11,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-cloud wraps an internal CloudProvider implementation, keeping cloud detection
-as an internal detail of the service package.
-*/
+// cloud wraps an internal CloudProvider implementation, keeping cloud detection
+// as an internal detail of the service package.
 type cloud struct {
 	inner cloudprovider.CloudProvider
 }
@@ -27,10 +25,8 @@ func (c *cloud) attributes() []attribute.KeyValue {
 	return c.inner.Attributes()
 }
 
-/*
-detectCloudProvider runs through known cloud providers and returns the first one
-detected. Falls back to "unknown" if none match.
-*/
+// detectCloudProvider runs through known cloud providers and returns the first one
+// detected. Falls back to "unknown" if none match.
 func detectCloudProvider() *cloud {
 	providers := []cloudprovider.CloudProvider{
 

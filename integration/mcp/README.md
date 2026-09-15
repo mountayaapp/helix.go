@@ -95,7 +95,7 @@ resulting claims, which are exposed to tool handlers via
 
 - `Enabled` (`bool`) — Enable OAuth 2.0 Resource Server protection. Default:
   `false` (open, no authentication).
-- `ResourceId` (`string`) — This resource server's identifier, advertised in the
+- `ResourceID` (`string`) — This resource server's identifier, advertised in the
   Protected Resource Metadata. Typically the canonical URL of the MCP server.
   **Required** when enabled.
 - `AuthorizationServers` (`[]string`) — Authorization server issuer URLs that
@@ -201,7 +201,7 @@ mcp.New(svc, mcp.Config{
   Register:   register,
   OAuth: mcp.OAuthResourceServer{
     Enabled:              true,
-    ResourceId:           "https://api.example.com",
+    ResourceID:           "https://api.example.com",
     AuthorizationServers: []string{"https://auth.example.com"},
     ValidateToken: func(ctx context.Context, token string) (any, time.Time, error) {
       // Verify the token; return its claims, its expiration (non-zero, future),
@@ -225,7 +225,7 @@ connectors can always discover it.
 oauth := mcp.OAuthResourceServer{
   Enabled:              true,
   Compose:              true,
-  ResourceId:           "https://api.example.com",
+  ResourceID:           "https://api.example.com",
   AuthorizationServers: []string{"https://auth.example.com"},
   ValidateToken:        verify,
 }

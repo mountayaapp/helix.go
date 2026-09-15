@@ -10,21 +10,15 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-/*
-Ensure *mcp complies to the integration.Server type.
-*/
+// Ensure *mcp complies to the integration.Server type.
 var _ integration.Server = (*mcp)(nil)
 
-/*
-Name returns the string representation of the MCP server integration.
-*/
+// Name returns the string representation of the MCP server integration.
 func (m *mcp) Name() string {
 	return identifier
 }
 
-/*
-Start starts the HTTP server of the MCP server integration.
-*/
+// Start starts the HTTP server of the MCP server integration.
 func (m *mcp) Start(ctx context.Context) error {
 
 	// Wrap the built-in HTTP handler with the one given by the user, if applicable.
@@ -89,9 +83,7 @@ func (m *mcp) Start(ctx context.Context) error {
 	return nil
 }
 
-/*
-Stop tries to gracefully stop the HTTP server.
-*/
+// Stop tries to gracefully stop the HTTP server.
 func (m *mcp) Stop(ctx context.Context) error {
 	if err := errorstack.Wrap(m.server.Shutdown(ctx), "Failed to gracefully stop server"); err != nil {
 		return err
@@ -100,9 +92,7 @@ func (m *mcp) Stop(ctx context.Context) error {
 	return nil
 }
 
-/*
-Status always returns a `200` status.
-*/
+// Status always returns a `200` status.
 func (m *mcp) Status(ctx context.Context) (int, error) {
 	return 200, nil
 }

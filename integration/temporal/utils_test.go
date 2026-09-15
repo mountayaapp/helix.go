@@ -42,11 +42,11 @@ func TestSetActivityAttributes(t *testing.T) {
 	_, span := tracer.Start(t.Context(), "test")
 
 	info := activity.Info{
-		TaskQueue:         "my-queue",
-		WorkflowNamespace: "production",
-		WorkflowType:      &workflow.Type{Name: "ProcessOrder"},
-		ActivityType:      activity.Type{Name: "DownloadImage"},
-		Attempt:           2,
+		TaskQueue:    "my-queue",
+		Namespace:    "production",
+		WorkflowType: &workflow.Type{Name: "ProcessOrder"},
+		ActivityType: activity.Type{Name: "DownloadImage"},
+		Attempt:      2,
 	}
 
 	// Should not panic with noop span.

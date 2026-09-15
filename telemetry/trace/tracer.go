@@ -9,17 +9,15 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-/*
-Start creates a Span and a context containing the newly-created Span.
-
-If the context contains a Span then the newly-created Span will be a child of
-that Span, otherwise it will be a root Span.
-
-Any Span that is created must also be ended. This is the responsibility of the
-caller. If no Tracer is found in the context, returns a no-op Span.
-*/
+// Start creates a Span and a context containing the newly-created Span.
+//
+// If the context contains a Span then the newly-created Span will be a child of
+// that Span, otherwise it will be a root Span.
+//
+// Any Span that is created must also be ended. This is the responsibility of the
+// caller. If no Tracer is found in the context, returns a no-op Span.
 func Start(ctx context.Context, kind SpanKind, name string) (context.Context, *Span) {
-	t := trace.TracerFromContext(ctx)
+	t := trace.FromContext(ctx)
 	if t != nil {
 		ctx, span := t.Start(ctx, kind, name)
 		return ctx, NewSpan(span)

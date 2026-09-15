@@ -1,6 +1,8 @@
 package temporal
 
 import (
+	"context"
+
 	"github.com/mountayaapp/helix.go/service"
 
 	"go.temporal.io/sdk/activity"
@@ -9,29 +11,21 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-/*
-iworker is the internal worker used as Temporal worker. It implements the Worker
-interface and allows to wrap the Temporal's worker functions for following best
-practices.
-*/
-type iworker struct {
+// Worker exposes an opinionated way to interact with Temporal's worker capabilities.
+// It wraps the Temporal worker for following best practices.
+//
+// Worker is a concrete type, not an interface, because its methods are generic and
+// Go does not permit interface methods to declare type parameters. Its Register
+// methods take a Workflow or Activity handle and check the implementation's
+// signature against the handle's declared types at compile time.
+type Worker struct {
 	worker worker.Worker
 }
 
-/*
-Worker exposes an opinionated way to interact with Temporal's worker capabilities.
-*/
-type Worker interface {
-	registerWorkflow(w any, opts workflow.RegisterOptions)
-	registerActivity(a any, opts activity.RegisterOptions)
-}
-
-/*
-New creates a Temporal worker along with a client and registers the worker as a
-server via service.Serve. Use this for worker services that process workflows and
-activities.
-*/
-func New(svc *service.Service, cfg ConfigWorker) (Client, Worker, error) {
+// New creates a Temporal worker along with a client and registers the worker as a
+// server via service.Serve. Use this for worker services that process workflows and
+// activities.
+func New(svc *service.Service, cfg ConfigWorker) (*Client, *Worker, error) {
 
 	// No need to continue if ConfigWorker is not valid.
 	err := cfg.sanitize()
@@ -65,28 +59,41 @@ func New(svc *service.Service, cfg ConfigWorker) (Client, Worker, error) {
 		return nil, nil, err
 	}
 
-	ic := &iclient{
-		config: &cfg.Client,
-		client: c,
-	}
-
-	iw := &iworker{
-		worker: w,
-	}
-
-	return ic, iw, nil
+	return &Client{client: c}, &Worker{worker: w}, nil
 }
 
-/*
-registerWorkflow registers a workflow function with the worker.
-*/
-func (iw *iworker) registerWorkflow(w any, opts workflow.RegisterOptions) {
-	iw.worker.RegisterWorkflowWithOptions(w, opts)
+// RegisterWorkflow links a workflow implementation to its name on the worker. Input
+// and Result are inferred from wf, so impl's signature is checked against the
+// workflow's declared types at compile time.
+func (w *Worker) RegisterWorkflow[Input, Result any](
+	wf Workflow[Input, Result],
+	impl func(ctx workflow.Context, input Input) (Result, error),
+) {
+	w.worker.RegisterWorkflowWithOptions(impl, workflow.RegisterOptions{
+		Name: wf.name,
+	})
 }
 
-/*
-registerActivity registers an activity function with the worker.
-*/
-func (iw *iworker) registerActivity(a any, opts activity.RegisterOptions) {
-	iw.worker.RegisterActivityWithOptions(a, opts)
+// RegisterActivity links an activity implementation to its name on the worker. Input
+// and Result are inferred from a, so impl's signature is checked against the
+// activity's declared types at compile time.
+func (w *Worker) RegisterActivity[Input, Result any](
+	a Activity[Input, Result],
+	impl func(ctx context.Context, input Input) (Result, error),
+) {
+	w.worker.RegisterActivityWithOptions(impl, activity.RegisterOptions{
+		Name: a.name,
+	})
+}
+
+// RegisterRepeatableActivity links a repeatable activity implementation to its name
+// on the worker. Input, Config and Result are inferred from a, so impl's signature is
+// checked against the activity's declared types at compile time.
+func (w *Worker) RegisterRepeatableActivity[Input, Config, Result any](
+	a RepeatableActivity[Input, Config, Result],
+	impl func(ctx context.Context, input Input, config Config) (Result, error),
+) {
+	w.worker.RegisterActivityWithOptions(impl, activity.RegisterOptions{
+		Name: a.name,
+	})
 }

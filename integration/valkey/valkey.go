@@ -14,9 +14,7 @@ import (
 	"github.com/valkey-io/valkey-go"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanExists    = humanized + ": Exists"
 	spanGet       = humanized + ": Get"
@@ -34,35 +32,27 @@ const (
 	spanSetNX     = humanized + ": SetNX"
 )
 
-/*
-Entry represents a key/value pair in Valkey.
-*/
+// Entry represents a key/value pair in Valkey.
 type Entry struct {
 	Key   string `json:"key"`
 	Value []byte `json:"value"`
 }
 
-/*
-PubSubMessage is a single message received on a subscribed channel.
-*/
+// PubSubMessage is a single message received on a subscribed channel.
 type PubSubMessage struct {
 	Channel string `json:"channel"`
 	Payload []byte `json:"payload"`
 }
 
-/*
-StreamEntry is a single entry read from a stream, identified by its server-assigned
-id and carrying the field/value pairs of the entry.
-*/
+// StreamEntry is a single entry read from a stream, identified by its server-assigned
+// id and carrying the field/value pairs of the entry.
 type StreamEntry struct {
-	Id     string            `json:"id"`
+	ID     string            `json:"id"`
 	Fields map[string]string `json:"fields"`
 }
 
-/*
-Valkey exposes an opinionated way to interact with Valkey, by bringing automatic
-distributed tracing as well as error recording within traces.
-*/
+// Valkey exposes an opinionated way to interact with Valkey, by bringing automatic
+// distributed tracing as well as error recording within traces.
 type Valkey interface {
 	Exists(ctx context.Context, key string) (bool, error)
 	Get(ctx context.Context, key string, opts *OptionsGet) ([]byte, error)
@@ -80,10 +70,8 @@ type Valkey interface {
 	XRange(ctx context.Context, stream, start, end string) ([]StreamEntry, error)
 }
 
-/*
-connection represents the valkey integration. It respects the integration.Dependency
-and Valkey interfaces.
-*/
+// connection represents the valkey integration. It respects the integration.Dependency
+// and Valkey interfaces.
 type connection struct {
 
 	// config holds the Config initially passed when creating a new Valkey client.
@@ -93,10 +81,8 @@ type connection struct {
 	client valkey.Client
 }
 
-/*
-Connect tries to create a Valkey client given the Config. Returns an error if
-Config is not valid or if the initialization failed.
-*/
+// Connect tries to create a Valkey client given the Config. Returns an error if
+// Config is not valid or if the initialization failed.
 func Connect(svc *service.Service, cfg Config) (Valkey, error) {
 
 	// No need to continue if Config is not valid.
@@ -147,11 +133,9 @@ func Connect(svc *service.Service, cfg Config) (Valkey, error) {
 	return conn, nil
 }
 
-/*
-Exists checks if a key exists in Valkey.
-
-It automatically handles tracing and error recording.
-*/
+// Exists checks if a key exists in Valkey.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Exists(ctx context.Context, key string) (bool, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExists)
 	defer span.End()
@@ -167,11 +151,9 @@ func (conn *connection) Exists(ctx context.Context, key string) (bool, error) {
 	return count > 0, err
 }
 
-/*
-Get reads the value at key and returns its byte representation.
-
-It automatically handles tracing and error recording.
-*/
+// Get reads the value at key and returns its byte representation.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Get(ctx context.Context, key string, opts *OptionsGet) ([]byte, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanGet)
 	defer span.End()
@@ -190,11 +172,9 @@ func (conn *connection) Get(ctx context.Context, key string, opts *OptionsGet) (
 	return value, err
 }
 
-/*
-Set writes bytes representation of the value, with some optional options.
-
-It automatically handles tracing and error recording.
-*/
+// Set writes bytes representation of the value, with some optional options.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Set(ctx context.Context, key string, value []byte, opts *OptionsSet) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSet)
 	defer span.End()
@@ -214,11 +194,9 @@ func (conn *connection) Set(ctx context.Context, key string, value []byte, opts 
 	return err
 }
 
-/*
-Increment increments the value of a key.
-
-It automatically handles tracing and error recording.
-*/
+// Increment increments the value of a key.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Increment(ctx context.Context, key string, increment int64) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanIncrement)
 	defer span.End()
@@ -234,11 +212,9 @@ func (conn *connection) Increment(ctx context.Context, key string, increment int
 	return err
 }
 
-/*
-Decrement decrements the value of a key.
-
-It automatically handles tracing and error recording.
-*/
+// Decrement decrements the value of a key.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Decrement(ctx context.Context, key string, decrement int64) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanDecrement)
 	defer span.End()
@@ -254,14 +230,12 @@ func (conn *connection) Decrement(ctx context.Context, key string, decrement int
 	return err
 }
 
-/*
-Expire sets or refreshes the time-to-live of a key. Subsequent calls on the
-same key reset the TTL relative to the new call time; this is the natural fit
-for fixed-window rate limiters where the key is always re-created at the start
-of a new window.
-
-It automatically handles tracing and error recording.
-*/
+// Expire sets or refreshes the time-to-live of a key. Subsequent calls on the
+// same key reset the TTL relative to the new call time; this is the natural fit
+// for fixed-window rate limiters where the key is always re-created at the start
+// of a new window.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanExpire)
 	defer span.End()
@@ -282,11 +256,9 @@ func (conn *connection) Expire(ctx context.Context, key string, ttl time.Duratio
 	return err
 }
 
-/*
-Scan looks for and returns all keys matching a pattern.
-
-It automatically handles tracing and error recording.
-*/
+// Scan looks for and returns all keys matching a pattern.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Scan(ctx context.Context, pattern string) ([]string, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanScan)
 	defer span.End()
@@ -314,11 +286,9 @@ func (conn *connection) Scan(ctx context.Context, pattern string) ([]string, err
 	return keys, scanErr
 }
 
-/*
-MGet returns key/value pairs for all keys passed.
-
-It automatically handles tracing and error recording.
-*/
+// MGet returns key/value pairs for all keys passed.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) MGet(ctx context.Context, keys []string) ([]Entry, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanMGet)
 	defer span.End()
@@ -354,11 +324,9 @@ func (conn *connection) MGet(ctx context.Context, keys []string) ([]Entry, error
 	return result, nil
 }
 
-/*
-Delete deletes a set of keys.
-
-It automatically handles tracing and error recording.
-*/
+// Delete deletes a set of keys.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Delete(ctx context.Context, keys []string) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanDelete)
 	defer span.End()
@@ -376,13 +344,11 @@ func (conn *connection) Delete(ctx context.Context, keys []string) error {
 	return err
 }
 
-/*
-SetNX sets key to value only if it does not already exist, with an optional TTL.
-Returns true when the value was set (the caller won the race) and false when the
-key already existed. A pre-existing key is not treated as an error.
-
-It automatically handles tracing and error recording.
-*/
+// SetNX sets key to value only if it does not already exist, with an optional TTL.
+// Returns true when the value was set (the caller won the race) and false when the
+// key already existed. A pre-existing key is not treated as an error.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) SetNX(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSetNX)
 	defer span.End()
@@ -407,11 +373,9 @@ func (conn *connection) SetNX(ctx context.Context, key string, value []byte, ttl
 	return true, nil
 }
 
-/*
-Publish publishes a message to a channel for live fan-out to current subscribers.
-
-It automatically handles tracing and error recording.
-*/
+// Publish publishes a message to a channel for live fan-out to current subscribers.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Publish(ctx context.Context, channel string, message []byte) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanPublish)
 	defer span.End()
@@ -425,14 +389,12 @@ func (conn *connection) Publish(ctx context.Context, channel string, message []b
 	return err
 }
 
-/*
-Subscribe subscribes to a channel and invokes handler for every message until ctx
-is cancelled. It blocks for the lifetime of the subscription on a dedicated
-connection, so callers run it in a goroutine and cancel ctx to tear it down. A
-cancellation is normal teardown and is not recorded as an error.
-
-It automatically handles tracing and error recording.
-*/
+// Subscribe subscribes to a channel and invokes handler for every message until ctx
+// is cancelled. It blocks for the lifetime of the subscription on a dedicated
+// connection, so callers run it in a goroutine and cancel ctx to tear it down. A
+// cancellation is normal teardown and is not recorded as an error.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) Subscribe(ctx context.Context, channel string, handler func(PubSubMessage)) error {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanSubscribe)
 	defer span.End()
@@ -452,13 +414,11 @@ func (conn *connection) Subscribe(ctx context.Context, channel string, handler f
 	return nil
 }
 
-/*
-XAdd appends an entry of field/value pairs to a stream and returns the
-server-assigned entry id. When maxLen is greater than zero the stream is capped to
-approximately that many entries (MAXLEN ~).
-
-It automatically handles tracing and error recording.
-*/
+// XAdd appends an entry of field/value pairs to a stream and returns the
+// server-assigned entry id. When maxLen is greater than zero the stream is capped to
+// approximately that many entries (MAXLEN ~).
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) XAdd(ctx context.Context, stream string, maxLen int64, fields map[string]string) (string, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanXAdd)
 	defer span.End()
@@ -490,12 +450,10 @@ func (conn *connection) XAdd(ctx context.Context, stream string, maxLen int64, f
 	return id, err
 }
 
-/*
-XRange returns stream entries within the inclusive id range [start, end]. Pass "-"
-and "+" for the full range, or an exclusive "(id" start to resume after a known id.
-
-It automatically handles tracing and error recording.
-*/
+// XRange returns stream entries within the inclusive id range [start, end]. Pass "-"
+// and "+" for the full range, or an exclusive "(id" start to resume after a known id.
+//
+// It automatically handles tracing and error recording.
 func (conn *connection) XRange(ctx context.Context, stream, start, end string) ([]StreamEntry, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanXRange)
 	defer span.End()
@@ -512,7 +470,7 @@ func (conn *connection) XRange(ctx context.Context, stream, start, end string) (
 	result := make([]StreamEntry, 0, len(entries))
 	for _, entry := range entries {
 		result = append(result, StreamEntry{
-			Id:     entry.ID,
+			ID:     entry.ID,
 			Fields: entry.FieldValues,
 		})
 	}

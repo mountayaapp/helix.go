@@ -9,14 +9,14 @@ import (
 func TestTracerContext(t *testing.T) {
 	t.Run("RoundTrip", func(t *testing.T) {
 		tr := NewNopTracer()
-		ctx := ContextWithTracer(t.Context(), tr)
+		ctx := NewContext(t.Context(), tr)
 
-		got := TracerFromContext(ctx)
+		got := FromContext(ctx)
 		assert.Equal(t, tr, got)
 	})
 
 	t.Run("NoTracer", func(t *testing.T) {
-		got := TracerFromContext(t.Context())
+		got := FromContext(t.Context())
 		assert.Nil(t, got)
 	})
 
@@ -24,10 +24,10 @@ func TestTracerContext(t *testing.T) {
 		tr1 := NewNopTracer()
 		tr2 := NewNopTracer()
 
-		ctx := ContextWithTracer(t.Context(), tr1)
-		ctx = ContextWithTracer(ctx, tr2)
+		ctx := NewContext(t.Context(), tr1)
+		ctx = NewContext(ctx, tr2)
 
-		got := TracerFromContext(ctx)
+		got := FromContext(ctx)
 		assert.Same(t, tr2, got)
 		assert.NotSame(t, tr1, got)
 	})

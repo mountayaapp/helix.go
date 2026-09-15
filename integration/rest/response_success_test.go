@@ -1,7 +1,7 @@
 package rest
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -111,7 +111,7 @@ func TestResponseSuccess_Write(t *testing.T) {
 
 func TestResponseSuccess_Write_WithData(t *testing.T) {
 	type data struct {
-		Id   string `json:"id"`
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
 
@@ -120,7 +120,7 @@ func TestResponseSuccess_Write_WithData(t *testing.T) {
 
 	NewResponseSuccess[NoMetadata, data](req).
 		SetStatus(http.StatusOK).
-		SetData(data{Id: "123", Name: "test"}).
+		SetData(data{ID: "123", Name: "test"}).
 		Write(rw)
 
 	assert.Equal(t, http.StatusOK, rw.Code)

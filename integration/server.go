@@ -4,10 +4,8 @@ import (
 	"context"
 )
 
-/*
-Server defines the lifecycle of a server integration (REST, GraphQL, Temporal
-Worker). Only one server can be registered per Service.
-*/
+// Server defines the lifecycle of a server integration (REST, GraphQL, Temporal
+// Worker). Only one server can be registered per Service.
 type Server interface {
 
 	// Name returns a human-readable name for logging and error context.

@@ -11,23 +11,17 @@ import (
 	gqlgen "github.com/99designs/gqlgen/graphql"
 )
 
-/*
-ExecutableSchema is a re-export of gqlgen's graphql.ExecutableSchema so that
-consumers only need to import this package.
-*/
+// ExecutableSchema is a re-export of gqlgen's graphql.ExecutableSchema so that
+// consumers only need to import this package.
 type ExecutableSchema = gqlgen.ExecutableSchema
 
-/*
-defaultQueryCacheSize is the parsed-document cache size applied when Config
-leaves QueryCacheSize unset. It matches the size gqlgen's own default server
-uses, so an integration that configures nothing gets the same behaviour the
-upstream default would have given it.
-*/
+// defaultQueryCacheSize is the parsed-document cache size applied when Config
+// leaves QueryCacheSize unset. It matches the size gqlgen's own default server
+// uses, so an integration that configures nothing gets the same behaviour the
+// upstream default would have given it.
 const defaultQueryCacheSize = 1000
 
-/*
-Config is used to configure the GraphQL integration.
-*/
+// Config is used to configure the GraphQL integration.
 type Config struct {
 
 	// Address is the HTTP address to listen on.
@@ -73,7 +67,7 @@ type Config struct {
 	// It is bounded rather than unbounded because the key is the query text, which
 	// is caller-supplied: an unbounded map would let clients decide how much memory
 	// the process holds.
-	QueryCacheSize int `json:"query_cache_size,omitempty"`
+	QueryCacheSize int `json:"query_cache_size,omitzero"`
 
 	// Readiness allows to define custom logic for the readiness probe endpoint at:
 	//
@@ -95,11 +89,9 @@ type Config struct {
 	TLS integration.ConfigTLS `json:"tls"`
 }
 
-/*
-ConfigGraphiQL configures GraphiQL within the GraphQL API. When enabled, a
-browser-based IDE for exploring and testing the GraphQL API is served at the
-configured path.
-*/
+// ConfigGraphiQL configures GraphiQL within the GraphQL API. When enabled, a
+// browser-based IDE for exploring and testing the GraphQL API is served at the
+// configured path.
 type ConfigGraphiQL struct {
 
 	// Enabled enables GraphiQL within the GraphQL API.
@@ -113,11 +105,9 @@ type ConfigGraphiQL struct {
 	Path string `json:"path,omitempty"`
 }
 
-/*
-ConfigAPQ configures Automatic Persisted Queries (APQ) within the GraphQL API.
-When enabled, query hashes are cached in Valkey so that clients can send only a
-SHA-256 hash instead of the full query string on subsequent requests.
-*/
+// ConfigAPQ configures Automatic Persisted Queries (APQ) within the GraphQL API.
+// When enabled, query hashes are cached in Valkey so that clients can send only a
+// SHA-256 hash instead of the full query string on subsequent requests.
 type ConfigAPQ struct {
 
 	// Enabled enables Automatic Persisted Queries within the GraphQL API.
@@ -135,27 +125,23 @@ type ConfigAPQ struct {
 	// Default:
 	//
 	//   1h
-	TTL time.Duration `json:"ttl,omitempty"`
+	TTL time.Duration `json:"ttl,omitzero"`
 
 	// Valkey is the Valkey integration instance used to store cached queries.
 	Valkey valkey.Valkey `json:"-"`
 }
 
-/*
-ConfigIntrospection configures GraphQL introspection within the GraphQL API.
-When enabled, clients can issue introspection queries (__schema, __type, ...)
-to discover the schema.
-*/
+// ConfigIntrospection configures GraphQL introspection within the GraphQL API.
+// When enabled, clients can issue introspection queries (__schema, __type, ...)
+// to discover the schema.
 type ConfigIntrospection struct {
 
 	// Enabled enables introspection within the GraphQL API.
 	Enabled bool `json:"enabled"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 

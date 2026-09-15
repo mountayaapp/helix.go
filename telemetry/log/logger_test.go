@@ -33,7 +33,7 @@ func TestLogFunctions_NoLoggerInContext(t *testing.T) {
 
 func TestLogFunctions_WithLogger(t *testing.T) {
 	l := internallog.NewNopLogger()
-	ctx := internallog.ContextWithLogger(t.Context(), l)
+	ctx := internallog.NewContext(t.Context(), l)
 
 	t.Run("Debug", func(t *testing.T) {
 		Debug(ctx, "test message", String("key", "val"))
@@ -52,15 +52,15 @@ func TestLogFunctions_WithLogger(t *testing.T) {
 	})
 }
 
-func TestLogLevelConstants(t *testing.T) {
-	assert.Equal(t, LogLevel(zapcore.DebugLevel), LogLevelDebug)
-	assert.Equal(t, LogLevel(zapcore.InfoLevel), LogLevelInfo)
-	assert.Equal(t, LogLevel(zapcore.WarnLevel), LogLevelWarn)
-	assert.Equal(t, LogLevel(zapcore.ErrorLevel), LogLevelError)
+func TestLevelConstants(t *testing.T) {
+	assert.Equal(t, Level(zapcore.DebugLevel), LevelDebug)
+	assert.Equal(t, Level(zapcore.InfoLevel), LevelInfo)
+	assert.Equal(t, Level(zapcore.WarnLevel), LevelWarn)
+	assert.Equal(t, Level(zapcore.ErrorLevel), LevelError)
 
-	assert.Less(t, LogLevelDebug, LogLevelInfo)
-	assert.Less(t, LogLevelInfo, LogLevelWarn)
-	assert.Less(t, LogLevelWarn, LogLevelError)
+	assert.Less(t, LevelDebug, LevelInfo)
+	assert.Less(t, LevelInfo, LevelWarn)
+	assert.Less(t, LevelWarn, LevelError)
 }
 
 func TestFieldConstructors(t *testing.T) {
@@ -130,7 +130,7 @@ func TestFieldConstructors(t *testing.T) {
 
 func TestPackageLevelFunctions_WithFields(t *testing.T) {
 	l := internallog.NewNopLogger()
-	ctx := internallog.ContextWithLogger(t.Context(), l)
+	ctx := internallog.NewContext(t.Context(), l)
 
 	fields := []Field{
 		String("key", "val"),

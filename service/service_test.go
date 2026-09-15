@@ -637,22 +637,22 @@ func TestStatus_RespectsExistingDeadline(t *testing.T) {
 func TestContext_EnrichesWithLoggerAndTracer(t *testing.T) {
 	svc := newTestService(t)
 
-	ctx := Context(svc, t.Context())
+	ctx := Context(t.Context(), svc)
 
-	assert.NotNil(t, log.LoggerFromContext(ctx))
-	assert.NotNil(t, trace.TracerFromContext(ctx))
-	assert.Same(t, svc.logger, log.LoggerFromContext(ctx))
-	assert.Same(t, svc.tracer, trace.TracerFromContext(ctx))
+	assert.NotNil(t, log.FromContext(ctx))
+	assert.NotNil(t, trace.FromContext(ctx))
+	assert.Same(t, svc.logger, log.FromContext(ctx))
+	assert.Same(t, svc.tracer, trace.FromContext(ctx))
 }
 
 func TestContext_Idempotent(t *testing.T) {
 	svc := newTestService(t)
 
-	ctx1 := Context(svc, t.Context())
-	ctx2 := Context(svc, ctx1)
+	ctx1 := Context(t.Context(), svc)
+	ctx2 := Context(ctx1, svc)
 
-	assert.Same(t, log.LoggerFromContext(ctx1), log.LoggerFromContext(ctx2))
-	assert.Same(t, trace.TracerFromContext(ctx1), trace.TracerFromContext(ctx2))
+	assert.Same(t, log.FromContext(ctx1), log.FromContext(ctx2))
+	assert.Same(t, trace.FromContext(ctx1), trace.FromContext(ctx2))
 }
 
 func TestContext_PreservesExistingValues(t *testing.T) {
@@ -660,11 +660,11 @@ func TestContext_PreservesExistingValues(t *testing.T) {
 
 	type customKey struct{}
 	ctx := context.WithValue(t.Context(), customKey{}, "preserved")
-	ctx = Context(svc, ctx)
+	ctx = Context(ctx, svc)
 
 	assert.Equal(t, "preserved", ctx.Value(customKey{}))
-	assert.NotNil(t, log.LoggerFromContext(ctx))
-	assert.NotNil(t, trace.TracerFromContext(ctx))
+	assert.NotNil(t, log.FromContext(ctx))
+	assert.NotNil(t, trace.FromContext(ctx))
 }
 
 func TestTracerProvider(t *testing.T) {
@@ -740,9 +740,9 @@ func TestNew_OTELSDKEnabled_ExporterNone(t *testing.T) {
 	assert.NotNil(t, TracerProvider(svc))
 	assert.NotNil(t, LoggerProvider(svc))
 
-	ctx := Context(svc, t.Context())
-	assert.NotNil(t, log.LoggerFromContext(ctx))
-	assert.NotNil(t, trace.TracerFromContext(ctx))
+	ctx := Context(t.Context(), svc)
+	assert.NotNil(t, log.FromContext(ctx))
+	assert.NotNil(t, trace.FromContext(ctx))
 }
 
 func TestNew_OTELSDKEnabled_ExporterConsole(t *testing.T) {

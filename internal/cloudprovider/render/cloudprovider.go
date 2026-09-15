@@ -8,15 +8,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-/*
-cp is set if the service is running in Render, nil otherwise.
-*/
+// cp is set if the service is running in Render, nil otherwise.
 var cp cloudprovider.CloudProvider
 
-/*
-render holds some details about the service currently running in Render and
-implements the CloudProvider interface.
-*/
+// render holds some details about the service currently running in Render and
+// implements the CloudProvider interface.
 type render struct {
 	instanceId  string
 	serviceId   string
@@ -24,17 +20,13 @@ type render struct {
 	serviceType string
 }
 
-/*
-init populates the cloud provider if the service is running in Render.
-*/
+// init populates the cloud provider if the service is running in Render.
 func init() {
 	cp = build()
 }
 
-/*
-build populates the cloud provider if the service is running in Render. Returns
-nil otherwise.
-*/
+// build populates the cloud provider if the service is running in Render. Returns
+// nil otherwise.
 func build() cloudprovider.CloudProvider {
 	_, exists := os.LookupEnv("RENDER")
 	if !exists {
@@ -51,24 +43,18 @@ func build() cloudprovider.CloudProvider {
 	return n
 }
 
-/*
-Get returns the cloud provider interface for Render. Returns nil if not running
-in Render.
-*/
+// Get returns the cloud provider interface for Render. Returns nil if not running
+// in Render.
 func Get() cloudprovider.CloudProvider {
 	return cp
 }
 
-/*
-String returns the string representation of the Render cloud provider.
-*/
+// String returns the string representation of the Render cloud provider.
 func (r *render) String() string {
 	return "render"
 }
 
-/*
-Attributes returns OpenTelemetry attributes when running in Render.
-*/
+// Attributes returns OpenTelemetry attributes when running in Render.
 func (r *render) Attributes() []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("render.instance_id", r.instanceId),

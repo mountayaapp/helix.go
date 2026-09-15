@@ -7,10 +7,8 @@ import (
 	"go.temporal.io/sdk/converter"
 )
 
-/*
-ConfigClient is used to configure a client-only Temporal connection registered
-as a dependency.
-*/
+// ConfigClient is used to configure a client-only Temporal connection registered
+// as a dependency.
 type ConfigClient struct {
 
 	// Address is the Temporal server address to connect to.
@@ -35,10 +33,8 @@ type ConfigClient struct {
 	TLS integration.ConfigTLS `json:"tls"`
 }
 
-/*
-sanitize sets default values - when applicable - and validates the configuration.
-Returns an error if configuration is not valid.
-*/
+// sanitize sets default values - when applicable - and validates the configuration.
+// Returns an error if configuration is not valid.
 func (cfg *ConfigClient) sanitize() error {
 	if cfg.Address == "" {
 		cfg.Address = "127.0.0.1:7233"

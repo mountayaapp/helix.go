@@ -11,36 +11,28 @@ import (
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 )
 
-/*
-Ensure *connection complies to the integration.Dependency type.
-*/
+// Ensure *connection complies to the integration.Dependency type.
 var _ integration.Dependency = (*connection)(nil)
 
-/*
-Name returns the human-readable name of the client.
-*/
+// Name returns the human-readable name of the client.
 func (conn *connection) Name() string {
 	return conn.config.Name
 }
 
-/*
-Close releases idle connections held by the underlying HTTP client.
-*/
+// Close releases idle connections held by the underlying HTTP client.
 func (conn *connection) Close(ctx context.Context) error {
 	conn.client.CloseIdleConnections()
 
 	return nil
 }
 
-/*
-Status reports the health of the client. When a custom Status function is
-configured in the Config, it is used as is. Otherwise, every endpoint is probed
-concurrently with GET {endpoint}{HealthPath}: the integration is healthy (`200`)
-only when every endpoint is reachable and responds below 500, and unhealthy
-(`503`) otherwise, with one error entry naming each failing endpoint. Because a
-4xx still counts as reachable, an API that exposes no health endpoint is healthy
-without any configuration.
-*/
+// Status reports the health of the client. When a custom Status function is
+// configured in the Config, it is used as is. Otherwise, every endpoint is probed
+// concurrently with GET {endpoint}{HealthPath}: the integration is healthy (`200`)
+// only when every endpoint is reachable and responds below 500, and unhealthy
+// (`503`) otherwise, with one error entry naming each failing endpoint. Because a
+// 4xx still counts as reachable, an API that exposes no health endpoint is healthy
+// without any configuration.
 func (conn *connection) Status(ctx context.Context) (int, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanStatus)
 	defer span.End()
@@ -92,12 +84,10 @@ func (conn *connection) Status(ctx context.Context) (int, error) {
 	return worst, nil
 }
 
-/*
-probe checks a single endpoint by issuing GET {endpoint}{HealthPath}. The endpoint
-is healthy (`200`) as long as it is reachable and responds with a status below 500
-— so an API that exposes no health endpoint (returning 404) is still healthy. A
-transport error or a 5xx response yields `503` and an error naming the endpoint.
-*/
+// probe checks a single endpoint by issuing GET {endpoint}{HealthPath}. The endpoint
+// is healthy (`200`) as long as it is reachable and responds with a status below 500
+// — so an API that exposes no health endpoint (returning 404) is still healthy. A
+// transport error or a 5xx response yields `503` and an error naming the endpoint.
 func (conn *connection) probe(ctx context.Context, endpoint string) (int, error) {
 	resp, err := conn.attempt(ctx, endpoint, http.MethodGet, conn.config.HealthPath, nil)
 	if err != nil {

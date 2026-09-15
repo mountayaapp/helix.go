@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 )
 
-func TestEventFromContext(t *testing.T) {
+func TestFromContext(t *testing.T) {
 	testcases := []struct {
 		name     string
 		ctx      context.Context
@@ -64,7 +64,7 @@ func TestEventFromContext(t *testing.T) {
 				tc.ctx = baggage.ContextWithBaggage(tc.ctx, tc.baggage())
 			}
 
-			actual, ok := EventFromContext(tc.ctx)
+			actual, ok := FromContext(tc.ctx)
 
 			assert.Equal(t, tc.expected, actual)
 			assert.Equal(t, tc.success, ok)
@@ -72,46 +72,46 @@ func TestEventFromContext(t *testing.T) {
 	}
 }
 
-func TestEventFromContext_PrefersContextOverBaggage(t *testing.T) {
+func TestFromContext_PrefersContextOverBaggage(t *testing.T) {
 	e := Event{Name: "from_context"}
-	ctx := ContextWithEvent(t.Context(), e)
+	ctx := NewContext(t.Context(), e)
 
 	memberName, _ := baggage.NewMember("event.name", "from_baggage")
 	b, _ := baggage.New(memberName)
 	ctx = baggage.ContextWithBaggage(ctx, b)
 
-	actual, ok := EventFromContext(ctx)
+	actual, ok := FromContext(ctx)
 
 	assert.True(t, ok)
 	assert.Equal(t, "from_context", actual.Name)
 }
 
-func TestEventFromContext_EmptyBaggageReturnsFalse(t *testing.T) {
+func TestFromContext_EmptyBaggageReturnsFalse(t *testing.T) {
 	m, _ := baggage.NewMember("event.user_id", "user_123")
 	b, _ := baggage.New(m)
 	ctx := baggage.ContextWithBaggage(t.Context(), b)
 
-	_, ok := EventFromContext(ctx)
+	_, ok := FromContext(ctx)
 
 	assert.False(t, ok)
 }
 
-func TestEventFromContext_BaggageWithMeta(t *testing.T) {
+func TestFromContext_BaggageWithMeta(t *testing.T) {
 	name, _ := baggage.NewMember("event.name", "click")
 	meta, _ := baggage.NewMember("event.meta.source", "web")
 	b, _ := baggage.New(name, meta)
 	ctx := baggage.ContextWithBaggage(t.Context(), b)
 
-	actual, ok := EventFromContext(ctx)
+	actual, ok := FromContext(ctx)
 
 	assert.True(t, ok)
 	assert.Equal(t, "click", actual.Name)
 	assert.Equal(t, "web", actual.Meta["source"])
 }
 
-func TestContextWithEvent(t *testing.T) {
+func TestNewContext(t *testing.T) {
 	input := Event{Name: "testing"}
-	ctx := ContextWithEvent(t.Context(), input)
+	ctx := NewContext(t.Context(), input)
 
 	actual, ok := ctx.Value(eventKey).(Event)
 
@@ -119,7 +119,7 @@ func TestContextWithEvent(t *testing.T) {
 	assert.Equal(t, input, actual)
 }
 
-func TestContextWithEvent_RoundTrip(t *testing.T) {
+func TestNewContext_RoundTrip(t *testing.T) {
 	input := Event{
 		Name:   "test_event",
 		UserID: "user_123",
@@ -128,21 +128,21 @@ func TestContextWithEvent_RoundTrip(t *testing.T) {
 		},
 	}
 
-	ctx := ContextWithEvent(t.Context(), input)
-	output, ok := EventFromContext(ctx)
+	ctx := NewContext(t.Context(), input)
+	output, ok := FromContext(ctx)
 
 	assert.True(t, ok)
 	assert.Equal(t, input, output)
 }
 
-func TestContextWithEvent_OverwritesPrevious(t *testing.T) {
+func TestNewContext_OverwritesPrevious(t *testing.T) {
 	first := Event{Name: "first"}
 	second := Event{Name: "second"}
 
-	ctx := ContextWithEvent(t.Context(), first)
-	ctx = ContextWithEvent(ctx, second)
+	ctx := NewContext(t.Context(), first)
+	ctx = NewContext(ctx, second)
 
-	output, ok := EventFromContext(ctx)
+	output, ok := FromContext(ctx)
 
 	assert.True(t, ok)
 	assert.Equal(t, "second", output.Name)

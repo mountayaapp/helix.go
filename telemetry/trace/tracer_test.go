@@ -21,7 +21,7 @@ func TestStart_PopulatesBaggageFromEvent(t *testing.T) {
 		},
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 	ctx, s := Start(ctx, SpanKindInternal, "test-operation")
 	defer s.End()
 
@@ -48,7 +48,7 @@ func TestStart_BaggageContainsAllTopLevelFields(t *testing.T) {
 		IsAnonymous:    event.BoolPtr(true),
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 	ctx, s := Start(ctx, SpanKindServer, "http-request")
 	defer s.End()
 
@@ -75,7 +75,7 @@ func TestStart_BaggageContainsNestedObjects(t *testing.T) {
 		Page: event.Page{Path: "/checkout", Title: "Checkout"},
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 	ctx, s := Start(ctx, SpanKindInternal, "checkout-flow")
 	defer s.End()
 
@@ -100,7 +100,7 @@ func TestStart_BaggageContainsSubscriptions(t *testing.T) {
 		},
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 	ctx, s := Start(ctx, SpanKindInternal, "subscribe")
 	defer s.End()
 
@@ -112,7 +112,7 @@ func TestStart_BaggageContainsSubscriptions(t *testing.T) {
 
 func TestStart_NoEventInContext(t *testing.T) {
 	tr := internaltrace.NewNopTracer()
-	ctx := internaltrace.ContextWithTracer(t.Context(), tr)
+	ctx := internaltrace.NewContext(t.Context(), tr)
 	ctx, s := Start(ctx, SpanKindInternal, "no-event")
 	defer s.End()
 
@@ -133,13 +133,13 @@ func TestStart_EventSurvivesRoundTripViaBaggage(t *testing.T) {
 		},
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), input), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), input), tr)
 	ctx, s := Start(ctx, SpanKindClient, "outgoing-call")
 	defer s.End()
 
 	b := baggage.FromContext(ctx)
 	ctxB := baggage.ContextWithBaggage(t.Context(), b)
-	output, ok := event.EventFromContext(ctxB)
+	output, ok := event.FromContext(ctxB)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.Name, output.Name)
@@ -183,13 +183,13 @@ func TestStart_FullEventRoundTrip(t *testing.T) {
 		},
 	}
 
-	ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), input), tr)
+	ctx := internaltrace.NewContext(event.NewContext(t.Context(), input), tr)
 	ctx, s := Start(ctx, SpanKindClient, "service-a")
 	defer s.End()
 
 	b := baggage.FromContext(ctx)
 	ctxB := baggage.ContextWithBaggage(t.Context(), b)
-	output, ok := event.EventFromContext(ctxB)
+	output, ok := event.FromContext(ctxB)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.ID, output.ID)
@@ -243,7 +243,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			Campaign: event.Campaign{Name: "launch", Source: "email", Medium: "newsletter", Term: "signup", Content: "banner"},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "campaign-test")
 		defer s.End()
 
@@ -261,7 +261,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			Device: event.Device{ID: "dev_001", Manufacturer: "Apple", Model: "iPhone15", Name: "MyiPhone", Type: "mobile", Version: "1.0"},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "device-test")
 		defer s.End()
 
@@ -280,7 +280,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			Referrer: event.Referrer{Type: "organic", Name: "Google", URL: "https://google.com", Link: "https://google.com/search"},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "referrer-test")
 		defer s.End()
 
@@ -297,7 +297,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			Location: event.Location{City: "Paris", Country: "FR", Region: "IDF", Latitude: 48.8566, Longitude: 2.3522, Speed: 1.5},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "location-test")
 		defer s.End()
 
@@ -316,7 +316,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			Network: event.Network{Bluetooth: true, Cellular: true, WIFI: true, Carrier: "Orange"},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "network-test")
 		defer s.End()
 
@@ -337,7 +337,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			},
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "meta-test")
 		defer s.End()
 
@@ -353,7 +353,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			IsAnonymous: event.BoolPtr(true),
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "anon-true")
 		defer s.End()
 
@@ -367,7 +367,7 @@ func TestStart_BaggageContainsNestedFields(t *testing.T) {
 			IsAnonymous: event.BoolPtr(false),
 		}
 
-		ctx := internaltrace.ContextWithTracer(event.ContextWithEvent(t.Context(), e), tr)
+		ctx := internaltrace.NewContext(event.NewContext(t.Context(), e), tr)
 		ctx, s := Start(ctx, SpanKindInternal, "anon-false")
 		defer s.End()
 

@@ -8,34 +8,26 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const spanBatchSend = humanized + ": Batch / Send"
 
-/*
-batch implements the Batch interface and allows to wrap the ClickHouse batch
-functions for automatic tracing and error recording.
-*/
+// batch implements the Batch interface and allows to wrap the ClickHouse batch
+// functions for automatic tracing and error recording.
 type batch struct {
 	config     *Config
 	client     driver.Batch
 	parentSpan *trace.Span
 }
 
-/*
-Batch represents a database batch, holding the parent span triggering the batch.
-*/
+// Batch represents a database batch, holding the parent span triggering the batch.
 type Batch interface {
 	AppendStruct(ctx context.Context, value any) error
 	Send(ctx context.Context) error
 }
 
-/*
-AppendStruct append a new entry into the batch in progress.
-
-It automatically handles error recording.
-*/
+// AppendStruct append a new entry into the batch in progress.
+//
+// It automatically handles error recording.
 func (b *batch) AppendStruct(ctx context.Context, value any) error {
 	err := b.client.AppendStruct(value)
 	if err != nil {
@@ -45,12 +37,10 @@ func (b *batch) AppendStruct(ctx context.Context, value any) error {
 	return err
 }
 
-/*
-Send sends the batch to ClickHouse. It also properly closes the batch as well as
-the spans tied to the batch.
-
-It automatically handles tracing and error recording.
-*/
+// Send sends the batch to ClickHouse. It also properly closes the batch as well as
+// the spans tied to the batch.
+//
+// It automatically handles tracing and error recording.
 func (b *batch) Send(ctx context.Context) error {
 	defer b.parentSpan.End()
 

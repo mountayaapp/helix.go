@@ -6,11 +6,9 @@ import (
 	"unicode/utf8"
 )
 
-/*
-normalizePEM replaces literal escape sequences commonly found in environment
-variables with actual newline characters. Order matters: longest sequences first
-to avoid partial matches.
-*/
+// normalizePEM replaces literal escape sequences commonly found in environment
+// variables with actual newline characters. Order matters: longest sequences first
+// to avoid partial matches.
 func normalizePEM(data []byte) []byte {
 	if len(data) == 0 {
 		return data
@@ -22,10 +20,8 @@ func normalizePEM(data []byte) []byte {
 	return data
 }
 
-/*
-NormalizeErrorMessage capitalizes the first letter of an error message to match
-the helix.go formatting convention. Safe on empty error strings.
-*/
+// NormalizeErrorMessage capitalizes the first letter of an error message to match
+// the helix.go formatting convention. Safe on empty error strings.
 func NormalizeErrorMessage(err error) string {
 	msg := err.Error()
 	if msg == "" {

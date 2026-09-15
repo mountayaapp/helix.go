@@ -42,7 +42,7 @@ func TestEventPropagation_ViaBaggageHTTPHeaders(t *testing.T) {
 	assert.NotEmpty(t, headers.Get("Baggage"))
 
 	ctxReceived := propagator.Extract(t.Context(), propagation.HeaderCarrier(headers))
-	output, ok := EventFromContext(ctxReceived)
+	output, ok := FromContext(ctxReceived)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.Name, output.Name)
@@ -86,7 +86,7 @@ func TestEventPropagation_FullEventViaBaggageHTTPHeaders(t *testing.T) {
 	propagator.Inject(contextWithEventBaggage(t.Context(), input), propagation.HeaderCarrier(headers))
 
 	ctxReceived := propagator.Extract(t.Context(), propagation.HeaderCarrier(headers))
-	output, ok := EventFromContext(ctxReceived)
+	output, ok := FromContext(ctxReceived)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.ID, output.ID)
@@ -138,7 +138,7 @@ func TestEventPropagation_CompositeTextMapPropagator(t *testing.T) {
 	assert.NotEmpty(t, headers.Get("Baggage"))
 
 	ctxReceived := propagator.Extract(t.Context(), propagation.HeaderCarrier(headers))
-	output, ok := EventFromContext(ctxReceived)
+	output, ok := FromContext(ctxReceived)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.Name, output.Name)
@@ -154,7 +154,7 @@ func TestEventPropagation_EmptyEventNotPropagated(t *testing.T) {
 	propagator.Inject(contextWithEventBaggage(t.Context(), input), propagation.HeaderCarrier(headers))
 
 	ctxReceived := propagator.Extract(t.Context(), propagation.HeaderCarrier(headers))
-	_, ok := EventFromContext(ctxReceived)
+	_, ok := FromContext(ctxReceived)
 
 	assert.False(t, ok)
 }
@@ -178,7 +178,7 @@ func TestEventPropagation_MultiHopPropagation(t *testing.T) {
 	propagator.Inject(ctxB, propagation.HeaderCarrier(headersBC))
 
 	ctxC := propagator.Extract(t.Context(), propagation.HeaderCarrier(headersBC))
-	output, ok := EventFromContext(ctxC)
+	output, ok := FromContext(ctxC)
 
 	assert.True(t, ok)
 	assert.Equal(t, input.Name, output.Name)

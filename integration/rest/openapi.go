@@ -23,11 +23,9 @@ const (
 	spanOpenAPIRes = humanized + ": OpenAPI / Response validation"
 )
 
-/*
-responseWriter wraps the standard http.ResponseWriter so we can store additional
-values during the request/response lifecycle, such as the status code and the
-the response body.
-*/
+// responseWriter wraps the standard http.ResponseWriter so we can store additional
+// values during the request/response lifecycle, such as the status code and the
+// the response body.
 type responseWriter struct {
 	http.ResponseWriter
 
@@ -47,27 +45,21 @@ type responseWriter struct {
 	streaming bool
 }
 
-/*
-Unwrap returns the underlying http.ResponseWriter so http.ResponseController can
-reach optional interfaces such as http.Flusher, enabling incremental streaming.
-*/
+// Unwrap returns the underlying http.ResponseWriter so http.ResponseController can
+// reach optional interfaces such as http.Flusher, enabling incremental streaming.
 func (rw *responseWriter) Unwrap() http.ResponseWriter {
 	return rw.ResponseWriter
 }
 
-/*
-detectStreaming flags the response as an incremental stream when the handler sets a
-text/event-stream Content-Type. It is idempotent and cheap to call before a write.
-*/
+// detectStreaming flags the response as an incremental stream when the handler sets a
+// text/event-stream Content-Type. It is idempotent and cheap to call before a write.
 func (rw *responseWriter) detectStreaming() {
 	if strings.HasPrefix(rw.Header().Get("Content-Type"), "text/event-stream") {
 		rw.streaming = true
 	}
 }
 
-/*
-Write writes the data to the connection as part of an HTTP reply.
-*/
+// Write writes the data to the connection as part of an HTTP reply.
 func (rw *responseWriter) Write(b []byte) (int, error) {
 	if !rw.streaming {
 		rw.detectStreaming()
@@ -84,19 +76,15 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.buf.Write(b)
 }
 
-/*
-WriteHeader sends an HTTP response header with the provided status code.
-*/
+// WriteHeader sends an HTTP response header with the provided status code.
 func (rw *responseWriter) WriteHeader(status int) {
 	rw.status = status
 	rw.detectStreaming()
 	rw.ResponseWriter.WriteHeader(status)
 }
 
-/*
-middlewareValidation is the HTTP middleware to validate a request/response against
-the OpenAPI description passed in the integration's config.
-*/
+// middlewareValidation is the HTTP middleware to validate a request/response against
+// the OpenAPI description passed in the integration's config.
 func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 	return func(w http.ResponseWriter, req bunrouter.Request) error {
 
@@ -197,11 +185,9 @@ func (r *rest) middlewareValidation(next bunrouter.HandlerFunc) bunrouter.Handle
 	}
 }
 
-/*
-buildRouterOpenAPI tries to build the router for validating requests and responses
-against the OpenAPI description. It returns validation entries in case the
-description can not be loaded or if it's not valid.
-*/
+// buildRouterOpenAPI tries to build the router for validating requests and responses
+// against the OpenAPI description. It returns validation entries in case the
+// description can not be loaded or if it's not valid.
 func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Entry) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
@@ -242,9 +228,7 @@ func (r *rest) buildRouterOpenAPI() (routers.Router, []errorstack.Entry) {
 	return router, nil
 }
 
-/*
-isValidUrl tests a string to determine if it is a well-structured URL or not.
-*/
+// isValidUrl tests a string to determine if it is a well-structured URL or not.
 func isValidUrl(link string) (*url.URL, bool) {
 	u, err := url.Parse(link)
 	if err != nil || u.Scheme == "" || u.Host == "" {

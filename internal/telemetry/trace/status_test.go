@@ -32,7 +32,7 @@ func newInMemoryTracer(t *testing.T) (*Tracer, *tracetest.InMemoryExporter) {
 func TestStatusSpan_SetsOkOnEnd(t *testing.T) {
 	tr, exporter := newInMemoryTracer(t)
 
-	ctx := ContextWithTracer(t.Context(), tr)
+	ctx := NewContext(t.Context(), tr)
 	_, span := tr.Start(ctx, SpanKindInternal, "success-op")
 	span.End()
 
@@ -44,7 +44,7 @@ func TestStatusSpan_SetsOkOnEnd(t *testing.T) {
 func TestStatusSpan_PreservesErrorStatus(t *testing.T) {
 	tr, exporter := newInMemoryTracer(t)
 
-	ctx := ContextWithTracer(t.Context(), tr)
+	ctx := NewContext(t.Context(), tr)
 	_, span := tr.Start(ctx, SpanKindInternal, "error-op")
 	span.SetStatus(codes.Error, "something went wrong")
 	span.End()
@@ -58,7 +58,7 @@ func TestStatusSpan_PreservesErrorStatus(t *testing.T) {
 func TestStatusSpan_ErrorThenEnd_DoesNotOverrideWithOk(t *testing.T) {
 	tr, exporter := newInMemoryTracer(t)
 
-	ctx := ContextWithTracer(t.Context(), tr)
+	ctx := NewContext(t.Context(), tr)
 	_, span := tr.Start(ctx, SpanKindInternal, "error-then-end")
 	span.SetStatus(codes.Error, "failed")
 	span.SetStatus(codes.Error, "failed again")

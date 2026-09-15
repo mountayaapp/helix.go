@@ -231,7 +231,7 @@ func TestMCP_OAuth_Unauthenticated(t *testing.T) {
 	cfg := toyConfig()
 	cfg.OAuth = OAuthResourceServer{
 		Enabled:              true,
-		ResourceId:           "https://api.example.com",
+		ResourceID:           "https://api.example.com",
 		AuthorizationServers: []string{"https://auth.example.com"},
 		ValidateToken: func(_ context.Context, _ string) (any, time.Time, error) {
 			return map[string]any{"sub": "user-1"}, time.Now().Add(time.Hour), nil
@@ -267,7 +267,7 @@ func TestMCP_OAuth_ComposeMode(t *testing.T) {
 	cfg.OAuth = OAuthResourceServer{
 		Enabled:              true,
 		Compose:              true,
-		ResourceId:           "https://api.example.com",
+		ResourceID:           "https://api.example.com",
 		AuthorizationServers: []string{"https://auth.example.com"},
 		ValidateToken: func(_ context.Context, _ string) (any, time.Time, error) {
 			return map[string]any{"sub": "user-1"}, time.Now().Add(time.Hour), nil
@@ -335,7 +335,7 @@ func TestMCP_OAuth_Authenticated(t *testing.T) {
 	cfg := toyConfig()
 	cfg.OAuth = OAuthResourceServer{
 		Enabled:              true,
-		ResourceId:           "https://api.example.com",
+		ResourceID:           "https://api.example.com",
 		AuthorizationServers: []string{"https://auth.example.com"},
 		ValidateToken: func(_ context.Context, _ string) (any, time.Time, error) {
 			return map[string]any{"sub": "user-1"}, time.Now().Add(time.Hour), nil

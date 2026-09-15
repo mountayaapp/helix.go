@@ -1,0 +1,90 @@
+version: 2
+
+# Every Go module in the repo needs its own entry: Dependabot does not discover
+# nested modules from the root go.mod. Keep this list in sync with the
+# .integrations[].id list in ecosystem.json.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat
+    open-pull-requests-limit: 10
+    groups:
+      opentelemetry:
+        patterns:
+          - "go.opentelemetry.io/*"
+      golang-x:
+        patterns:
+          - "golang.org/x/*"
+
+  - package-ecosystem: gomod
+    directory: /integration/bucket
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(bucket)
+
+  - package-ecosystem: gomod
+    directory: /integration/clickhouse
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(clickhouse)
+
+  - package-ecosystem: gomod
+    directory: /integration/postgres
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(postgres)
+
+  - package-ecosystem: gomod
+    directory: /integration/valkey
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(valkey)
+
+  - package-ecosystem: gomod
+    directory: /integration/httpclient
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(httpclient)
+
+  - package-ecosystem: gomod
+    directory: /integration/temporal
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(temporal)
+
+  - package-ecosystem: gomod
+    directory: /integration/rest
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(rest)
+
+  - package-ecosystem: gomod
+    directory: /integration/graphql
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(graphql)
+
+  - package-ecosystem: gomod
+    directory: /integration/mcp
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat(mcp)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: feat

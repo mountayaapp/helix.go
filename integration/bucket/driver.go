@@ -4,9 +4,7 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 )
 
-/*
-Driver allows to set the driver to use for the bucket integration.
-*/
+// Driver allows to set the driver to use for the bucket integration.
 type Driver interface {
 
 	// string returns the string representation of the driver.

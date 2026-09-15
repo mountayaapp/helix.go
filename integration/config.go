@@ -7,9 +7,7 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 )
 
-/*
-ConfigTLS is the common configuration for TLS across all integrations.
-*/
+// ConfigTLS is the common configuration for TLS across all integrations.
 type ConfigTLS struct {
 
 	// Enabled enables TLS for the integration. When disabled, other fields are
@@ -39,15 +37,13 @@ type ConfigTLS struct {
 	RootCAPEMs [][]byte `json:"-"`
 }
 
-/*
-Sanitize sets default values - if applicable - and validates the configuration.
-Returns validation entries if configuration is not valid. This doesn't return
-a standard error since this function shall only be called by integrations,
-which collect entries from many sources before producing a final
-errorstack.NewValidation:
-
-	entries = append(entries, cfg.TLS.Sanitize()...)
-*/
+// Sanitize sets default values - if applicable - and validates the configuration.
+// Returns validation entries if configuration is not valid. This doesn't return
+// a standard error since this function shall only be called by integrations,
+// which collect entries from many sources before producing a final
+// errorstack.NewValidation:
+//
+//	entries = append(entries, cfg.TLS.Sanitize()...)
 func (cfg *ConfigTLS) Sanitize() []errorstack.Entry {
 	var entries []errorstack.Entry
 	if !cfg.Enabled {
@@ -70,11 +66,9 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Entry {
 	return entries
 }
 
-/*
-ToStandardTLS tries to return a Go standard *tls.Config. Returns validation
-entries if configuration is not valid. This doesn't return a standard error
-since this function shall only be called by integrations.
-*/
+// ToStandardTLS tries to return a Go standard *tls.Config. Returns validation
+// entries if configuration is not valid. This doesn't return a standard error
+// since this function shall only be called by integrations.
 func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Entry) {
 	var entries []errorstack.Entry
 	if !cfg.Enabled {

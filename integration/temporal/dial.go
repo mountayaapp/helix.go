@@ -12,11 +12,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-/*
-dialClient creates a Temporal client from the given ConfigClient. It handles TLS,
-tracer, logger, context propagator, and client.Dial. This is the shared helper
-used by both Connect and New.
-*/
+// dialClient creates a Temporal client from the given ConfigClient. It handles TLS,
+// tracer, logger, context propagator, and client.Dial. This is the shared helper
+// used by both Connect and New.
 func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) {
 	var entries []errorstack.Entry
 
@@ -37,7 +35,7 @@ func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) 
 		Logger:    newCustomLogger(svc),
 		ContextPropagators: []workflow.ContextPropagator{
 			&custompropagator{
-				cachedCtx: service.Context(svc, context.Background()),
+				cachedCtx: service.Context(context.Background(), svc),
 			},
 		},
 		Interceptors: []interceptor.ClientInterceptor{

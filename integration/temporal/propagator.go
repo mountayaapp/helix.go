@@ -13,46 +13,34 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-/*
-eventKeyIdentifier is the unique internal type for storing an Event in Temporal
-workflow and activity contexts.
-*/
+// eventKeyIdentifier is the unique internal type for storing an Event in Temporal
+// workflow and activity contexts.
 type eventKeyIdentifier struct{}
 
-/*
-eventCtxKey is the context key used to store the current Event.
-*/
+// eventCtxKey is the context key used to store the current Event.
 var eventCtxKey eventKeyIdentifier
 
-/*
-defaultConverter is cached to avoid repeated function calls on every Inject/Extract
-operation.
-*/
+// defaultConverter is cached to avoid repeated function calls on every Inject/Extract
+// operation.
 var defaultConverter = converter.GetDefaultDataConverter()
 
-/*
-noopSpan is a pre-allocated noop span reused when no span is present in the
-context, avoiding allocations of TracerProvider/Tracer/Span on every Extract.
-*/
+// noopSpan is a pre-allocated noop span reused when no span is present in the
+// context, avoiding allocations of TracerProvider/Tracer/Span on every Extract.
 var noopSpan oteltrace.Span
 
 func init() {
 	_, noopSpan = noop.NewTracerProvider().Tracer("noop").Start(context.Background(), "")
 }
 
-/*
-custompropagator implements the workflow.ContextPropagator interface, allowing
-to set custom context propagation logic across Temporal workflows and activities.
-*/
+// custompropagator implements the workflow.ContextPropagator interface, allowing
+// to set custom context propagation logic across Temporal workflows and activities.
 type custompropagator struct {
 	cachedCtx context.Context
 }
 
-/*
-Inject injects information from a Go context into headers.
-*/
+// Inject injects information from a Go context into headers.
 func (p *custompropagator) Inject(ctx context.Context, hw workflow.HeaderWriter) error {
-	e, ok := event.EventFromContext(ctx)
+	e, ok := event.FromContext(ctx)
 	if !ok {
 		return nil
 	}
@@ -73,9 +61,7 @@ func (p *custompropagator) Inject(ctx context.Context, hw workflow.HeaderWriter)
 	return nil
 }
 
-/*
-InjectFromWorkflow injects information from a workflow's context into headers.
-*/
+// InjectFromWorkflow injects information from a workflow's context into headers.
 func (p *custompropagator) InjectFromWorkflow(ctx workflow.Context, hw workflow.HeaderWriter) error {
 	e, ok := ctx.Value(eventCtxKey).(event.Event)
 	if !ok {
@@ -100,9 +86,7 @@ func (p *custompropagator) InjectFromWorkflow(ctx workflow.Context, hw workflow.
 	return nil
 }
 
-/*
-Extract extracts context information from headers and returns a context object.
-*/
+// Extract extracts context information from headers and returns a context object.
 func (p *custompropagator) Extract(ctx context.Context, hr workflow.HeaderReader) (context.Context, error) {
 	var e event.Event
 	if value, ok := hr.Get(event.Key); ok {
@@ -130,16 +114,14 @@ func (p *custompropagator) Extract(ctx context.Context, hr workflow.HeaderReader
 	setActivityAttributes(span, activity.GetInfo(ctx))
 
 	// Add the Event to the context returned.
-	ctx = event.ContextWithEvent(ctx, e)
+	ctx = event.NewContext(ctx, e)
 	ctx = context.WithValue(ctx, eventCtxKey, e)
 
 	return ctx, nil
 }
 
-/*
-ExtractToWorkflow extracts context information from headers and returns a workflow
-context.
-*/
+// ExtractToWorkflow extracts context information from headers and returns a workflow
+// context.
 func (p *custompropagator) ExtractToWorkflow(ctx workflow.Context, hr workflow.HeaderReader) (workflow.Context, error) {
 	var e event.Event
 	if value, ok := hr.Get(event.Key); ok {

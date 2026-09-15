@@ -12,19 +12,15 @@ import (
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 )
 
-/*
-Pre-computed span names to avoid allocations on every call.
-*/
+// Pre-computed span names to avoid allocations on every call.
 const (
 	spanRequest = humanized + ": Request"
 	spanStatus  = humanized + ": Status"
 )
 
-/*
-HTTPClient exposes an opinionated way to call an external HTTP API across one or
-more interchangeable endpoints, with automatic round-robin, failover, and
-distributed tracing.
-*/
+// HTTPClient exposes an opinionated way to call an external HTTP API across one or
+// more interchangeable endpoints, with automatic round-robin, failover, and
+// distributed tracing.
 type HTTPClient interface {
 
 	// Do sends an HTTP request with the given method and body to {endpoint}{path},
@@ -45,10 +41,8 @@ type HTTPClient interface {
 	Get(ctx context.Context, path string, opts ...RequestOption) (*http.Response, error)
 }
 
-/*
-connection represents the HTTP client integration. It respects the
-integration.Dependency and HTTPClient interfaces.
-*/
+// connection represents the HTTP client integration. It respects the
+// integration.Dependency and HTTPClient interfaces.
 type connection struct {
 
 	// config holds the Config initially passed when creating a new client.
@@ -67,14 +61,12 @@ type connection struct {
 	single bool
 }
 
-/*
-Connect creates an HTTP client given the Config and attaches it to the Service as
-a dependency. Returns an error if Config is not valid.
-
-It does not probe the endpoints: an unreachable endpoint is reported through
-Status, not at startup, so a temporarily down upstream does not prevent the
-Service from starting.
-*/
+// Connect creates an HTTP client given the Config and attaches it to the Service as
+// a dependency. Returns an error if Config is not valid.
+//
+// It does not probe the endpoints: an unreachable endpoint is reported through
+// Status, not at startup, so a temporarily down upstream does not prevent the
+// Service from starting.
 func Connect(svc *service.Service, cfg Config) (HTTPClient, error) {
 
 	// No need to continue if Config is not valid.
@@ -110,11 +102,9 @@ func Connect(svc *service.Service, cfg Config) (HTTPClient, error) {
 	return conn, nil
 }
 
-/*
-attempt builds and sends a single request to a specific endpoint, applying each
-RequestOption first and then the configured default headers when not already
-present on the request - so per-request options take precedence over defaults.
-*/
+// attempt builds and sends a single request to a specific endpoint, applying each
+// RequestOption first and then the configured default headers when not already
+// present on the request - so per-request options take precedence over defaults.
 func (conn *connection) attempt(ctx context.Context, endpoint, method, path string, body []byte, opts ...RequestOption) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
@@ -139,9 +129,7 @@ func (conn *connection) attempt(ctx context.Context, endpoint, method, path stri
 	return conn.client.Do(req)
 }
 
-/*
-Do automatically handles round-robin, failover, and tracing.
-*/
+// Do automatically handles round-robin, failover, and tracing.
 func (conn *connection) Do(ctx context.Context, method, path string, body []byte, opts ...RequestOption) (*http.Response, error) {
 	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanRequest)
 	defer span.End()
@@ -214,9 +202,7 @@ func (conn *connection) Do(ctx context.Context, method, path string, body []byte
 	return nil, lastErr
 }
 
-/*
-Get is a convenience for a GET request.
-*/
+// Get is a convenience for a GET request.
 func (conn *connection) Get(ctx context.Context, path string, opts ...RequestOption) (*http.Response, error) {
 	return conn.Do(ctx, http.MethodGet, path, nil, opts...)
 }

@@ -14,20 +14,14 @@ import (
 	"go.temporal.io/sdk/interceptor"
 )
 
-/*
-spanKeyIdentifier is the unique internal type for storing an OTEL Span in
-Temporal workflow and activity contexts.
-*/
+// spanKeyIdentifier is the unique internal type for storing an OTEL Span in
+// Temporal workflow and activity contexts.
 type spanKeyIdentifier struct{}
 
-/*
-spanCtxKey is the context key used to store the current OTEL Span.
-*/
+// spanCtxKey is the context key used to store the current OTEL Span.
 var spanCtxKey spanKeyIdentifier
 
-/*
-tagRenames maps default Temporal tag names to their normalized equivalents.
-*/
+// tagRenames maps default Temporal tag names to their normalized equivalents.
 var tagRenames = map[string]string{
 	"temporalWorkflowID": "temporal.workflow.id",
 	"temporalRunID":      "temporal.workflow.run_id",
@@ -35,9 +29,7 @@ var tagRenames = map[string]string{
 	"temporalUpdateID":   "temporal.update.id",
 }
 
-/*
-buildTracer tries to build the Temporal custom tracer from ConfigClient.
-*/
+// buildTracer tries to build the Temporal custom tracer from ConfigClient.
 func buildTracer(svc *service.Service, cfg ConfigClient) (interceptor.Tracer, error) {
 	otelTracer := service.TracerProvider(svc).Tracer("github.com/mountayaapp/helix.go/integration/temporal")
 
@@ -52,7 +44,7 @@ func buildTracer(svc *service.Service, cfg ConfigClient) (interceptor.Tracer, er
 			// First try the standard event context key. If not found, fall back to the
 			// Temporal-specific key used by ExtractToWorkflow (which only has access
 			// to workflow.Context and cannot set the standard context key).
-			e, ok := event.EventFromContext(ctx)
+			e, ok := event.FromContext(ctx)
 			if !ok {
 				e, ok = ctx.Value(eventCtxKey).(event.Event)
 			}
@@ -98,18 +90,14 @@ func buildTracer(svc *service.Service, cfg ConfigClient) (interceptor.Tracer, er
 	})
 }
 
-/*
-customtracer embeds interceptor.Tracer and override the StartSpan method, allowing
-to override/rename default trace attributes set by the Temporal client.
-*/
+// customtracer embeds interceptor.Tracer and override the StartSpan method, allowing
+// to override/rename default trace attributes set by the Temporal client.
 type customtracer struct {
 	interceptor.Tracer
 }
 
-/*
-StartSpan starts and returns a span with the given options, but with default
-trace attributes renamed.
-*/
+// StartSpan starts and returns a span with the given options, but with default
+// trace attributes renamed.
 func (m customtracer) StartSpan(opts *interceptor.TracerStartSpanOptions) (interceptor.TracerSpan, error) {
 	for old, renamed := range tagRenames {
 		if v := opts.Tags[old]; v != "" {
