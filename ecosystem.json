@@ -1,6 +1,9 @@
 {
   "packages": [
     {
+      "path": "documents"
+    },
+    {
       "path": "errorstack"
     },
     {
@@ -11,6 +14,9 @@
     },
     {
       "path": "service"
+    },
+    {
+      "path": "service/servicetest"
     },
     {
       "path": "telemetry/log"

@@ -33,8 +33,12 @@ type ConfigTLS struct {
 	KeyPEM []byte `json:"-"`
 
 	// RootCAPEMs allows to provide the RootCAs pool from PEM-encoded certificates.
-	// This is not required by all integrations.
+	// This is not required by all integrations. Clients only.
 	RootCAPEMs [][]byte `json:"-"`
+
+	// ClientCAPEMs enables mutual TLS on a server: clients must then present a
+	// certificate signed by one of these PEM-encoded authorities. Servers only.
+	ClientCAPEMs [][]byte `json:"-"`
 }
 
 // Sanitize sets default values - if applicable - and validates the configuration.
@@ -50,11 +54,13 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Entry {
 		return entries
 	}
 
+	// The PEM slices are rebuilt rather than normalized in place: a Config is
+	// passed by value, but its slices still share their backing arrays with the
+	// caller's, which must not change under them.
 	cfg.CertPEM = normalizePEM(cfg.CertPEM)
 	cfg.KeyPEM = normalizePEM(cfg.KeyPEM)
-	for i := range cfg.RootCAPEMs {
-		cfg.RootCAPEMs[i] = normalizePEM(cfg.RootCAPEMs[i])
-	}
+	cfg.RootCAPEMs = normalizePEMs(cfg.RootCAPEMs)
+	cfg.ClientCAPEMs = normalizePEMs(cfg.ClientCAPEMs)
 
 	if (len(cfg.CertPEM) > 0 && len(cfg.KeyPEM) == 0) || (len(cfg.CertPEM) == 0 && len(cfg.KeyPEM) > 0) {
 		entries = append(entries, errorstack.Entry{
@@ -66,9 +72,13 @@ func (cfg *ConfigTLS) Sanitize() []errorstack.Entry {
 	return entries
 }
 
-// ToStandardTLS tries to return a Go standard *tls.Config. Returns validation
-// entries if configuration is not valid. This doesn't return a standard error
-// since this function shall only be called by integrations.
+// ToStandardTLS tries to return a Go standard *tls.Config for a client. Returns
+// validation entries if configuration is not valid. This doesn't return a standard
+// error since this function shall only be called by integrations.
+//
+// ServerName is left empty when the Config does not set it. Most drivers derive it
+// from the address they dial; one that does not must set it before use, since a
+// client without it cannot verify the server's certificate.
 func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Entry) {
 	var entries []errorstack.Entry
 	if !cfg.Enabled {
@@ -119,5 +129,57 @@ func (cfg *ConfigTLS) ToStandardTLS() (*tls.Config, []errorstack.Entry) {
 	}
 
 	tlsConfig.RootCAs = caCertPool
+	return tlsConfig, nil
+}
+
+// ToServerTLS returns the *tls.Config a server listens with. Returns validation
+// entries if configuration is not valid.
+//
+// A server needs a certificate, so CertPEM and KeyPEM are required when TLS is
+// enabled. ClientCAPEMs, when set, turns on mutual TLS. The client-only fields —
+// ServerName, InsecureSkipVerify, RootCAPEMs — mean nothing to a server and are
+// ignored. Returns nil and no entries when TLS is disabled.
+func (cfg *ConfigTLS) ToServerTLS() (*tls.Config, []errorstack.Entry) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+
+	if len(cfg.CertPEM) == 0 || len(cfg.KeyPEM) == 0 {
+		return nil, []errorstack.Entry{{
+			Message: "Must be set; a server requires cert_pem and key_pem",
+			Path:    []any{"config", "tls"},
+		}}
+	}
+
+	cert, err := tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
+	if err != nil {
+		return nil, []errorstack.Entry{{
+			Message: "Must be a valid X509 key pair",
+			Path:    []any{"config", "tls"},
+		}}
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	if len(cfg.ClientCAPEMs) == 0 {
+		return tlsConfig, nil
+	}
+
+	pool := x509.NewCertPool()
+	for _, ca := range cfg.ClientCAPEMs {
+		if !pool.AppendCertsFromPEM(ca) {
+			return nil, []errorstack.Entry{{
+				Message: "Must be a valid PEM-encoded certificate authority",
+				Path:    []any{"config", "tls", "client_ca_pems"},
+			}}
+		}
+	}
+
+	tlsConfig.ClientCAs = pool
+	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+
 	return tlsConfig, nil
 }

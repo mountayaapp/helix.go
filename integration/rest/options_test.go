@@ -3,7 +3,6 @@ package rest
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -66,7 +65,7 @@ func TestResolveRouteOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &rest{config: &Config{RequestTimeout: tc.config}}
 
-			assert.Equal(t, tc.expected, r.resolveRouteOptions(tc.opts))
+			assert.Equal(t, tc.expected, r.resolveRouteOptions(tc.opts).timeout)
 		})
 	}
 }
@@ -76,17 +75,15 @@ func TestResolveRouteOptions(t *testing.T) {
 func deadlineFor(t *testing.T, config time.Duration, opts ...RouteOption) (time.Time, bool) {
 	t.Helper()
 
-	r := newTestRouter()
-	r.config.RequestTimeout = config
+	api, _ := newTestREST(t, Config{RequestTimeout: config})
 
 	var deadline time.Time
 	var ok bool
-	r.GET("/budgeted", func(_ http.ResponseWriter, req *http.Request) {
+	api.GET("/budgeted", func(_ http.ResponseWriter, req *http.Request) {
 		deadline, ok = req.Context().Deadline()
 	}, opts...)
 
-	req := httptest.NewRequest(http.MethodGet, "/budgeted", nil)
-	r.bun.ServeHTTP(httptest.NewRecorder(), req)
+	serve(api.Handler(), http.MethodGet, "/budgeted", nil)
 
 	return deadline, ok
 }
@@ -120,16 +117,15 @@ func TestRoute_NoBudget_LeavesNoDeadline(t *testing.T) {
 }
 
 func TestRoute_Budget_CancelsHandlerContextWhenSpent(t *testing.T) {
-	r := newTestRouter()
+	api, _ := newTestREST(t, Config{})
 
 	var err error
-	r.GET("/slow", func(_ http.ResponseWriter, req *http.Request) {
+	api.GET("/slow", func(_ http.ResponseWriter, req *http.Request) {
 		<-req.Context().Done()
 		err = req.Context().Err()
 	}, WithTimeout(10*time.Millisecond))
 
-	req := httptest.NewRequest(http.MethodGet, "/slow", nil)
-	r.bun.ServeHTTP(httptest.NewRecorder(), req)
+	serve(api.Handler(), http.MethodGet, "/slow", nil)
 
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -137,44 +133,44 @@ func TestRoute_Budget_CancelsHandlerContextWhenSpent(t *testing.T) {
 // The budget must be released as soon as the handler returns, so a fast handler
 // on a generous budget does not hold a timer for the whole duration.
 func TestRoute_Budget_CancelsOnceHandlerReturns(t *testing.T) {
-	r := newTestRouter()
+	api, _ := newTestREST(t, Config{})
 
 	var ctx context.Context
-	r.GET("/fast", func(_ http.ResponseWriter, req *http.Request) {
+	api.GET("/fast", func(_ http.ResponseWriter, req *http.Request) {
 		ctx = req.Context()
 	}, WithTimeout(time.Hour))
 
-	req := httptest.NewRequest(http.MethodGet, "/fast", nil)
-	r.bun.ServeHTTP(httptest.NewRecorder(), req)
+	serve(api.Handler(), http.MethodGet, "/fast", nil)
 
 	require.NotNil(t, ctx)
 	assert.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
-// Every verb resolves options through the same seam, so each one must carry them.
-func TestRoute_EveryVerbCarriesOptions(t *testing.T) {
+// Every method resolves options through the same seam, so each one must carry them.
+func TestRoute_EveryMethodCarriesOptions(t *testing.T) {
 	testcases := []struct {
 		method   string
-		register func(r *rest, path string, handler http.HandlerFunc, opts ...RouteOption)
+		register func(r Router, path string, handler http.HandlerFunc, opts ...RouteOption)
 	}{
-		{http.MethodGet, (*rest).GET},
-		{http.MethodDelete, (*rest).DELETE},
-		{http.MethodPatch, (*rest).PATCH},
-		{http.MethodPost, (*rest).POST},
-		{http.MethodPut, (*rest).PUT},
+		{http.MethodGet, Router.GET},
+		{http.MethodHead, Router.HEAD},
+		{http.MethodPost, Router.POST},
+		{http.MethodPut, Router.PUT},
+		{http.MethodPatch, Router.PATCH},
+		{http.MethodDelete, Router.DELETE},
+		{http.MethodOptions, Router.OPTIONS},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.method, func(t *testing.T) {
-			r := newTestRouter()
+			api, _ := newTestREST(t, Config{})
 
 			var ok bool
-			tc.register(r, "/verb", func(_ http.ResponseWriter, req *http.Request) {
+			tc.register(api, "/verb", func(_ http.ResponseWriter, req *http.Request) {
 				_, ok = req.Context().Deadline()
 			}, WithTimeout(30*time.Second))
 
-			req := httptest.NewRequest(tc.method, "/verb", nil)
-			r.bun.ServeHTTP(httptest.NewRecorder(), req)
+			serve(api.Handler(), tc.method, "/verb", nil)
 
 			assert.True(t, ok, "handler should observe a deadline")
 		})

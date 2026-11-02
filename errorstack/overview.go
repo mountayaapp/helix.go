@@ -19,5 +19,10 @@
 // multi-entry error where every entry carries CodeValidationFailed. Use Wrap to
 // preserve an existing error in the chain for errors.Is/As support.
 //
+// Use Nest — not Wrap — when aggregating the failures of several components into
+// one error. Wrap keeps its cause unserialized, so the entries of the error it
+// wraps do not survive into the envelope; Nest carries them through and records
+// which component they came from in their path.
+//
 // This package must not import any other package of this ecosystem.
 package errorstack

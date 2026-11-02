@@ -5,11 +5,12 @@ import (
 	"os"
 	"strings"
 
+	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+
 	"go.opentelemetry.io/contrib/bridges/otelzap"
-	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/resource"
+	otellog "go.opentelemetry.io/otel/log"
+	lognoop "go.opentelemetry.io/otel/log/noop"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -20,31 +21,31 @@ import (
 // used by the public telemetry/log package-level functions.
 type Logger struct {
 	zap      *zap.Logger
-	provider *log.LoggerProvider
+	provider otellog.LoggerProvider
 }
 
-// Debug logs a message at the debug level with optional structured fields. It
-// automatically extracts trace_id and span_id from the context.
+// Debug logs a message at the debug level with optional structured fields. The
+// record is correlated with the span carried by ctx, if any.
 func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Debug(msg, l.fieldsWithTrace(ctx, fields)...)
+	l.zap.Debug(msg, withContext(ctx, fields)...)
 }
 
-// Info logs a message at the info level with optional structured fields. It
-// automatically extracts trace_id and span_id from the context.
+// Info logs a message at the info level with optional structured fields. The
+// record is correlated with the span carried by ctx, if any.
 func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Info(msg, l.fieldsWithTrace(ctx, fields)...)
+	l.zap.Info(msg, withContext(ctx, fields)...)
 }
 
-// Warn logs a message at the warn level with optional structured fields. It
-// automatically extracts trace_id and span_id from the context.
+// Warn logs a message at the warn level with optional structured fields. The
+// record is correlated with the span carried by ctx, if any.
 func (l *Logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Warn(msg, l.fieldsWithTrace(ctx, fields)...)
+	l.zap.Warn(msg, withContext(ctx, fields)...)
 }
 
-// Error logs a message at the error level with optional structured fields. It
-// automatically extracts trace_id and span_id from the context.
+// Error logs a message at the error level with optional structured fields. The
+// record is correlated with the span carried by ctx, if any.
 func (l *Logger) Error(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Error(msg, l.fieldsWithTrace(ctx, fields)...)
+	l.zap.Error(msg, withContext(ctx, fields)...)
 }
 
 // With returns a child Logger that always includes the given fields.
@@ -58,88 +59,164 @@ func (l *Logger) Sync() error {
 }
 
 // Provider returns the underlying OpenTelemetry LoggerProvider. Integrations that
-// need to wire OpenTelemetry-native log processors use this.
-func (l *Logger) Provider() *log.LoggerProvider {
+// need to wire OpenTelemetry-native log bridges use this.
+//
+// The return type is the API interface, not the SDK implementation, so that the
+// public surface does not commit to an SDK type.
+func (l *Logger) Provider() otellog.LoggerProvider {
 	return l.provider
 }
 
-// Shutdown gracefully shuts down the logger's OpenTelemetry provider, flushing any
-// pending log records.
-func (l *Logger) Shutdown(ctx context.Context) error {
-	if l.provider == nil {
-		return nil
-	}
-
-	return l.provider.Shutdown(ctx)
-}
-
-// fieldsWithTrace appends trace_id and span_id from the context to the given fields
-// slice. This enriches stderr JSON output with trace correlation. The otelzap bridge
-// handles correlation automatically on the OpenTelemetry export path.
-func (l *Logger) fieldsWithTrace(ctx context.Context, fields []zap.Field) []zap.Field {
-	sc := trace.SpanContextFromContext(ctx)
-	if sc.HasTraceID() {
-		fields = append(fields, zap.String("trace_id", sc.TraceID().String()))
-		if sc.HasSpanID() {
-			fields = append(fields, zap.String("span_id", sc.SpanID().String()))
-		}
-	}
-
-	return fields
-}
-
-// NewLogger creates a new Logger with the given level and OpenTelemetry resource.
-// It sets up two output paths:
+// withContext returns fields with ctx appended as a field the cores can read and
+// the encoders skip, when ctx carries a span worth correlating with.
 //
-//   - A production Zap core that writes JSON to stderr (with resource attributes
-//     converted to underscore-separated field keys for log aggregator compatibility).
-//   - An otelzap core that exports log records to an OTLP gRPC endpoint via the
-//     OpenTelemetry Log SDK.
-func NewLogger(level zapcore.Level, res *resource.Resource) (*Logger, error) {
-	ctx := context.Background()
+// The context travels as a field because that is the only channel a zap core has.
+// The OpenTelemetry bridge reads a field holding a context.Context as the record's
+// context, which is what gives an exported record its native trace and span IDs;
+// traceCore reads the same field to put them on the stderr line. SkipType keeps
+// the JSON encoder from trying to serialize the context itself.
+//
+// A context without a valid span adds nothing, so an uncorrelated log line pays
+// for no extra field. The result never shares a backing array with fields, which
+// belongs to the caller.
+func withContext(ctx context.Context, fields []zap.Field) []zap.Field {
+	if ctx == nil || !trace.SpanContextFromContext(ctx).IsValid() {
+		return fields
+	}
 
-	// Build the production core (stderr JSON output).
+	return append(fields[:len(fields):len(fields)], zap.Field{
+		Key:       "context",
+		Type:      zapcore.SkipType,
+		Interface: ctx,
+	})
+}
+
+// traceCore is the stderr core, extended to write the trace_id and span_id of the
+// context a call carried. The export path does not need it: the bridge correlates
+// a record natively, from the same context.
+type traceCore struct {
+	zapcore.Core
+}
+
+// With returns a traceCore over the wrapped core's With.
+func (c traceCore) With(fields []zapcore.Field) zapcore.Core {
+	return traceCore{Core: c.Core.With(fields)}
+}
+
+// Check adds this core, rather than the wrapped one, so that Write is the one
+// below.
+func (c traceCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(ent.Level) {
+		return ce.AddCore(ent, c)
+	}
+
+	return ce
+}
+
+// Write appends trace_id and span_id from the context field, if there is one, and
+// writes the entry through the wrapped core.
+func (c traceCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	for _, field := range fields {
+		ctx, ok := field.Interface.(context.Context)
+		if !ok {
+			continue
+		}
+
+		sc := trace.SpanContextFromContext(ctx)
+		if !sc.IsValid() {
+			break
+		}
+
+		fields = append(fields[:len(fields):len(fields)],
+			zap.String("trace_id", sc.TraceID().String()),
+			zap.String("span_id", sc.SpanID().String()),
+		)
+
+		break
+	}
+
+	return c.Core.Write(ent, fields)
+}
+
+// levelCore drops entries below a level before they reach the core it wraps.
+//
+// The OpenTelemetry bridge has no level of its own: it asks the provider, and an
+// SDK provider accepts everything. Without this, a debug record nobody configured
+// stderr to show would still be exported.
+type levelCore struct {
+	zapcore.Core
+
+	level zapcore.LevelEnabler
+}
+
+// Enabled reports whether both the level and the wrapped core accept l.
+func (c levelCore) Enabled(l zapcore.Level) bool {
+	return c.level.Enabled(l) && c.Core.Enabled(l)
+}
+
+// With returns a levelCore over the wrapped core's With.
+func (c levelCore) With(fields []zapcore.Field) zapcore.Core {
+	return levelCore{Core: c.Core.With(fields), level: c.level}
+}
+
+// Check defers to the wrapped core for an entry at or above the level.
+func (c levelCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if !c.level.Enabled(ent.Level) {
+		return ce
+	}
+
+	return c.Core.Check(ent, ce)
+}
+
+// NewLoggerWithProvider creates a Logger around a caller-supplied provider, which
+// also writes stderr JSON with attrs applied as initial fields. level applies to
+// both: a record below it is neither written nor exported.
+//
+// The provider is an API type and the caller keeps ownership of its lifecycle.
+// That is deliberate: it is what keeps the OpenTelemetry SDK — and with it every
+// OTLP exporter — out of this module's build graph. The service package builds the
+// SDK provider and is responsible for shutting it down. attrs is likewise the
+// resource's attributes rather than the resource itself, which is an SDK type.
+func NewLoggerWithProvider(provider otellog.LoggerProvider, level zapcore.Level, attrs []attribute.KeyValue) *Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.MessageKey = "message"
 	encoderConfig.TimeKey = "timestamp"
 	encoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
 
-	prodCore := zapcore.NewCore(
+	stderrCore := traceCore{Core: zapcore.NewCore(
 		zapcore.NewJSONEncoder(encoderConfig),
 		zapcore.AddSync(os.Stderr),
 		level,
-	)
+	)}
 
-	// Build the OpenTelemetry log exporter via autoexport, which respects
-	// OTEL_LOGS_EXPORTER and all standard OTEL_EXPORTER_OTLP_* env vars.
-	exporter, err := autoexport.NewLogExporter(ctx)
-	if err != nil {
-		return nil, err
-	}
+	exportCore := levelCore{Core: newExportCore(provider), level: level}
 
-	provider := log.NewLoggerProvider(
-		log.WithResource(res),
-		log.WithProcessor(log.NewBatchProcessor(exporter)),
-	)
+	core := zapcore.NewTee(stderrCore, exportCore)
+	z := zap.New(core, zap.Fields(attributesToFields(attrs)...))
 
-	otelCore := otelzap.NewCore("github.com/mountayaapp/helix.go",
-		otelzap.WithLoggerProvider(provider),
-	)
-
-	// Tee both cores and apply resource attributes as initial fields.
-	core := zapcore.NewTee(prodCore, otelCore)
-	z := zap.New(core, zap.Fields(attributesToFields(res)...))
-
-	return &Logger{zap: z, provider: provider}, nil
+	return &Logger{zap: z, provider: provider}
 }
 
-// NewNopLogger creates a Logger that discards all output.
+// newExportCore returns the zap core that bridges entries to provider as
+// OpenTelemetry log records, under the same instrumentation scope as helix's spans
+// and metrics.
+func newExportCore(provider otellog.LoggerProvider) zapcore.Core {
+	return otelzap.NewCore(internaltrace.ScopeName, otelzap.WithLoggerProvider(provider))
+}
+
+// NewNopLogger creates a Logger that discards all output. The provider is the
+// OpenTelemetry no-op implementation rather than nil, so that Provider() never
+// hands a caller a nil interface to dereference.
 func NewNopLogger() *Logger {
-	return &Logger{zap: zap.NewNop()}
+	return &Logger{zap: zap.NewNop(), provider: lognoop.NewLoggerProvider()}
 }
 
 // DefaultLevel determines the log level from the OTEL_LOG_LEVEL environment
 // variable (debug, info, warn, error). Defaults to info when unset or invalid.
+//
+// It is the fallback for a Service whose Config does not set a level.
+// OTEL_LOG_LEVEL is, strictly, the OpenTelemetry SDK's own diagnostic level; it
+// is read here for compatibility with services already relying on it.
 func DefaultLevel() zapcore.Level {
 	switch strings.ToLower(os.Getenv("OTEL_LOG_LEVEL")) {
 	case "debug":
@@ -156,15 +233,9 @@ func DefaultLevel() zapcore.Level {
 // attributesToFields converts a resource's attributes to Zap fields for the stderr
 // production core. Dots in keys are replaced with underscores for compatibility
 // with log aggregators like Elasticsearch that interpret dots as nested paths.
-func attributesToFields(res *resource.Resource) []zap.Field {
-	if res == nil {
-		return nil
-	}
-
-	iter := res.Iter()
-	fields := make([]zap.Field, 0, res.Len())
-	for iter.Next() {
-		kv := iter.Attribute()
+func attributesToFields(attrs []attribute.KeyValue) []zap.Field {
+	fields := make([]zap.Field, 0, len(attrs))
+	for _, kv := range attrs {
 		key := strings.ReplaceAll(string(kv.Key), ".", "_")
 		switch kv.Value.Type() {
 		case attribute.STRING:

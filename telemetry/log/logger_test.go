@@ -53,10 +53,8 @@ func TestLogFunctions_WithLogger(t *testing.T) {
 }
 
 func TestLevelConstants(t *testing.T) {
-	assert.Equal(t, Level(zapcore.DebugLevel), LevelDebug)
-	assert.Equal(t, Level(zapcore.InfoLevel), LevelInfo)
-	assert.Equal(t, Level(zapcore.WarnLevel), LevelWarn)
-	assert.Equal(t, Level(zapcore.ErrorLevel), LevelError)
+	var unset Level
+	assert.Less(t, unset, LevelDebug, "the zero value is unset, not a level")
 
 	assert.Less(t, LevelDebug, LevelInfo)
 	assert.Less(t, LevelInfo, LevelWarn)

@@ -3,116 +3,143 @@ package temporal
 import (
 	"testing"
 
+	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
+	"github.com/mountayaapp/helix.go/service/servicetest"
 	"github.com/mountayaapp/helix.go/telemetry/log"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	oteltrace "go.opentelemetry.io/otel/trace"
+	temporallog "go.temporal.io/sdk/log"
 )
 
-func TestCustomLogger_Fields_EvenKeyvals(t *testing.T) {
-	l := &customlogger{}
+// testSpanContext is a valid span context, as the tracer hands one to the logger.
+func testSpanContext(t *testing.T) oteltrace.SpanContext {
+	t.Helper()
 
-	fields := l.fields([]any{"key1", "value1", "key2", 42})
+	traceID, err := oteltrace.TraceIDFromHex("0af7651916cd43dd8448eb211c80319c")
+	require.NoError(t, err)
 
-	assert.Len(t, fields, 2)
-	assert.Equal(t, log.Any("key1", "value1"), fields[0])
-	assert.Equal(t, log.Any("key2", 42), fields[1])
+	spanID, err := oteltrace.SpanIDFromHex("b7ad6b7169203331")
+	require.NoError(t, err)
+
+	return oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: oteltrace.FlagsSampled,
+	})
 }
 
-func TestCustomLogger_Fields_OddKeyvals(t *testing.T) {
-	l := &customlogger{}
-
-	// Odd number of keyvals: the trailing element without a pair is ignored.
-	fields := l.fields([]any{"key1", "value1", "orphan"})
-
-	assert.Len(t, fields, 1)
-	assert.Equal(t, log.Any("key1", "value1"), fields[0])
-}
-
-func TestCustomLogger_Fields_Empty(t *testing.T) {
-	l := &customlogger{}
-
-	fields := l.fields([]any{})
-
-	assert.Nil(t, fields)
-}
-
-func TestCustomLogger_Fields_Nil(t *testing.T) {
-	l := &customlogger{}
-
-	fields := l.fields(nil)
-
-	assert.Nil(t, fields)
-}
-
-func TestCustomLogger_Fields_NonStringKey(t *testing.T) {
-	l := &customlogger{}
-
-	// Non-string keys are formatted via fmt.Sprintf.
-	fields := l.fields([]any{123, "value"})
-
-	assert.Len(t, fields, 1)
-	assert.Equal(t, log.Any("123", "value"), fields[0])
-}
-
-func TestCustomLogger_Fields_MixedTypes(t *testing.T) {
-	l := &customlogger{}
-
-	fields := l.fields([]any{
-		"string_key", "string_value",
-		"int_key", 42,
-		"bool_key", true,
-		"nil_key", nil,
+// attributeKeys returns the keys of the attributes of record.
+func attributeKeys(record sdklog.Record) []string {
+	var keys []string
+	record.WalkAttributes(func(kv attribute.KeyValue) bool {
+		keys = append(keys, string(kv.Key))
+		return true
 	})
 
-	assert.Len(t, fields, 4)
-	assert.Equal(t, log.Any("string_key", "string_value"), fields[0])
-	assert.Equal(t, log.Any("int_key", 42), fields[1])
-	assert.Equal(t, log.Any("bool_key", true), fields[2])
-	assert.Equal(t, log.Any("nil_key", nil), fields[3])
+	return keys
 }
 
-func TestCustomLogger_Fields_SinglePair(t *testing.T) {
-	l := &customlogger{}
+func TestCustomLogger_Parse(t *testing.T) {
+	l := &customLogger{logger: internallog.NewNopLogger()}
 
-	fields := l.fields([]any{"only_key", "only_value"})
-
-	assert.Len(t, fields, 1)
-	assert.Equal(t, log.Any("only_key", "only_value"), fields[0])
-}
-
-func TestCustomLogger_LogMethods_DoNotPanic(t *testing.T) {
-	// customlogger with a nil cachedCtx will cause a no-op in the log functions
-	// since no logger is attached. This verifies the methods don't panic.
-	l := &customlogger{
-		cachedCtx: t.Context(),
+	testcases := []struct {
+		name    string
+		keyvals []any
+		want    []log.Field
+	}{
+		{
+			name:    "pairs become fields",
+			keyvals: []any{"key1", "value1", "key2", 42},
+			want:    []log.Field{log.Any("key1", "value1"), log.Any("key2", 42)},
+		},
+		{
+			name:    "a trailing key without a value is dropped",
+			keyvals: []any{"key1", "value1", "orphan"},
+			want:    []log.Field{log.Any("key1", "value1")},
+		},
+		{
+			name:    "a key that is not a string is formatted",
+			keyvals: []any{123, "value"},
+			want:    []log.Field{log.Any("123", "value")},
+		},
+		{
+			name:    "nothing gives no fields",
+			keyvals: nil,
+			want:    nil,
+		},
 	}
 
-	assert.NotPanics(t, func() {
-		l.Debug("debug message", "key", "value")
-	})
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			sc, fields := l.parse(tc.keyvals)
 
-	assert.NotPanics(t, func() {
-		l.Info("info message", "key", "value")
-	})
+			assert.Equal(t, tc.want, fields)
+			assert.False(t, sc.IsValid())
+		})
+	}
 
-	assert.NotPanics(t, func() {
-		l.Warn("warn message", "key", "value")
-	})
+	t.Run("the span context is taken, not logged", func(t *testing.T) {
+		sc, fields := l.parse([]any{spanContextKey{}, testSpanContext(t), "key", "value"})
 
-	assert.NotPanics(t, func() {
-		l.Error("error message", "key", "value")
+		assert.Equal(t, testSpanContext(t), sc)
+		assert.Equal(t, []log.Field{log.Any("key", "value")}, fields)
 	})
 }
 
-func TestCustomLogger_LogMethods_NoKeyvals(t *testing.T) {
-	l := &customlogger{
-		cachedCtx: t.Context(),
+func TestCustomLogger_CorrelatesWithTheSpanItWasGiven(t *testing.T) {
+	svc, rec := servicetest.New(t)
+	l := newCustomLogger(svc)
+
+	// The way the SDK's workflow and activity loggers reach it: through With, or as
+	// key-value pairs prepended to every line.
+	temporallog.With(l, spanContextKey{}, testSpanContext(t)).Info("through With", "key", "value")
+	l.Warn("through the line", spanContextKey{}, testSpanContext(t))
+
+	records := rec.Records()
+	require.Len(t, records, 2)
+
+	for _, record := range records {
+		assert.Equal(t, testSpanContext(t).TraceID(), record.TraceID(), "record %q", record.Body().AsString())
+		assert.Equal(t, testSpanContext(t).SpanID(), record.SpanID(), "record %q", record.Body().AsString())
+
+		// Correlated natively, rather than with fields of their own.
+		assert.NotContains(t, attributeKeys(record), "TraceID")
+		assert.NotContains(t, attributeKeys(record), "SpanID")
 	}
 
-	assert.NotPanics(t, func() {
-		l.Debug("no keyvals")
-		l.Info("no keyvals")
-		l.Warn("no keyvals")
-		l.Error("no keyvals")
-	})
+	assert.Contains(t, attributeKeys(records[0]), "key")
+}
+
+func TestCustomLogger_LinesWithoutASpanAreNotCorrelated(t *testing.T) {
+	svc, rec := servicetest.New(t)
+
+	// A context carrying a span when the client was built must not leak onto
+	// every line the SDK logs afterwards: the logger holds no context at all.
+	newCustomLogger(svc).Error("background line")
+
+	records := rec.Records()
+	require.Len(t, records, 1)
+	assert.False(t, records[0].TraceID().IsValid())
+}
+
+func TestCustomLogger_AllLevels(t *testing.T) {
+	svc, rec := servicetest.New(t)
+	l := newCustomLogger(svc)
+
+	l.Debug("debug")
+	l.Info("info")
+	l.Warn("warn")
+	l.Error("error")
+
+	var bodies []string
+	for _, record := range rec.Records() {
+		bodies = append(bodies, record.Body().AsString())
+	}
+
+	// Debug is below the Service's default level.
+	assert.Equal(t, []string{"info", "warn", "error"}, bodies)
 }

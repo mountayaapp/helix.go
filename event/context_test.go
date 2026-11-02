@@ -39,7 +39,7 @@ func TestFromContext(t *testing.T) {
 			success: true,
 		},
 		{
-			name: "event extracted from baggage",
+			name: "event extracted from baggage reads the allow-list only",
 			ctx:  t.Context(),
 			baggage: func() baggage.Baggage {
 				memberName, _ := baggage.NewMember("event.name", "testing")
@@ -50,9 +50,6 @@ func TestFromContext(t *testing.T) {
 			},
 			expected: Event{
 				Name: "testing",
-				Meta: map[string]string{
-					"source": "web",
-				},
 			},
 			success: true,
 		},
@@ -96,17 +93,17 @@ func TestFromContext_EmptyBaggageReturnsFalse(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestFromContext_BaggageWithMeta(t *testing.T) {
+func TestFromContext_BaggageOutsideAllowListIsIgnored(t *testing.T) {
 	name, _ := baggage.NewMember("event.name", "click")
 	meta, _ := baggage.NewMember("event.meta.source", "web")
-	b, _ := baggage.New(name, meta)
+	user, _ := baggage.NewMember("event.user_id", "user_123")
+	b, _ := baggage.New(name, meta, user)
 	ctx := baggage.ContextWithBaggage(t.Context(), b)
 
 	actual, ok := FromContext(ctx)
 
 	assert.True(t, ok)
-	assert.Equal(t, "click", actual.Name)
-	assert.Equal(t, "web", actual.Meta["source"])
+	assert.Equal(t, Event{Name: "click"}, actual)
 }
 
 func TestNewContext(t *testing.T) {

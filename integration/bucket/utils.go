@@ -1,39 +1,37 @@
 package bucket
 
 import (
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountayaapp/helix.go/integration"
 
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// Pre-computed span names to avoid allocations on every call.
-var (
-	attrKeyDriver    = attribute.Key(identifier + ".driver")
-	attrKeyBucket    = attribute.Key(identifier + ".bucket")
-	attrKeySubfolder = attribute.Key(identifier + ".subfolder")
-	attrKeyKey       = attribute.Key(identifier + ".key")
-)
+// Pre-computed attribute keys to avoid allocations on every call.
+//
+// Only the key varies per operation. The driver, bucket, subfolder, region and
+// endpoint are fixed for the life of the connection, so they are handed to the
+// Instrument once and stamped by it rather than rebuilt on every span.
+var attrKeyKey = integration.Key(identifier, "key")
 
-// setAttributes sets integration and key attributes to a trace span in a single
-// call, reducing per-operation overhead.
-func setAttributes(span *trace.Span, cfg *Config, key string) {
-	if cfg == nil {
-		span.SetAttributes(attrKeyKey.String(key))
-		return
+// instrumentAttributes returns the attributes every span of this connection
+// carries, derived from the sanitized Config.
+func instrumentAttributes(cfg *Config) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		integration.Key(identifier, "driver").String(string(cfg.Driver)),
+		integration.Key(identifier, "bucket").String(cfg.Bucket),
 	}
 
 	if cfg.Subfolder != "" {
-		span.SetAttributes(
-			attrKeyDriver.String(cfg.Driver.string()),
-			attrKeyBucket.String(cfg.Bucket),
-			attrKeySubfolder.String(cfg.Subfolder),
-			attrKeyKey.String(key),
-		)
-	} else {
-		span.SetAttributes(
-			attrKeyDriver.String(cfg.Driver.string()),
-			attrKeyBucket.String(cfg.Bucket),
-			attrKeyKey.String(key),
-		)
+		attrs = append(attrs, integration.Key(identifier, "subfolder").String(cfg.Subfolder))
 	}
+
+	if cfg.Region != "" {
+		attrs = append(attrs, integration.Key(identifier, "region").String(cfg.Region))
+	}
+
+	if cfg.Endpoint != "" {
+		attrs = append(attrs, integration.Key(identifier, "endpoint").String(cfg.Endpoint))
+	}
+
+	return attrs
 }

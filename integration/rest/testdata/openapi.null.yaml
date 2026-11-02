@@ -1,0 +1,85 @@
+openapi: 3.1.0
+info:
+  title: Things
+  version: 1.0.0
+paths:
+  /things:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThingInput'
+      responses:
+        '201':
+          description: The thing was created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Thing'
+  /things/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      responses:
+        '200':
+          description: The thing.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Thing'
+    delete:
+      responses:
+        '200':
+          description: The thing was deleted, and the answer carries no payload.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: 'null'
+components:
+  schemas:
+    Envelope:
+      type: object
+      required:
+        - data
+      properties:
+        data: {}
+    Thing:
+      type: object
+      required:
+        - id
+        - tags
+      properties:
+        id:
+          type: string
+        tags:
+          type: array
+          items: {}
+    ThingInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        attributes: {}

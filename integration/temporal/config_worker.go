@@ -1,19 +1,41 @@
 package temporal
 
 import (
+	"math"
+	"time"
+
 	"github.com/mountayaapp/helix.go/errorstack"
+
+	"go.temporal.io/sdk/worker"
 )
 
-// ConfigWorker is used to configure a Temporal worker connection registered as a
-// server.
+// defaultStopTimeout is how long a worker waits for its running activities when
+// it stops, unless ConfigWorker.StopTimeout says otherwise. It is what a Service
+// with the default 30s ShutdownTimeout has left for its integrations once it has
+// set aside the part reserved for flushing telemetry.
+const defaultStopTimeout = 25 * time.Second
+
+// ConfigWorker is used to configure a Temporal worker registered as a server,
+// along with the client it polls with.
 type ConfigWorker struct {
 
-	// Client holds the shared Temporal client configuration.
+	// Client holds the configuration of the client the worker polls with. Its Name
+	// is ignored: the worker's own Name applies to both.
 	Client ConfigClient `json:"client"`
 
-	// TaskQueue is the task queue name you use to identify your client worker,
-	// also identifies group of workflow and activity implementations that are hosted
-	// by a single worker process.
+	// Name identifies the worker in health output, error context and telemetry,
+	// where it is the temporal.name attribute. The worker is registered as a server
+	// under it, and the client it polls with as a dependency under it too.
+	//
+	// Default:
+	//
+	//   TaskQueue
+	Name string `json:"name"`
+
+	// TaskQueue is the task queue the worker polls. It identifies the group of
+	// workflow and activity implementations hosted by the workers serving it.
+	//
+	// Required.
 	TaskQueue string `json:"task_queue"`
 
 	// WorkerActivitiesPerSecond sets the rate limiting on number of activities that
@@ -52,29 +74,96 @@ type ConfigWorker struct {
 	//
 	//   false
 	EnableSessionWorker bool `json:"enable_session_worker"`
+
+	// StopTimeout is how long the worker waits, once told to stop, for the
+	// activities it is running to finish. Activities still running after it are
+	// cancelled, and Temporal retries them on another worker according to their
+	// retry policy.
+	//
+	// It is spent inside the Service's ShutdownTimeout, which every integration
+	// shares and which keeps part of itself for flushing telemetry: with the
+	// Service's defaults, 25 of its 30 seconds. A StopTimeout longer than what the
+	// Service has left is cut short — Stop reports the worker as not drained, and
+	// the client it polls with is closed under the activities still running.
+	// Raise ShutdownTimeout along with it.
+	//
+	// Default:
+	//
+	//   25 * time.Second
+	StopTimeout time.Duration `json:"stop_timeout,omitzero"`
+
+	// SysInfoProvider reports the host's CPU and memory usage in the heartbeats the
+	// worker sends to the server. Left nil, the heartbeats report zero for both.
+	//
+	// go.temporal.io/sdk/contrib/sysinfo provides one built on gopsutil. It is not
+	// wired by default because it brings gopsutil, cgroups and eBPF packages into
+	// every binary that imports this integration. The SDK marks the option as
+	// experimental.
+	SysInfoProvider worker.SysInfoProvider `json:"-"`
 }
 
-// sanitize validates the worker configuration by first sanitizing the embedded
-// client configuration, then validating worker-specific fields. Returns an error
-// if configuration is not valid.
+// sanitize sets default values - when applicable - and validates the
+// configuration, including the embedded client configuration, whose entries are
+// reported under config.client. Returns an error if configuration is not valid.
 func (cfg *ConfigWorker) sanitize() error {
 	var entries []errorstack.Entry
 
 	if cfg.TaskQueue == "" {
 		entries = append(entries, errorstack.Entry{
 			Message: "Must be set",
-			Path:    []any{"config", "worker", "task_queue"},
+			Path:    []any{"config", "task_queue"},
 		})
 	}
 
-	// Sanitize the client configuration and absorb its entries.
-	if err := cfg.Client.sanitize(); err != nil {
-		entries = append(entries, errorstack.EntriesOf(err)...)
+	if !validRate(cfg.WorkerActivitiesPerSecond) {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be a finite number greater than or equal to 0",
+			Path:    []any{"config", "worker_activities_per_second"},
+		})
 	}
+
+	if !validRate(cfg.TaskQueueActivitiesPerSecond) {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be a finite number greater than or equal to 0",
+			Path:    []any{"config", "task_queue_activities_per_second"},
+		})
+	}
+
+	switch {
+	case cfg.StopTimeout < 0:
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be greater than or equal to 0",
+			Path:    []any{"config", "stop_timeout"},
+		})
+	case cfg.StopTimeout == 0:
+		cfg.StopTimeout = defaultStopTimeout
+	}
+
+	entries = append(entries, rebase(cfg.Client.validate(), "config", "client")...)
 
 	if len(entries) > 0 {
 		return errorstack.NewValidation(entries...)
 	}
 
 	return nil
+}
+
+// name returns the name the worker and its client register under. A worker is
+// identified by the task queue it serves unless it is given a name, and the
+// integration's identifier is the last resort.
+func (cfg *ConfigWorker) name() string {
+	switch {
+	case cfg.Name != "":
+		return cfg.Name
+	case cfg.TaskQueue != "":
+		return cfg.TaskQueue
+	default:
+		return identifier
+	}
+}
+
+// validRate reports whether rate is a usable activities-per-second limit. Zero is
+// valid: it leaves the SDK's default in place.
+func validRate(rate float64) bool {
+	return rate >= 0 && !math.IsInf(rate, 1)
 }

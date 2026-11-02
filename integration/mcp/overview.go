@@ -3,27 +3,32 @@
 // serves arbitrary MCP tools, resources, and prompts over the Streamable HTTP
 // transport. It handles the HTTP server lifecycle, health endpoints, TLS, and
 // integrates with OpenTelemetry for distributed tracing. It is a server
-// integration — calling mcp.New(svc, cfg) automatically registers the server via
-// service.Serve(). Only one server can be registered per Service.
+// integration: mcp.New(ctx, svc, cfg) registers the server with the Service via
+// service.Serve, and the Service starts and drains it. A Service may serve several
+// servers, each under its own name.
 //
 // Consumers attach their tools, resources, and prompts through the Register hook
-// in Config, which receives the underlying SDK *Server. The server is open by
+// in Config, which receives the underlying SDK *Server once. The server is open by
 // default; setting Config.OAuth turns it into a generic OAuth 2.0 Resource Server
-// (see OAuthResourceServer) that serves protected resource metadata (RFC 9728) and
-// verifies bearer tokens. No authorization provider specifics live in this package
-// — the consumer supplies a ValidateToken function. Custom middleware chains (CORS,
-// credential extraction, ...) are wired through Config.Middleware.
+// (see OAuthResourceServer) that serves protected resource metadata (RFC 9728),
+// verifies bearer tokens and enforces the scopes they grant. No authorization
+// provider specifics live in this package — the consumer supplies a ValidateToken
+// function. Custom middleware chains (CORS, credential extraction, ...) are wired
+// through Config.Middleware, and what every response carries, the health probes'
+// included, through Config.EdgeMiddleware.
 //
 // Example:
 //
-//	svc, _ := service.New()
+//	svc, _ := service.New(ctx, service.Config{})
 //
-//	mcp.New(svc, mcp.Config{
+//	err := mcp.New(ctx, svc, mcp.Config{
 //	  ServerInfo: mcp.ServerInfo{Name: "my-server", Version: "v1.0.0"},
 //	  Register: func(server *mcp.Server) {
 //	    mcp.AddTool(server, &mcp.Tool{Name: "greet"}, greetHandler)
 //	  },
 //	})
+//
+//	err = svc.Run(ctx)
 package mcp
 
 // identifier represents the integration's unique identifier.

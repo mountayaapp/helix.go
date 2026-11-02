@@ -1,0 +1,10 @@
+description: Precondition Failed
+
+headers:
+  X-Request-Id:
+    $ref: ../headers/X-Request-Id.yaml
+
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/rest/412.yaml

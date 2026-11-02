@@ -396,6 +396,7 @@ func TestHTTPStatusToCode_AllSupportedCodes(t *testing.T) {
 		{http.StatusNotFound, CodeNotFound},
 		{http.StatusMethodNotAllowed, CodeMethodNotAllowed},
 		{http.StatusConflict, CodeConflict},
+		{http.StatusPreconditionFailed, CodePreconditionFailed},
 		{http.StatusRequestEntityTooLarge, CodePayloadTooLarge},
 		{http.StatusTooManyRequests, CodeTooManyRequests},
 		{http.StatusInternalServerError, CodeInternalError},
@@ -414,4 +415,65 @@ func TestHTTPStatusToCode_AllSupportedCodes(t *testing.T) {
 
 func TestHTTPStatusToCode_UnknownReturnsInternalError(t *testing.T) {
 	assert.Equal(t, CodeInternalError, HTTPStatusToCode(418))
+}
+
+// TestNest_KeepsEntriesCodesAndPaths pins what Nest exists for. Wrap builds a new
+// single-entry Error and keeps its cause unserialized, so EntriesOf on the result
+// reports the wrapper's message and CodeInternalError and silently drops
+// everything the wrapped error said — which is how a health failure came out as
+// "Integration is not in a healthy state" with the wrong code and no reason.
+func TestNest_KeepsEntriesCodesAndPaths(t *testing.T) {
+	inner := New("Integration is not in a healthy state",
+		WithCode(CodeServiceUnavailable),
+		WithExtension("reason", "Connection refused"),
+	)
+
+	entries := Nest(inner, "dependency", "primary")
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Integration is not in a healthy state", entries[0].Message)
+	assert.Equal(t, []any{"dependency", "primary"}, entries[0].Path)
+	assert.Equal(t, CodeServiceUnavailable, entries[0].Extensions["code"])
+	assert.Equal(t, "Connection refused", entries[0].Extensions["reason"])
+
+	// Contrast: Wrap + EntriesOf is the shape this replaced.
+	lost := EntriesOf(Wrap(inner, "Integration is not in a healthy state"))
+	require.Len(t, lost, 1)
+	assert.Equal(t, CodeInternalError, lost[0].Extensions["code"])
+}
+
+// TestNest_ExtendsExistingPaths covers an entry that already had a path: the
+// segments are prepended, so a validation entry keeps pointing at its own field.
+func TestNest_ExtendsExistingPaths(t *testing.T) {
+	inner := NewValidation(Entry{Message: "Must be set", Path: []any{"config", "database"}})
+
+	entries := Nest(inner, "dependency", "primary")
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, []any{"dependency", "primary", "config", "database"}, entries[0].Path)
+}
+
+// TestNest_DoesNotMutateSource pins that Nest hands back copies. EntriesOf returns
+// the Error's own slice, so extending a path in place would rewrite the error the
+// caller still holds.
+func TestNest_DoesNotMutateSource(t *testing.T) {
+	inner := New("Failed", WithPath("config"))
+
+	_ = Nest(inner, "dependency", "primary")
+
+	assert.Equal(t, []any{"config"}, inner.Entries[0].Path)
+}
+
+func TestNest_NilReturnsNil(t *testing.T) {
+	assert.Nil(t, Nest(nil, "dependency", "primary"))
+}
+
+// TestNest_PlainErrorIsCarriedThrough covers a driver error that never went
+// through errorstack: its text is what EntriesOf falls back to, and it survives.
+func TestNest_PlainErrorIsCarriedThrough(t *testing.T) {
+	entries := Nest(errors.New("connection refused"), "dependency", "primary")
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "connection refused", entries[0].Message)
+	assert.Equal(t, []any{"dependency", "primary"}, entries[0].Path)
 }

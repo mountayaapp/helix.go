@@ -26,7 +26,7 @@ func withFrenchTearDown(t *testing.T) func() {
 	}
 }
 
-func TestGetPreferredLanguage(t *testing.T) {
+func TestPreferredLanguage(t *testing.T) {
 	testcases := []struct {
 		name     string
 		cookie   string
@@ -48,13 +48,13 @@ func TestGetPreferredLanguage(t *testing.T) {
 				req.AddCookie(&http.Cookie{Name: "lang", Value: tc.cookie})
 			}
 
-			assert.Equal(t, tc.expected, GetPreferredLanguage(req))
+			assert.Equal(t, tc.expected, PreferredLanguage(req))
 		})
 	}
 }
 
-func TestGetPreferredLanguage_NilRequest(t *testing.T) {
-	assert.Equal(t, language.English, GetPreferredLanguage(nil))
+func TestPreferredLanguage_NilRequest(t *testing.T) {
+	assert.Equal(t, language.English, PreferredLanguage(nil))
 }
 
 func TestAddOrEditLanguage_NewLanguage(t *testing.T) {
@@ -93,7 +93,7 @@ func TestAddOrEditLanguage_EditExistingLanguage(t *testing.T) {
 	assert.Equal(t, "Authentication is required", catalog[language.English][http.StatusUnauthorized])
 }
 
-func TestGetPreferredLanguage_WithAddedLanguage(t *testing.T) {
+func TestPreferredLanguage_WithAddedLanguage(t *testing.T) {
 	defer withFrenchTearDown(t)()
 
 	AddOrEditLanguage(language.French, map[int]string{
@@ -103,10 +103,10 @@ func TestGetPreferredLanguage_WithAddedLanguage(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept-Language", "fr")
 
-	assert.Equal(t, language.French, GetPreferredLanguage(req))
+	assert.Equal(t, language.French, PreferredLanguage(req))
 }
 
-func TestGetPreferredLanguage_CookieAndHeader(t *testing.T) {
+func TestPreferredLanguage_CookieAndHeader(t *testing.T) {
 	defer withFrenchTearDown(t)()
 
 	AddOrEditLanguage(language.French, map[int]string{
@@ -117,7 +117,7 @@ func TestGetPreferredLanguage_CookieAndHeader(t *testing.T) {
 	req.Header.Set("Accept-Language", "fr")
 	req.AddCookie(&http.Cookie{Name: "lang", Value: "en"})
 
-	assert.Equal(t, language.English, GetPreferredLanguage(req))
+	assert.Equal(t, language.English, PreferredLanguage(req))
 }
 
 func TestAddOrEditLanguage_PartialUpdate(t *testing.T) {
@@ -145,13 +145,13 @@ func TestAddOrEditLanguage_RebuildsMatcher(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept-Language", "fr")
 
-	assert.Equal(t, language.English, GetPreferredLanguage(req))
+	assert.Equal(t, language.English, PreferredLanguage(req))
 
 	AddOrEditLanguage(language.French, map[int]string{
 		http.StatusBadRequest: "Requête invalide",
 	})
 
-	assert.Equal(t, language.French, GetPreferredLanguage(req))
+	assert.Equal(t, language.French, PreferredLanguage(req))
 }
 
 func TestSupportedLocales_AllEnglishStatusCodes(t *testing.T) {
@@ -163,6 +163,7 @@ func TestSupportedLocales_AllEnglishStatusCodes(t *testing.T) {
 		http.StatusNotFound,
 		http.StatusMethodNotAllowed,
 		http.StatusConflict,
+		http.StatusPreconditionFailed,
 		http.StatusRequestEntityTooLarge,
 		http.StatusTooManyRequests,
 		http.StatusInternalServerError,
@@ -178,7 +179,7 @@ func TestSupportedLocales_AllEnglishStatusCodes(t *testing.T) {
 	}
 }
 
-func TestGetPreferredLanguage_CookiePriority(t *testing.T) {
+func TestPreferredLanguage_CookiePriority(t *testing.T) {
 	defer withFrenchTearDown(t)()
 
 	AddOrEditLanguage(language.French, map[int]string{
@@ -189,7 +190,7 @@ func TestGetPreferredLanguage_CookiePriority(t *testing.T) {
 	req.Header.Set("Accept-Language", "en")
 	req.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
 
-	assert.Equal(t, language.French, GetPreferredLanguage(req))
+	assert.Equal(t, language.French, PreferredLanguage(req))
 }
 
 // TestLocales_MatchCanonicalCatalog pins every English message to its expected
@@ -204,6 +205,7 @@ func TestLocales_MatchCanonicalCatalog(t *testing.T) {
 		http.StatusNotFound:              "Resource does not exist",
 		http.StatusMethodNotAllowed:      "Method is not allowed for this resource",
 		http.StatusConflict:              "Resource conflicts with current state",
+		http.StatusPreconditionFailed:    "Resource does not meet the precondition",
 		http.StatusRequestEntityTooLarge: "Payload exceeds size limit",
 		http.StatusTooManyRequests:       "Rate limit has been exceeded",
 		http.StatusInternalServerError:   "Internal server error",

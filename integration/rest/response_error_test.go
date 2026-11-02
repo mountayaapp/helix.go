@@ -297,3 +297,65 @@ func TestResponseError_Write_SetsHeaders(t *testing.T) {
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
 	assert.Equal(t, http.StatusBadRequest, rw.Code)
 }
+
+// A status with no message of its own used to produce an entry with an empty
+// message, which reads as a bug in the client.
+func TestResponseError_SetStatus_UnsupportedStatusStillHasAMessage(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+
+	NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusTeapot).
+		Write(rw)
+
+	assert.Equal(t, http.StatusTeapot, rw.Code)
+	assert.JSONEq(t,
+		`{"errors":[{"message":"I'm a teapot","extensions":{"code":"INTERNAL_ERROR"}}]}`,
+		rw.Body.String(),
+	)
+}
+
+func TestResponseError_SetEntries(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/users", nil)
+	rw := httptest.NewRecorder()
+
+	extensions := map[string]any{"hint": "sign in instead"}
+	NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusConflict).
+		SetEntries(
+			errorstack.Entry{
+				Message:    "Email address is already registered",
+				Path:       []any{"request", "body", "email"},
+				Extensions: extensions,
+			},
+			errorstack.Entry{
+				Message:    "Account is locked",
+				Extensions: map[string]any{"code": "ACCOUNT_LOCKED"},
+			},
+		).
+		Write(rw)
+
+	assert.Equal(t, http.StatusConflict, rw.Code)
+	assert.JSONEq(t, `{"errors":[
+		{"message":"Email address is already registered","path":["request","body","email"],"extensions":{"code":"CONFLICT","hint":"sign in instead"}},
+		{"message":"Account is locked","extensions":{"code":"ACCOUNT_LOCKED"}}
+	]}`, rw.Body.String())
+
+	// The status' code is given to the entry, not written into the caller's map.
+	assert.Equal(t, map[string]any{"hint": "sign in instead"}, extensions)
+}
+
+func TestResponseError_SetEntries_EmptyKeepsTheFallback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+
+	NewResponseError[NoMetadata](req).
+		SetStatus(http.StatusNotFound).
+		SetEntries().
+		Write(rw)
+
+	assert.JSONEq(t,
+		`{"errors":[{"message":"Resource does not exist","extensions":{"code":"NOT_FOUND"}}]}`,
+		rw.Body.String(),
+	)
+}

@@ -3,17 +3,36 @@ version: "2"
 linters:
   default: none
   enable:
+    # govet is on by default in plain `go test`, and was the notable absence here:
+    # copylocks, lostcancel and printf all catch real bugs.
+    - govet
     - errcheck
     - ineffassign
     - staticcheck
     - unused
+
+    # errorlint catches comparing errors with == instead of errors.Is, which
+    # breaks the moment anything in the chain starts wrapping.
+    - errorlint
+
+    # nilerr catches returning nil after checking err != nil - the shape that
+    # swallowed a Valkey transport failure.
+    - nilerr
+
+    # bodyclose catches an HTTP response body that is never closed, which leaks
+    # the pooled connection under it.
+    - bodyclose
+  settings:
+    errcheck:
+      # Builder-style methods on errorstack.Error, whose return value is the same
+      # receiver. Named by their full receiver so that unrelated types with an
+      # Append or SetExtension method still trip errcheck.
+      exclude-functions:
+        - (*github.com/mountayaapp/helix.go/errorstack.Error).Append
+        - (*github.com/mountayaapp/helix.go/errorstack.Error).SetExtension
+
   exclusions:
     rules:
-      # Builder-style methods on errorstack.Error where the return value is
-      # the same receiver. Anchored to the errorstack package so unrelated
-      # types named Append/SetExtension still trip errcheck.
-      - linters: [errcheck]
-        text: "errorstack\\.Error\\)\\.(Append|SetExtension)"
 
       # HTTP response writes where errors can't be meaningfully handled.
       - linters: [errcheck]
@@ -35,7 +54,16 @@ linters:
       - linters: [errcheck]
         path: "_test\\.go"
 
-      # The `humanized` constant is a convention across all integrations, even
-      # if not yet referenced in every package.
+      # The `humanized` and `identifier` constants are a convention across all
+      # integrations, even if not yet referenced in every package.
       - linters: [unused]
         text: "humanized"
+
+      - linters: [unused]
+        text: "identifier"
+
+# Formatting is checked as part of `make lint`, so that an unformatted file fails
+# CI rather than reaching review.
+formatters:
+  enable:
+    - gofmt

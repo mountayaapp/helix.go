@@ -11,164 +11,9 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-func TestEventFromActivity_WithEventAndSpan(t *testing.T) {
-	e := event.Event{
-		Name:   "activity_started",
-		UserID: "user_act",
-	}
-
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-	ctx = context.WithValue(ctx, spanCtxKey, span)
-
-	output, ok := EventFromActivity(ctx)
-
-	assert.True(t, ok)
-	assert.Equal(t, "activity_started", output.Name)
-	assert.Equal(t, "user_act", output.UserID)
-}
-
-func TestEventFromActivity_NoEvent(t *testing.T) {
-	output, ok := EventFromActivity(t.Context())
-
-	assert.False(t, ok)
-	assert.Equal(t, event.Event{}, output)
-}
-
-func TestEventFromActivity_EventButNoSpan(t *testing.T) {
-	e := event.Event{
-		Name:   "no_span",
-		UserID: "user_no_span",
-	}
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-
-	output, ok := EventFromActivity(ctx)
-
-	assert.True(t, ok)
-	assert.Equal(t, "no_span", output.Name)
-}
-
-func TestEventFromActivity_InvalidEventType(t *testing.T) {
-	ctx := context.WithValue(t.Context(), eventCtxKey, "not an event")
-
-	_, ok := EventFromActivity(ctx)
-
-	assert.False(t, ok)
-}
-
-func TestEventFromActivity_InvalidSpanType(t *testing.T) {
-	e := event.Event{
-		Name: "invalid_span",
-	}
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-	ctx = context.WithValue(ctx, spanCtxKey, "not a span")
-
-	output, ok := EventFromActivity(ctx)
-
-	assert.True(t, ok)
-	assert.Equal(t, "invalid_span", output.Name)
-}
-
-func TestEventFromActivity_FullEvent(t *testing.T) {
-	e := event.Event{
-		Name:   "process_order",
-		UserID: "user_full",
-		Meta:   map[string]string{"workflow": "order"},
-		App:    event.App{Name: "worker", Version: "1.0.0"},
-		Subscriptions: []event.Subscription{
-			{ID: "sub_001", CustomerID: "cus_001"},
-		},
-	}
-
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-	ctx = context.WithValue(ctx, spanCtxKey, span)
-
-	output, ok := EventFromActivity(ctx)
-
-	assert.True(t, ok)
-	assert.Equal(t, e.Name, output.Name)
-	assert.Equal(t, e.UserID, output.UserID)
-	assert.Equal(t, e.Meta, output.Meta)
-	assert.Equal(t, e.App, output.App)
-	assert.Len(t, output.Subscriptions, 1)
-	assert.Equal(t, "sub_001", output.Subscriptions[0].ID)
-}
-
-func TestEventFromActivity_SpanReceivesAttributes(t *testing.T) {
-	e := event.Event{
-		Name:   "with_attributes",
-		UserID: "user_attr",
-		Meta:   map[string]string{"key": "value"},
-	}
-
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-	ctx = context.WithValue(ctx, spanCtxKey, span)
-
-	assert.NotPanics(t, func() {
-		_, _ = EventFromActivity(ctx)
-	})
-}
-
-func TestEventFromActivity_NilSpanValue(t *testing.T) {
-	e := event.Event{
-		Name: "nil_span",
-	}
-
-	ctx := context.WithValue(t.Context(), eventCtxKey, e)
-	ctx = context.WithValue(ctx, spanCtxKey, (trace.Span)(nil))
-
-	output, ok := EventFromActivity(ctx)
-
-	assert.True(t, ok)
-	assert.Equal(t, "nil_span", output.Name)
-}
-
-func TestSetEventSpanAttributes_BatchesAttributes(t *testing.T) {
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	mapped := map[string]string{
-		"event.name":    "test_event",
-		"event.user_id": "user_batch",
-		"event.ip":      "10.0.0.1",
-	}
-
-	// Verify batched SetAttributes does not panic with multiple entries.
-	assert.NotPanics(t, func() {
-		setEventSpanAttributes(span, mapped)
-	})
-}
-
-func TestSetEventSpanAttributes_EmptyMap(t *testing.T) {
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	assert.NotPanics(t, func() {
-		setEventSpanAttributes(span, map[string]string{})
-	})
-}
-
-func TestSetEventSpanAttributes_NilMap(t *testing.T) {
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
-
-	assert.NotPanics(t, func() {
-		setEventSpanAttributes(span, nil)
-	})
-}
-
-// mockValueGetter satisfies the valueGetter interface, allowing us to test
-// eventFromContext without needing a real workflow.Context.
+// mockValueGetter satisfies the valueGetter interface, allowing us to test the
+// lookups shared by workflow and activity contexts without a real
+// workflow.Context.
 type mockValueGetter struct {
 	values map[any]any
 }
@@ -177,61 +22,51 @@ func (m *mockValueGetter) Value(key any) any {
 	return m.values[key]
 }
 
-func TestEventFromContext_ViaValueGetter_WithEvent(t *testing.T) {
-	e := event.Event{
-		Name:   "workflow_event",
-		UserID: "user_wf",
+func TestEventFromContext(t *testing.T) {
+	e := event.Event{Name: "order.placed"}
+
+	testcases := []struct {
+		name   string
+		values map[any]any
+		want   event.Event
+		ok     bool
+	}{
+		{name: "an Event is found", values: map[any]any{eventCtxKey: e}, want: e, ok: true},
+		{name: "no Event", values: map[any]any{}},
+		{name: "a nil value", values: map[any]any{eventCtxKey: nil}},
+		{name: "a value of another type", values: map[any]any{eventCtxKey: 42}},
 	}
 
-	tracer := noop.NewTracerProvider().Tracer("test")
-	_, span := tracer.Start(t.Context(), "test")
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := eventFromContext(&mockValueGetter{values: tc.values})
 
-	ctx := &mockValueGetter{
-		values: map[any]any{
-			eventCtxKey: e,
-			spanCtxKey:  span,
-		},
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.want, got)
+		})
 	}
+}
 
-	output, ok := eventFromContext(ctx)
+func TestEventFromActivity_ReadsOnlyTheHeaderEvent(t *testing.T) {
+	// An Event set by the activity's own code with event.NewContext is not one the
+	// activity received.
+	ctx := event.NewContext(t.Context(), event.Event{Name: "local"})
 
+	_, ok := EventFromActivity(ctx)
+	assert.False(t, ok)
+
+	ctx = context.WithValue(ctx, eventCtxKey, event.Event{Name: "received"})
+
+	e, ok := EventFromActivity(ctx)
 	assert.True(t, ok)
-	assert.Equal(t, "workflow_event", output.Name)
-	assert.Equal(t, "user_wf", output.UserID)
+	assert.Equal(t, "received", e.Name)
 }
 
-func TestEventFromContext_ViaValueGetter_NoEvent(t *testing.T) {
-	ctx := &mockValueGetter{
-		values: map[any]any{},
-	}
+func TestSpanFromContext(t *testing.T) {
+	_, span := noop.NewTracerProvider().Tracer("test").Start(t.Context(), "test")
 
-	output, ok := eventFromContext(ctx)
-
-	assert.False(t, ok)
-	assert.Equal(t, event.Event{}, output)
-}
-
-func TestEventFromContext_ViaValueGetter_NilValue(t *testing.T) {
-	ctx := &mockValueGetter{
-		values: map[any]any{
-			eventCtxKey: nil,
-		},
-	}
-
-	output, ok := eventFromContext(ctx)
-
-	assert.False(t, ok)
-	assert.Equal(t, event.Event{}, output)
-}
-
-func TestEventFromContext_ViaValueGetter_InvalidType(t *testing.T) {
-	ctx := &mockValueGetter{
-		values: map[any]any{
-			eventCtxKey: 42,
-		},
-	}
-
-	_, ok := eventFromContext(ctx)
-
-	assert.False(t, ok)
+	assert.Equal(t, span, spanFromContext(&mockValueGetter{values: map[any]any{spanCtxKey: span}}))
+	assert.Nil(t, spanFromContext(&mockValueGetter{values: map[any]any{}}))
+	assert.Nil(t, spanFromContext(&mockValueGetter{values: map[any]any{spanCtxKey: "not a span"}}))
+	assert.Nil(t, spanFromContext(&mockValueGetter{values: map[any]any{spanCtxKey: (trace.Span)(nil)}}))
 }

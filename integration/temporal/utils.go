@@ -4,63 +4,94 @@ import (
 	"context"
 
 	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountayaapp/helix.go/integration"
 
 	"go.opentelemetry.io/otel/attribute"
-	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/workflow"
 )
 
 // checkHealth performs a health check against the Temporal server using the given
-// client. Returns 200 on success, 503 with an errorstack on failure. The caller
-// is responsible for providing a context with an appropriate deadline.
-func checkHealth(ctx context.Context, c client.Client) (int, error) {
+// client. The caller is responsible for providing a context with an appropriate
+// deadline.
+func checkHealth(ctx context.Context, c client.Client) error {
 	_, err := c.CheckHealth(ctx, &client.CheckHealthRequest{})
-	if err != nil {
-		return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
-			errorstack.WithCode(errorstack.CodeServiceUnavailable),
-		)
-	}
 
-	return 200, nil
+	return integration.Unhealthy(err)
 }
 
-// Pre-computed span names to avoid allocations on every call.
+// Pre-computed attribute keys to avoid allocations on every call.
 var (
-	attrKeyWorkerTaskQueue   = attribute.Key(identifier + ".worker.task_queue")
-	attrKeyWorkflowNamespace = attribute.Key(identifier + ".workflow.namespace")
-	attrKeyWorkflowType      = attribute.Key(identifier + ".workflow.type")
-	attrKeyWorkflowAttempt   = attribute.Key(identifier + ".workflow.attempt")
-	attrKeyActivityType      = attribute.Key(identifier + ".activity.type")
-	attrKeyActivityAttempt   = attribute.Key(identifier + ".activity.attempt")
-	attrKeyServerAddress     = attribute.Key(identifier + ".server.address")
-	attrKeyNamespace         = attribute.Key(identifier + ".namespace")
+	attrKeyServerAddress   = integration.Key(identifier, "server.address")
+	attrKeyNamespace       = integration.Key(identifier, "namespace")
+	attrKeyTaskQueue       = integration.Key(identifier, "worker.task_queue")
+	attrKeyWorkflowID      = integration.Key(identifier, "workflow.id")
+	attrKeyWorkflowRunID   = integration.Key(identifier, "workflow.run_id")
+	attrKeyWorkflowType    = integration.Key(identifier, "workflow.type")
+	attrKeyWorkflowAttempt = integration.Key(identifier, "workflow.attempt")
+	attrKeyActivityID      = integration.Key(identifier, "activity.id")
+	attrKeyActivityType    = integration.Key(identifier, "activity.type")
+	attrKeyActivityAttempt = integration.Key(identifier, "activity.attempt")
+	attrKeySignalType      = integration.Key(identifier, "signal.type")
+	attrKeyQueryType       = integration.Key(identifier, "query.type")
+	attrKeyUpdateID        = integration.Key(identifier, "update.id")
+	attrKeyUpdateType      = integration.Key(identifier, "update.type")
+	attrKeyScheduleID      = integration.Key(identifier, "schedule.id")
+	attrKeyNexusOperation  = integration.Key(identifier, "nexus.operation")
 )
 
-// setWorkflowAttributes sets workflow attributes to a trace span. It uses the trace
-// type from the OpenTelemetry package since this happens in the interceptor and
-// we only have access via type assertion.
-func setWorkflowAttributes(span oteltrace.Span, info *workflow.Info) {
-	if info != nil {
-		span.SetAttributes(
-			attrKeyWorkerTaskQueue.String(info.TaskQueueName),
-			attrKeyWorkflowNamespace.String(info.Namespace),
-			attrKeyWorkflowType.String(info.WorkflowType.Name),
-			attrKeyWorkflowAttempt.Int(int(info.Attempt)),
-		)
+// workflowAttributes appends to dst the attributes of the workflow run info
+// describes that the SDK's own span tags leave out.
+//
+// The namespace is not among them: every span already carries temporal.namespace
+// from the connection's configuration, and a workflow runs in the namespace its
+// worker connected to.
+func workflowAttributes(dst []attribute.KeyValue, info *workflow.Info) []attribute.KeyValue {
+	if info == nil {
+		return dst
 	}
+
+	return append(dst,
+		attrKeyTaskQueue.String(info.TaskQueueName),
+		attrKeyWorkflowAttempt.Int(int(info.Attempt)),
+	)
 }
 
-// setActivityAttributes sets activity attributes to a trace span. It uses the trace
-// type from the OpenTelemetry package since this happens in the interceptor and
-// we only have access via type assertion.
-func setActivityAttributes(span oteltrace.Span, info activity.Info) {
-	span.SetAttributes(
-		attrKeyWorkerTaskQueue.String(info.TaskQueue),
-		attrKeyWorkflowNamespace.String(info.Namespace),
-		attrKeyWorkflowType.String(info.WorkflowType.Name),
-		attrKeyActivityType.String(info.ActivityType.Name),
+// activityAttributes appends to dst the attributes of the activity execution
+// info describes that the SDK's own span tags leave out, including the type of
+// the workflow that scheduled it.
+func activityAttributes(dst []attribute.KeyValue, info activity.Info) []attribute.KeyValue {
+	dst = append(dst,
+		attrKeyTaskQueue.String(info.TaskQueue),
 		attrKeyActivityAttempt.Int(int(info.Attempt)),
 	)
+
+	if info.WorkflowType != nil && info.WorkflowType.Name != "" {
+		dst = append(dst, attrKeyWorkflowType.String(info.WorkflowType.Name))
+	}
+
+	return dst
+}
+
+// rebase moves the validation entries a configuration reports under "config" to
+// prefix, so that a ConfigClient nested in a ConfigWorker reports its entries at
+// the path a caller finds them: config.client.address rather than config.address.
+//
+// Entries are rewritten in place and returned.
+func rebase(entries []errorstack.Entry, prefix ...any) []errorstack.Entry {
+	for i, entry := range entries {
+		rest := entry.Path
+		if len(rest) > 0 && rest[0] == "config" {
+			rest = rest[1:]
+		}
+
+		path := make([]any, 0, len(prefix)+len(rest))
+		path = append(path, prefix...)
+		path = append(path, rest...)
+
+		entries[i].Path = path
+	}
+
+	return entries
 }

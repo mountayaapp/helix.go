@@ -174,16 +174,6 @@ func TestResponseSuccess_Write_SetsHeaders(t *testing.T) {
 	assert.Equal(t, "application/json", rw.Header().Get("Content-Type"))
 }
 
-func TestFallbackSuccessResponse_ValidJSON(t *testing.T) {
-	var result map[string]any
-	err := json.Unmarshal(fallbackSuccessResponse, &result)
-
-	require.NoError(t, err)
-	_, ok := result["data"]
-	require.True(t, ok, "fallback success response must contain data field per schema invariant")
-	assert.Nil(t, result["data"])
-}
-
 func TestResponseSuccess_SetData_ComplexType(t *testing.T) {
 	type nested struct {
 		Items []struct {
@@ -211,4 +201,57 @@ func TestResponseSuccess_SetData_ComplexType(t *testing.T) {
 	assert.Contains(t, string(b), `"items"`)
 	assert.Contains(t, string(b), `"first"`)
 	assert.Contains(t, string(b), `"second"`)
+}
+
+// A caller that never called SetStatus used to write WriteHeader(0), which
+// net/http answers with a panic.
+func TestResponseSuccess_Write_DefaultsToOK(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+
+	require.NotPanics(t, func() {
+		NewResponseSuccess[NoMetadata, NoData](req).Write(rw)
+	})
+
+	assert.Equal(t, http.StatusOK, rw.Code)
+	assert.JSONEq(t, `{"data":null}`, rw.Body.String())
+}
+
+// triState is a map-based optional-and-nullable wrapper of the kind OpenAPI code
+// generators emit: nil is "not set", {false: zero} is an explicit null and
+// {true: v} is a value.
+type triState[T any] map[bool]T
+
+func (s triState[T]) MarshalJSON() ([]byte, error) {
+	if _, null := s[false]; null {
+		return []byte("null"), nil
+	}
+
+	return json.Marshal(s[true])
+}
+
+// The body is marshaled with encoding/json/v2, where omitempty drops a member
+// whose encoding is empty JSON, null included: an explicit null tagged omitempty
+// never reaches the client, where encoding/json v1 wrote it. omitzero is what keeps
+// all three states apart: a nil wrapper is left out, a null is written as null and
+// a value as itself.
+func TestResponseSuccess_Write_NullableMemberUnderOmitemptyAndOmitzero(t *testing.T) {
+	type page struct {
+		Dropped triState[string] `json:"dropped,omitempty"`
+		Null    triState[string] `json:"null,omitzero"`
+		Value   triState[string] `json:"value,omitzero"`
+		Unset   triState[string] `json:"unset,omitzero"`
+	}
+
+	rw := httptest.NewRecorder()
+	NewResponseSuccess[NoMetadata, page](httptest.NewRequest(http.MethodGet, "/", nil)).
+		SetData(page{
+			Dropped: triState[string]{false: ""},
+			Null:    triState[string]{false: ""},
+			Value:   triState[string]{true: "kept"},
+		}).
+		Write(rw)
+
+	assert.Equal(t, http.StatusOK, rw.Code)
+	assert.JSONEq(t, `{"data":{"null":null,"value":"kept"}}`, rw.Body.String())
 }

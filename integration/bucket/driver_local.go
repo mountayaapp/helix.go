@@ -1,14 +1,20 @@
 package bucket
 
 import (
-	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
 	_ "gocloud.dev/blob/fileblob"
 )
 
-// DriverLocal allows to use local files as bucket driver.
+// DriverLocal uses a directory of the local filesystem. Config.Bucket is the
+// directory, which must exist; a relative one is resolved against the working
+// directory when Connect is called.
+//
+// Neither Config.Region nor Config.Endpoint applies.
 //
 // Config example:
 //
@@ -16,25 +22,41 @@ import (
 //	  Driver: bucket.DriverLocal,
 //	  Bucket: "/path/to/folder",
 //	}
-var DriverLocal Driver = &driverLocal{}
+const DriverLocal Driver = "local"
 
-// driverLocal is the internal type to use local files as bucket driver.
+// driverLocal is the behaviour behind DriverLocal.
 type driverLocal struct{}
 
-// string returns the string representation of the local bucket driver.
-func (d *driverLocal) string() string {
-	return "local"
+// validate ensures that no field the driver has no use for is set. Any path is a
+// valid directory name; whether it exists is for Connect to find out.
+func (driverLocal) validate(cfg *Config) []errorstack.Entry {
+	entries := unsupported(DriverLocal, "region", cfg.Region)
+	entries = append(entries, unsupported(DriverLocal, "endpoint", cfg.Endpoint)...)
+
+	return entries
 }
 
-// validate ensures Config and environment variables are valid for the local bucket
-// driver.
-func (d *driverLocal) validate(cfg *Config) []errorstack.Entry {
-	return nil
-}
+// url returns the fileblob URL of the directory.
+//
+// The path is made absolute first. fileblob reads a relative path only from a
+// URL whose host is ".", so formatting "file://" + a relative path made its first
+// segment the host and opened the rest from the filesystem root: "data/uploads"
+// became "/uploads".
+func (driverLocal) url(cfg *Config) (*url.URL, error) {
+	dir, err := filepath.Abs(cfg.Bucket)
+	if err != nil {
+		return nil, err
+	}
 
-// url returns the Go Cloud bucket URL of the local bucket driver.
-func (d *driverLocal) url(cfg *Config) string {
-	path := fmt.Sprintf("file://%s", cfg.Bucket)
+	// A Windows path has no leading slash, and fileblob drops the one a URL path
+	// always has before handing the path back to the filesystem.
+	path := filepath.ToSlash(dir)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
 
-	return path
+	return &url.URL{
+		Scheme: "file",
+		Path:   path,
+	}, nil
 }

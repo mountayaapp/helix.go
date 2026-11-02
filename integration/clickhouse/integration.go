@@ -7,32 +7,36 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-// Ensure *connection complies to the integration.Dependency type.
-var _ integration.Dependency = (*connection)(nil)
+// Ensure dependency complies to the integration.Dependency type.
+var _ integration.Dependency = dependency{}
 
-// Name returns the string representation of the ClickHouse integration.
-func (conn *connection) Name() string {
-	return identifier
+// dependency adapts a connection to integration.Dependency, and is what gets
+// registered with the Service.
+//
+// It is a distinct type rather than methods on connection so that the value handed
+// back to the caller does not carry the lifecycle contract — not even reachable
+// through a type assertion. The Service owns the ClickHouse database;
+// the caller only gets to use it.
+type dependency struct {
+	conn *connection
 }
 
 // Close tries to gracefully close the connection with the ClickHouse database.
-func (conn *connection) Close(ctx context.Context) error {
-	if err := errorstack.Wrap(conn.client.Close(), "Failed to gracefully close connection"); err != nil {
-		return err
+// The pool's metrics are unregistered first, so that no collection reads a pool
+// that is being torn down.
+func (d dependency) Close(ctx context.Context) error {
+	d.conn.pool.unregister()
+
+	if err := d.conn.client.Close(); err != nil {
+		return errorstack.Wrap(err, "Failed to gracefully close connection",
+			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
+		)
 	}
 
 	return nil
 }
 
-// Status indicates if the integration is able to ping the ClickHouse database or
-// not. Returns `200` if connection is working, `503` otherwise.
-func (conn *connection) Status(ctx context.Context) (int, error) {
-	err := conn.client.Ping(ctx)
-	if err == nil {
-		return 200, nil
-	}
-
-	return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
-		errorstack.WithCode(errorstack.CodeServiceUnavailable),
-	)
+// CheckHealth reports whether the integration can reach the ClickHouse database.
+func (d dependency) CheckHealth(ctx context.Context) error {
+	return integration.Unhealthy(d.conn.client.Ping(ctx))
 }

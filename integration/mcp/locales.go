@@ -21,12 +21,14 @@ import (
 //   - [http.StatusNotFound]
 //   - [http.StatusMethodNotAllowed]
 //   - [http.StatusConflict]
+//   - [http.StatusPreconditionFailed]
 //   - [http.StatusRequestEntityTooLarge]
 //   - [http.StatusTooManyRequests]
 //   - [http.StatusInternalServerError]
 //   - [http.StatusNotImplemented]
 //   - [http.StatusBadGateway]
 //   - [http.StatusServiceUnavailable]
+//   - [http.StatusGatewayTimeout]
 //
 // Example:
 //
@@ -38,12 +40,14 @@ import (
 //		http.StatusNotFound:              "<locale>",
 //		http.StatusMethodNotAllowed:      "<locale>",
 //		http.StatusConflict:              "<locale>",
+//		http.StatusPreconditionFailed:    "<locale>",
 //		http.StatusRequestEntityTooLarge: "<locale>",
 //		http.StatusTooManyRequests:       "<locale>",
 //		http.StatusInternalServerError:   "<locale>",
 //		http.StatusNotImplemented:        "<locale>",
 //		http.StatusBadGateway:            "<locale>",
 //		http.StatusServiceUnavailable:    "<locale>",
+//		http.StatusGatewayTimeout:        "<locale>",
 //	})
 func AddOrEditLanguage(lang language.Tag, m map[int]string) {
 	locales.AddOrEditLanguage(lang, m)

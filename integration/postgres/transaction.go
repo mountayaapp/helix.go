@@ -3,165 +3,121 @@ package postgres
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/telemetry/trace"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Pre-computed span names to avoid allocations on every call.
-const (
-	spanTxBegin    = humanized + ": Transaction / Begin"
-	spanTxCommit   = humanized + ": Transaction / Commit"
-	spanTxRollback = humanized + ": Transaction / Rollback"
-	spanTxExec     = humanized + ": Transaction / Exec"
-	spanTxPrepare  = humanized + ": Transaction / Prepare"
-	spanTxQuery    = humanized + ": Transaction / QueryRows"
-	spanTxQueryRow = humanized + ": Transaction / QueryRow"
-)
+// Tx is a database transaction, returned by PostgreSQL.BeginTx. It holds one
+// connection from the pool until Commit or Rollback, and every statement it runs
+// runs on that connection.
+//
+// A Tx is not safe for concurrent use, and neither are the Rows and
+// BatchResults it returns: the next statement can only be sent once they are
+// closed. Like PostgreSQL, its errors are the driver's own, unwrapped.
+type Tx interface {
 
-// transaction implements the Tx interface and allows to wrap the PostgreSQL transaction
-// functions for automatic tracing and error recording.
+	// Begin starts a pseudo nested transaction, implemented with a savepoint.
+	// Committing it releases the savepoint; rolling it back rolls back to it,
+	// leaving the outer transaction usable.
+	Begin(ctx context.Context) (Tx, error)
+
+	// Commit commits the transaction, or releases the savepoint of a nested one.
+	// A transaction the server has already aborted — after a failed statement —
+	// is rolled back instead, and Commit returns pgx.ErrTxCommitRollback.
+	Commit(ctx context.Context) error
+
+	// Rollback rolls the transaction back, or rolls back to the savepoint of a
+	// nested one. It returns pgx.ErrTxClosed if the Tx is already closed but is
+	// otherwise safe to call more than once, so a deferred Rollback is safe even
+	// when Commit is called first.
+	Rollback(ctx context.Context) error
+
+	// Exec executes a statement that returns no rows, and returns its command
+	// tag. See PostgreSQL.Exec.
+	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
+
+	// Prepare creates a prepared statement named id from query on the
+	// transaction's connection. id can then be passed in place of SQL to Exec,
+	// Query and QueryRow. Preparing the same id and query again is a no-op.
+	Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error)
+
+	// Query sends a query and returns the Rows to read its result from. The Rows
+	// must be closed before the transaction runs anything else. See
+	// PostgreSQL.Query.
+	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
+
+	// QueryRow is a convenience wrapper over Query for a query that returns at
+	// most one row. See PostgreSQL.QueryRow.
+	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
+
+	// SendBatch sends every statement queued in batch in one round trip, inside
+	// the transaction. The returned BatchResults must be closed before the
+	// transaction runs anything else. See PostgreSQL.SendBatch.
+	SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults
+
+	// CopyFrom bulk-loads rows with the COPY protocol, inside the transaction.
+	// See PostgreSQL.CopyFrom.
+	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
+}
+
+// transaction implements the Tx interface, labelling each call with the name the
+// driver's tracer gives its span.
+//
+// It holds no Config and opens no span of its own: pgx implements Begin, Commit,
+// Rollback and savepoints by running SQL, so every method below reaches the
+// tracer through the same hooks an ordinary statement does.
 type transaction struct {
-	config *Config
 	client pgx.Tx
 }
 
-// Tx represents a database transaction.
-type Tx interface {
-	Begin(ctx context.Context) (Tx, error)
-	Commit(ctx context.Context) error
-	Rollback(ctx context.Context) error
-	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
-	Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error)
-	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
-}
-
-// Begin starts a pseudo nested transaction implemented with a savepoint.
-//
-// It automatically handles tracing and error recording.
+// Begin starts a nested transaction. See Tx.
 func (tx *transaction) Begin(ctx context.Context) (Tx, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxBegin)
-	defer span.End()
-
-	subtx, err := tx.client.Begin(ctx)
+	subtx, err := tx.client.Begin(withOperation(ctx, "Transaction / Begin"))
 	if err != nil {
-		span.RecordError("failed to begin transaction", err)
+		return nil, err
 	}
 
-	setDefaultAttributes(span, tx.config)
-
-	sub := &transaction{
-		config: tx.config,
-		client: subtx,
-	}
-
-	return sub, err
+	return &transaction{client: subtx}, nil
 }
 
-// Commit commits the transaction.
-//
-// It automatically handles tracing and error recording.
+// Commit commits the transaction. See Tx.
 func (tx *transaction) Commit(ctx context.Context) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxCommit)
-	defer span.End()
-
-	err := tx.client.Commit(ctx)
-	if err != nil {
-		span.RecordError("failed to commit transaction", err)
-	}
-
-	setDefaultAttributes(span, tx.config)
-
-	return err
+	return tx.client.Commit(withOperation(ctx, "Transaction / Commit"))
 }
 
-// Rollback rolls back the transaction. Rollback will return pgx.ErrTxClosed if the
-// Tx is already closed, but is otherwise safe to call multiple times. Hence, a
-// defer tx.Rollback() is safe even if tx.Commit() will be called first in a non-error
-// condition.
-//
-// It automatically handles tracing and error recording.
+// Rollback rolls the transaction back. See Tx.
 func (tx *transaction) Rollback(ctx context.Context) error {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxRollback)
-	defer span.End()
-
-	err := tx.client.Rollback(ctx)
-	if err != nil {
-		span.RecordError("failed to rollback transaction", err)
-	}
-
-	setDefaultAttributes(span, tx.config)
-
-	return err
+	return tx.client.Rollback(withOperation(ctx, "Transaction / Rollback"))
 }
 
-// Exec delegates to the underlying connection.
-//
-// It automatically handles tracing and error recording.
+// Exec executes a statement. See Tx.
 func (tx *transaction) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxExec)
-	defer span.End()
-
-	stmt, err := tx.client.Exec(ctx, query, args...)
-	if err != nil {
-		span.RecordError("failed to execute query", err)
-	}
-
-	setDefaultAttributes(span, tx.config)
-	setTransactionQueryAttributes(span, query)
-
-	return stmt, err
+	return tx.client.Exec(withOperation(ctx, "Transaction / Exec"), query, args...)
 }
 
-// Prepare delegates to the underlying connection.
-//
-// It automatically handles tracing and error recording.
+// Prepare creates a prepared statement. See Tx.
 func (tx *transaction) Prepare(ctx context.Context, id string, query string) (*pgconn.StatementDescription, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxPrepare)
-	defer span.End()
-
-	stmt, err := tx.client.Prepare(ctx, id, query)
-	if err != nil {
-		span.RecordError("failed to prepare statement", err)
-	}
-
-	setDefaultAttributes(span, tx.config)
-	setTransactionQueryAttributes(span, query)
-
-	return stmt, err
+	return tx.client.Prepare(withPrepare(ctx, "Transaction / Prepare"), id, query)
 }
 
-// Query delegates to the underlying connection.
-//
-// It automatically handles tracing and error recording.
+// Query sends a query and returns its Rows. See Tx.
 func (tx *transaction) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQuery)
-	defer span.End()
-
-	rows, err := tx.client.Query(ctx, query, args...)
-	if err != nil {
-		span.RecordError("failed to query rows", err)
-	}
-
-	setDefaultAttributes(span, tx.config)
-	setTransactionQueryAttributes(span, query)
-
-	return rows, err
+	return tx.client.Query(withOperation(ctx, "Transaction / Query"), query, args...)
 }
 
-// QueryRow delegates to the underlying connection.
-//
-// It automatically handles tracing.
+// QueryRow sends a query and returns its one Row. See Tx.
 func (tx *transaction) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanTxQueryRow)
-	defer span.End()
+	return tx.client.QueryRow(withOperation(ctx, "Transaction / QueryRow"), query, args...)
+}
 
-	row := tx.client.QueryRow(ctx, query, args...)
+// SendBatch sends a batch of statements. See Tx.
+func (tx *transaction) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return tx.client.SendBatch(withOperation(ctx, "Transaction / Batch"), batch)
+}
 
-	setDefaultAttributes(span, tx.config)
-	setTransactionQueryAttributes(span, query)
-
-	return row
+// CopyFrom bulk-loads rows with the COPY protocol. See Tx.
+func (tx *transaction) CopyFrom(
+	ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource,
+) (int64, error) {
+	return tx.client.CopyFrom(withOperation(ctx, "Transaction / Copy From"), tableName, columnNames, rowSrc)
 }

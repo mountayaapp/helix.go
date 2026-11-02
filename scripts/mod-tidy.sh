@@ -4,6 +4,11 @@ set -euo pipefail
 
 export GOPRIVATE="github.com/mountayaapp/*"
 
+# The tools come from mise.toml, at the versions CI runs.
+for tool in go jq; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "$tool not found: run \`mise install\` (https://mise.jdx.dev), then make init from a shell with mise activated or as \`mise exec -- make init\`" 1>&2; exit 1; }
+done
+
 # go.work is gitignored, so it does not exist on a fresh clone. Create it before
 # `go work use`, which is fatal without it.
 [ -f go.work ] || go work init

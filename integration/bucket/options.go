@@ -1,6 +1,11 @@
 package bucket
 
-// OptionsWrite is used to set options when writing blob.
+import (
+	"gocloud.dev/blob"
+)
+
+// OptionsWrite is used to set options when writing a blob, through Write or
+// NewWriter.
 type OptionsWrite struct {
 
 	// CacheControl specifies caching attributes that services may use when serving
@@ -42,4 +47,22 @@ type OptionsWrite struct {
 	// Keys may not be empty, and are lowercased before being written. Duplicate
 	// case-insensitive keys (e.g., "foo" and "FOO") will result in an error.
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+// writerOptions returns opts as the driver's writer options, or nil when opts is
+// nil, which the driver reads as the zero value.
+func (opts *OptionsWrite) writerOptions() *blob.WriterOptions {
+	if opts == nil {
+		return nil
+	}
+
+	return &blob.WriterOptions{
+		CacheControl:       opts.CacheControl,
+		ContentDisposition: opts.ContentDisposition,
+		ContentEncoding:    opts.ContentEncoding,
+		ContentLanguage:    opts.ContentLanguage,
+		ContentType:        opts.ContentType,
+		ContentMD5:         opts.ContentMD5,
+		Metadata:           opts.Metadata,
+	}
 }

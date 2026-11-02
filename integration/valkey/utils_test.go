@@ -2,99 +2,59 @@ package valkey
 
 import (
 	"testing"
-
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func TestSetKeyAttributes(t *testing.T) {
-	span := trace.NewSpan(nil)
-
-	// Should not panic with nil span internals.
-	setKeyAttributes(span, "my-key")
-}
-
 func TestPreComputedAttributeKeys(t *testing.T) {
 	assert.Equal(t, attribute.Key("valkey.key"), attrKeyKey)
+	assert.Equal(t, attribute.Key("valkey.keys"), attrKeyKeys)
+	assert.Equal(t, attribute.Key("valkey.pattern"), attrKeyPattern)
+	assert.Equal(t, attribute.Key("valkey.channel"), attrKeyChannel)
+	assert.Equal(t, attribute.Key("valkey.command"), attrKeyCommand)
 }
 
-func TestPreComputedSpanNames(t *testing.T) {
-	assert.Equal(t, "Valkey: Exists", spanExists)
-	assert.Equal(t, "Valkey: Get", spanGet)
-	assert.Equal(t, "Valkey: Set", spanSet)
-	assert.Equal(t, "Valkey: Increment", spanIncrement)
-	assert.Equal(t, "Valkey: Decrement", spanDecrement)
-	assert.Equal(t, "Valkey: Scan", spanScan)
-	assert.Equal(t, "Valkey: MGet", spanMGet)
-	assert.Equal(t, "Valkey: Delete", spanDelete)
-}
-
-func TestBytesToString(t *testing.T) {
+// TestMilliseconds pins the rounding every TTL goes through. It used to be sent
+// in whole seconds, truncated, so that anything under a second became EX 0 — which
+// the server rejects — and 1.9s became 1s.
+func TestMilliseconds(t *testing.T) {
 	testcases := []struct {
 		name     string
-		input    []byte
-		expected string
+		ttl      time.Duration
+		expected int64
 	}{
 		{
-			name:     "nil bytes returns empty string",
-			input:    nil,
-			expected: "",
+			name:     "zero stays zero",
+			ttl:      0,
+			expected: 0,
 		},
 		{
-			name:     "empty bytes returns empty string",
-			input:    []byte{},
-			expected: "",
+			name:     "below a millisecond rounds up to one",
+			ttl:      time.Microsecond,
+			expected: 1,
 		},
 		{
-			name:     "converts bytes to string",
-			input:    []byte("hello world"),
-			expected: "hello world",
+			name:     "below a second is kept",
+			ttl:      500 * time.Millisecond,
+			expected: 500,
 		},
 		{
-			name:     "handles binary data",
-			input:    []byte{0x00, 0x01, 0x02},
-			expected: "\x00\x01\x02",
+			name:     "a fraction of a millisecond rounds up",
+			ttl:      1500*time.Millisecond + time.Nanosecond,
+			expected: 1501,
 		},
 		{
-			name:     "handles unicode",
-			input:    []byte("héllo wörld"),
-			expected: "héllo wörld",
+			name:     "whole milliseconds are exact",
+			ttl:      time.Minute,
+			expected: 60_000,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := bytesToString(tc.input)
-			assert.Equal(t, tc.expected, result)
+			assert.Equal(t, tc.expected, milliseconds(tc.ttl))
 		})
-	}
-}
-
-func BenchmarkSetKeyAttributes(b *testing.B) {
-	span := trace.NewSpan(nil)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		setKeyAttributes(span, "some-key")
-	}
-}
-
-func BenchmarkBytesToString(b *testing.B) {
-	data := []byte("some value that needs to be converted to a string for valkey")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = bytesToString(data)
-	}
-}
-
-func BenchmarkStringConversion(b *testing.B) {
-	data := []byte("some value that needs to be converted to a string for valkey")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = string(data)
 	}
 }

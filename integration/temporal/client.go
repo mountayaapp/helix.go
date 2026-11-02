@@ -9,7 +9,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/converter"
 )
 
 // Client exposes an opinionated way to interact with Temporal's client capabilities.
@@ -17,50 +17,61 @@ import (
 //
 // Client is a concrete type, not an interface, because its methods are generic and
 // Go does not permit interface methods to declare type parameters. Its exported
-// methods take a Workflow or Signal handle and infer the payload types from it, so
-// callers never hand untyped values to Temporal.
+// methods take a Workflow, Signal, Query or Update handle and infer the payload
+// types from it, so callers never hand untyped values to Temporal.
 type Client struct {
 	client client.Client
+
+	// converter is the DataConverter the client encodes with, which reads back
+	// what CreateSchedule stored in a schedule.
+	converter converter.DataConverter
 }
 
-// Connect creates a client-only Temporal connection and registers it as a
-// dependency via service.Attach. Use this for services that need to start or
-// schedule workflows without processing them.
-func Connect(svc *service.Service, cfg ConfigClient) (*Client, error) {
+// newClient returns the Client handed to the caller for c, dialed from cfg.
+func newClient(c client.Client, cfg *ConfigClient) *Client {
+	return &Client{
+		client:    c,
+		converter: cfg.dataConverter(),
+	}
+}
+
+// Connect creates a client-only Temporal connection. Use this for services that
+// need to start or schedule workflows without processing them.
+//
+// The connection is attached to svc from inside, which owns it from there. The
+// Client handed back can start and signal workflows; it carries no lifecycle
+// methods, so the connection it uses cannot be closed through it.
+func Connect(ctx context.Context, svc *service.Service, cfg ConfigClient) (*Client, error) {
 
 	// No need to continue if ConfigClient is not valid.
-	err := cfg.sanitize()
+	if err := cfg.sanitize(); err != nil {
+		return nil, err
+	}
+
+	c, err := dial(ctx, svc, &cfg, cfg.name(), "config")
 	if err != nil {
 		return nil, err
 	}
 
-	// Dial the Temporal server.
-	c, err := dialClient(svc, &cfg)
-	if err != nil {
+	// Hand the connection to the Service, which owns its lifecycle from here. The
+	// Client returned to the caller carries no lifecycle methods of its own.
+	if err := service.Attach(svc, cfg.name(), &clientConnection{client: c}); err != nil {
+		c.Close()
 		return nil, err
 	}
 
-	cc := &clientConnection{
-		client: c,
-	}
-
-	// Register the client-only connection as a dependency.
-	if err := service.Attach(svc, cc); err != nil {
-		return nil, err
-	}
-
-	return &Client{
-		client: c,
-	}, nil
+	return newClient(c, &cfg), nil
 }
 
-// ExecuteWorkflow starts a workflow execution and returns a WorkflowRun handle.
+// ExecuteWorkflow starts a workflow execution and returns a WorkflowRun handle, or
+// nil and the error when the workflow could not be started.
 //
 // Input and Result are inferred from wf, so input is checked against the workflow's
 // declared input type at compile time and the returned run yields the workflow's
 // declared result type.
 //
-// It automatically handles tracing and error recording via interceptor.
+// The Event set on ctx with event.NewContext travels to the workflow in its
+// header. See ConfigClient.PropagateFullEvent for what that includes.
 func (c *Client) ExecuteWorkflow[Input, Result any](
 	ctx context.Context,
 	wf Workflow[Input, Result],
@@ -68,16 +79,30 @@ func (c *Client) ExecuteWorkflow[Input, Result any](
 	input Input,
 ) (*WorkflowRun[Result], error) {
 	run, err := c.client.ExecuteWorkflow(ctx, opts, wf.name, input)
+	if err != nil {
+		return nil, err
+	}
 
-	return &WorkflowRun[Result]{run: run}, err
+	return &WorkflowRun[Result]{run: run}, nil
+}
+
+// WorkflowRun returns a handle on an existing workflow run, to await its result.
+// An empty runID targets the latest run for workflowID. Result is inferred from wf.
+//
+// No request is made until the handle is used, so an unknown workflow is reported
+// by Await rather than here.
+func (c *Client) WorkflowRun[Input, Result any](
+	ctx context.Context,
+	wf Workflow[Input, Result],
+	workflowID, runID string,
+) *WorkflowRun[Result] {
+	return &WorkflowRun[Result]{run: c.client.GetWorkflow(ctx, workflowID, runID)}
 }
 
 // SignalWorkflow sends a payload to a running workflow execution. Payload is
 // inferred from sig, so the value is checked against the signal's declared payload
-// type at compile time. A run Id is optional; an empty string targets the latest run
-// for the workflow Id.
-//
-// It automatically handles tracing and error recording via interceptor.
+// type at compile time. A run ID is optional; an empty string targets the latest run
+// for the workflow ID.
 func (c *Client) SignalWorkflow[Payload any](
 	ctx context.Context,
 	sig Signal[Payload],
@@ -87,36 +112,114 @@ func (c *Client) SignalWorkflow[Payload any](
 	return c.client.SignalWorkflow(ctx, workflowID, runID, sig.name, payload)
 }
 
-// CreateSchedule creates a new Temporal Schedule that executes wf. If a schedule
-// with the same ID already exists and has identical properties (workflow name, task
-// queue, overlap policy), the call is a no-op: no error is returned and no error is
-// recorded in traces. If the existing schedule differs, an error is returned.
-func (c *Client) CreateSchedule[Input, Result any](
+// SignalWithStartWorkflow sends a payload to the workflow whose ID is opts.ID,
+// starting it with input first if it is not running. It returns a handle on the
+// run that received the signal.
+//
+// Input and Result are inferred from wf, and Payload from sig.
+func (c *Client) SignalWithStartWorkflow[Input, Result, Payload any](
 	ctx context.Context,
 	wf Workflow[Input, Result],
-	opts ScheduleOptions,
-) error {
-	return c.createSchedule(ctx, client.ScheduleOptions{
-		ID: wf.name,
-		Spec: client.ScheduleSpec{
-			CronExpressions: opts.CronExpressions,
-		},
-		Action: &client.ScheduleWorkflowAction{
-			ID:        wf.name,
-			Workflow:  wf.name,
-			TaskQueue: opts.TaskQueue,
-		},
-		Overlap: opts.OverlapPolicy,
+	sig Signal[Payload],
+	opts client.StartWorkflowOptions,
+	input Input,
+	payload Payload,
+) (*WorkflowRun[Result], error) {
+	run, err := c.client.SignalWithStartWorkflow(ctx, opts.ID, sig.name, payload, opts, wf.name, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return &WorkflowRun[Result]{run: run}, nil
+}
+
+// QueryWorkflow runs a query against a workflow execution and returns its result.
+// Input and Result are inferred from q. An empty runID targets the latest run for
+// workflowID.
+func (c *Client) QueryWorkflow[Input, Result any](
+	ctx context.Context,
+	q Query[Input, Result],
+	workflowID, runID string,
+	input Input,
+) (Result, error) {
+	var result Result
+
+	value, err := c.client.QueryWorkflow(ctx, workflowID, runID, q.name, input)
+	if err != nil {
+		return result, err
+	}
+
+	if value == nil || !value.HasValue() {
+		return result, nil
+	}
+
+	err = value.Get(&result)
+	return result, err
+}
+
+// UpdateWorkflow sends an update to a workflow execution and waits for it to
+// complete, returning its result. Input and Result are inferred from u. An empty
+// runID targets the latest run for workflowID.
+//
+// An update the workflow's validator rejects returns that rejection as the error,
+// and is not recorded in the workflow's history.
+func (c *Client) UpdateWorkflow[Input, Result any](
+	ctx context.Context,
+	u Update[Input, Result],
+	workflowID, runID string,
+	input Input,
+) (Result, error) {
+	var result Result
+
+	handle, err := c.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   workflowID,
+		RunID:        runID,
+		UpdateName:   u.name,
+		Args:         []any{input},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
+	if err != nil {
+		return result, err
+	}
+
+	err = handle.Get(ctx, &result)
+	return result, err
+}
+
+// CancelWorkflow requests the cancellation of a workflow execution. The workflow
+// sees its context cancelled and decides how to wind down. An empty runID targets
+// the latest run for workflowID.
+func (c *Client) CancelWorkflow(ctx context.Context, workflowID, runID string) error {
+	return c.client.CancelWorkflow(ctx, workflowID, runID)
+}
+
+// TerminateWorkflow ends a workflow execution immediately, without giving it a
+// chance to clean up, and records reason in its history. An empty runID targets
+// the latest run for workflowID.
+func (c *Client) TerminateWorkflow(ctx context.Context, workflowID, runID, reason string) error {
+	return c.client.TerminateWorkflow(ctx, workflowID, runID, reason)
+}
+
+// DescribeWorkflow returns the status and metadata of a workflow execution. An
+// empty runID targets the latest run for workflowID.
+func (c *Client) DescribeWorkflow(ctx context.Context, workflowID, runID string) (*client.WorkflowExecutionDescription, error) {
+	return c.client.DescribeWorkflow(ctx, workflowID, runID)
 }
 
 // WorkflowResultIfClosed retrieves a workflow run's result by workflowID (runID
-// optional; empty targets the latest run) WITHOUT blocking on a run still in
-// progress. Result is inferred from wf.
+// optional; empty targets the latest run) WITHOUT blocking on a run that has not
+// closed. Result is inferred from wf.
 //
-// The bool reports whether the run had closed: false (with the zero Result) on an
-// in-progress or unknown run, true once it has closed — in which case result holds
-// the deserialized Result for a completed run, or err carries a failed run's error.
+// The bool reports whether the run had closed. It is false, with the zero Result,
+// for a run that is still running or paused, and for an unknown one. Once it is
+// true, result holds a completed run's result, or err carries the reason the run
+// closed without one: its failure, cancellation, termination or timeout.
+//
+// A run that continued as new is closed too, and reported as such rather than
+// followed: err is then a *workflow.ContinueAsNewError, and the result belongs to
+// the run it continued into, which WorkflowResultIfClosed reads when given an
+// empty runID. Retries and cron runs are not followed either.
+//
 // It is the non-blocking counterpart to WorkflowRun.Await.
 func (c *Client) WorkflowResultIfClosed[Input, Result any](
 	ctx context.Context,
@@ -129,42 +232,13 @@ func (c *Client) WorkflowResultIfClosed[Input, Result any](
 	return output, closed, err
 }
 
-// createSchedule creates a new schedule of a workflow type. If a schedule with the
-// same ID already exists and has identical properties, the error is silently ignored.
-// If properties differ, the error is returned.
-func (c *Client) createSchedule(ctx context.Context, opts client.ScheduleOptions) error {
-
-	// First check if a schedule with this ID already exists. If it does and the
-	// properties match, skip creation entirely to avoid the tracing interceptor
-	// recording an error on the OTEL span.
-	handle := c.client.ScheduleClient().GetHandle(ctx, opts.ID)
-	desc, descErr := handle.Describe(ctx)
-	if descErr == nil {
-		if schedulesMatch(desc, opts) {
-			return nil
-		}
-
-		return temporal.ErrScheduleAlreadyRunning
-	}
-
-	// If Describe failed for a reason other than "not found", something is wrong.
-	var notFound *serviceerror.NotFound
-	if !errors.As(descErr, &notFound) {
-		return descErr
-	}
-
-	// Schedule doesn't exist yet, create it.
-	_, err := c.client.ScheduleClient().Create(ctx, opts)
-
-	return err
-}
-
 // closedWorkflowResult deserializes the result of a workflow run that has already
-// closed into valuePtr, without blocking on a run still in progress. The bool reports
-// whether the run had closed: an in-progress or unknown run reports false and leaves
-// valuePtr untouched, so a caller polling a long-lived run never parks a goroutine on
-// it; a closed run reports true, with valuePtr holding a completed run's result or the
-// returned error carrying a failed run's failure (in which case valuePtr is unreliable).
+// closed into valuePtr, without blocking on a run that has not. The bool reports
+// whether the run had closed: an open or unknown run reports false and leaves
+// valuePtr untouched, so a caller polling a long-lived run never parks a goroutine
+// on it; a closed run reports true, with valuePtr holding a completed run's result
+// or the returned error carrying why there is none (in which case valuePtr is
+// unreliable).
 func (c *Client) closedWorkflowResult(ctx context.Context, workflowID, runID string, valuePtr any) (bool, error) {
 	desc, err := c.client.DescribeWorkflowExecution(ctx, workflowID, runID)
 	if err != nil {
@@ -179,59 +253,40 @@ func (c *Client) closedWorkflowResult(ctx context.Context, workflowID, runID str
 		return false, err
 	}
 
-	// A still-running execution must not be read with Get, which blocks until the run
-	// closes; report it as not-closed so the caller never parks a goroutine on it.
-	if desc.GetWorkflowExecutionInfo().GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+	// Only a run in a terminal state can be read without blocking: reading any other
+	// waits for it to close. The statuses are allow-listed rather than "not running",
+	// because a paused run is not running either, and has not closed.
+	info := desc.GetWorkflowExecutionInfo()
+	if !closedStatus(info.GetStatus()) {
 		return false, nil
 	}
 
-	// The run has closed, so Get returns immediately: it deserializes a completed run's
-	// result into valuePtr, or returns a failed or terminated run's error.
-	return true, c.client.GetWorkflow(ctx, workflowID, runID).Get(ctx, valuePtr)
+	// Read the run that was described rather than whichever is latest by now: an
+	// empty runID resolves to the latest run on every request, and a retry or a cron
+	// run may have started in between.
+	if described := info.GetExecution().GetRunId(); described != "" {
+		runID = described
+	}
+
+	// Following runs is disabled for the same reason. A closed run that continued as
+	// new, was retried or runs on a cron would otherwise be followed into its next
+	// run, which is still open — and waited on.
+	return true, c.client.GetWorkflow(ctx, workflowID, runID).GetWithOptions(ctx, valuePtr, client.WorkflowRunGetOptions{
+		DisableFollowingRuns: true,
+	})
 }
 
-// schedulesMatch reports whether the existing schedule matches the requested
-// schedule options by comparing overlap policy, workflow name, and task queue.
-//
-// Note: CronExpressions are not compared because the Temporal server converts them
-// into StructuredCalendar entries, and Describe() never returns CronExpressions back.
-func schedulesMatch(desc *client.ScheduleDescription, opts client.ScheduleOptions) bool {
-
-	// Compare overlap policy. The server normalizes UNSPECIFIED (0) to SKIP (1),
-	// so treat UNSPECIFIED as SKIP for comparison purposes.
-	existingOverlap := enumspb.SCHEDULE_OVERLAP_POLICY_SKIP
-	if desc.Schedule.Policy != nil && desc.Schedule.Policy.Overlap != enumspb.SCHEDULE_OVERLAP_POLICY_UNSPECIFIED {
-		existingOverlap = desc.Schedule.Policy.Overlap
-	}
-
-	requestedOverlap := opts.Overlap
-	if requestedOverlap == enumspb.SCHEDULE_OVERLAP_POLICY_UNSPECIFIED {
-		requestedOverlap = enumspb.SCHEDULE_OVERLAP_POLICY_SKIP
-	}
-
-	if existingOverlap != requestedOverlap {
+// closedStatus reports whether status is one a workflow run ends in.
+func closedStatus(status enumspb.WorkflowExecutionStatus) bool {
+	switch status {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+		return true
+	default:
 		return false
 	}
-
-	existing, ok := desc.Schedule.Action.(*client.ScheduleWorkflowAction)
-	if !ok {
-		return false
-	}
-
-	requested, ok := opts.Action.(*client.ScheduleWorkflowAction)
-	if !ok {
-		return false
-	}
-
-	existingWorkflow, _ := existing.Workflow.(string)
-	requestedWorkflow, _ := requested.Workflow.(string)
-	if existingWorkflow != requestedWorkflow {
-		return false
-	}
-
-	if existing.TaskQueue != requested.TaskQueue {
-		return false
-	}
-
-	return true
 }

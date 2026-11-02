@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: Files
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+components:
+  parameters:
+    Name:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9 ,_-]+$
+        minLength: 1
+  responses:
+    File:
+      description: The file.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                type: object
+paths:
+  /files/{name}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/Name"
+        - name: version
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          $ref: "#/components/responses/File"
+  /folders/{folder}/files/{name}:
+    get:
+      parameters:
+        - name: folder
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9 _-]+$
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          $ref: "#/components/responses/File"
+  # A literal after a parameter in the same segment: the router matches the path as
+  # it was escaped, so a literal starting with a hex digit can end the parameter
+  # inside an escape.
+  /versions/{name}1:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/Name"
+        - name: version
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          $ref: "#/components/responses/File"

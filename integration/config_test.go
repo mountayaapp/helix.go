@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"crypto/tls"
 	"strings"
 	"testing"
 
@@ -334,4 +335,73 @@ func TestConfigTLS_ToStandardTLS_WithLiteralNewlines(t *testing.T) {
 	require.NotNil(t, tlsConfig)
 	assert.Len(t, tlsConfig.Certificates, 1)
 	assert.NotNil(t, tlsConfig.RootCAs)
+}
+
+func TestConfigTLS_Sanitize_DoesNotMutateTheCallersSlices(t *testing.T) {
+	mangled := bytes.ReplaceAll(testCertPEM, []byte("\n"), []byte(`\n`))
+	roots := [][]byte{mangled}
+
+	cfg := ConfigTLS{Enabled: true, RootCAPEMs: roots}
+	cfg.Sanitize()
+
+	assert.Equal(t, mangled, roots[0], "the caller's backing array must be left as it was")
+	assert.Equal(t, testCertPEM, cfg.RootCAPEMs[0])
+}
+
+func TestConfigTLS_ToServerTLS(t *testing.T) {
+	t.Run("Disabled", func(t *testing.T) {
+		tlsConfig, entries := (&ConfigTLS{}).ToServerTLS()
+
+		assert.Nil(t, tlsConfig)
+		assert.Empty(t, entries)
+	})
+
+	t.Run("RequiresACertificate", func(t *testing.T) {
+		tlsConfig, entries := (&ConfigTLS{Enabled: true}).ToServerTLS()
+
+		assert.Nil(t, tlsConfig)
+		require.Len(t, entries, 1)
+		assert.Equal(t, []any{"config", "tls"}, entries[0].Path)
+	})
+
+	t.Run("InvalidKeyPair", func(t *testing.T) {
+		tlsConfig, entries := (&ConfigTLS{Enabled: true, CertPEM: testCertPEM, KeyPEM: []byte("nope")}).ToServerTLS()
+
+		assert.Nil(t, tlsConfig)
+		assert.Len(t, entries, 1)
+	})
+
+	t.Run("Valid", func(t *testing.T) {
+		tlsConfig, entries := (&ConfigTLS{Enabled: true, CertPEM: testCertPEM, KeyPEM: testKeyPEM}).ToServerTLS()
+
+		require.Empty(t, entries)
+		assert.Len(t, tlsConfig.Certificates, 1)
+		assert.Equal(t, uint16(tls.VersionTLS12), tlsConfig.MinVersion)
+		assert.Equal(t, tls.NoClientCert, tlsConfig.ClientAuth)
+	})
+
+	t.Run("MutualTLS", func(t *testing.T) {
+		tlsConfig, entries := (&ConfigTLS{
+			Enabled:      true,
+			CertPEM:      testCertPEM,
+			KeyPEM:       testKeyPEM,
+			ClientCAPEMs: [][]byte{testCertPEM},
+		}).ToServerTLS()
+
+		require.Empty(t, entries)
+		assert.NotNil(t, tlsConfig.ClientCAs)
+		assert.Equal(t, tls.RequireAndVerifyClientCert, tlsConfig.ClientAuth)
+	})
+
+	t.Run("InvalidClientCA", func(t *testing.T) {
+		_, entries := (&ConfigTLS{
+			Enabled:      true,
+			CertPEM:      testCertPEM,
+			KeyPEM:       testKeyPEM,
+			ClientCAPEMs: [][]byte{[]byte("nope")},
+		}).ToServerTLS()
+
+		require.Len(t, entries, 1)
+		assert.Equal(t, []any{"config", "tls", "client_ca_pems"}, entries[0].Path)
+	})
 }

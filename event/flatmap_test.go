@@ -418,3 +418,14 @@ func TestFromFlatMap_InvalidSubscriptionIndex(t *testing.T) {
 	assert.Len(t, e.Subscriptions, 1)
 	assert.Equal(t, "sub_0", e.Subscriptions[0].ID)
 }
+
+func TestFromFlatMap_SliceIndexIsCapped(t *testing.T) {
+	e := FromFlatMap(map[string]string{
+		"event.subscriptions.0.id":         "sub_0",
+		"event.subscriptions.999999999.id": "sub_huge",
+		"event.subscriptions.-1.id":        "sub_negative",
+	})
+
+	assert.Len(t, e.Subscriptions, 1)
+	assert.Equal(t, "sub_0", e.Subscriptions[0].ID)
+}

@@ -1,48 +1,43 @@
 package service
 
 import (
+	"os"
+	"strings"
+
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/kubernetes"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/nomad"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider/qovery"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider/render"
 	"github.com/mountayaapp/helix.go/internal/cloudprovider/unknown"
 
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// cloud wraps an internal CloudProvider implementation, keeping cloud detection
-// as an internal detail of the service package.
-type cloud struct {
-	inner cloudprovider.CloudProvider
-}
+// cloudAttributes returns the resource attributes describing where the process
+// runs: a baseline service.name taken from the executable, followed by the
+// attributes of the first cloud provider detected.
+//
+// The baseline comes first so that a provider which knows better can override it
+// — attributes later in a resource win — and so that a provider which does not,
+// such as Kubernetes, still leaves the service named. OTEL_SERVICE_NAME and
+// OTEL_RESOURCE_ATTRIBUTES are applied after both, by New.
+func cloudAttributes() []attribute.KeyValue {
+	attrs := unknown.Detect().Attributes()
 
-func (c *cloud) name() string {
-	return c.inner.String()
-}
-
-func (c *cloud) attributes() []attribute.KeyValue {
-	return c.inner.Attributes()
-}
-
-// detectCloudProvider runs through known cloud providers and returns the first one
-// detected. Falls back to "unknown" if none match.
-func detectCloudProvider() *cloud {
-	providers := []cloudprovider.CloudProvider{
-
-		// qovery must precede kubernetes: Qovery runs on K8s and sets KUBERNETES_SERVICE_HOST.
-		qovery.Get(),
-		kubernetes.Get(),
-		nomad.Get(),
-		render.Get(),
-		unknown.Get(),
-	}
-
-	for _, p := range providers {
-		if p != nil {
-			return &cloud{inner: p}
+	for _, detect := range []func() cloudprovider.CloudProvider{kubernetes.Detect, nomad.Detect} {
+		if p := detect(); p != nil {
+			return append(attrs, p.Attributes()...)
 		}
 	}
 
-	return &cloud{inner: unknown.Get()}
+	return attrs
+}
+
+// otelSDKDisabled reports whether OTEL_SDK_DISABLED asks for telemetry to be
+// turned off, as defined by the OpenTelemetry environment variable specification.
+//
+// Reading it here rather than mutating the environment is deliberate: os.Setenv
+// races with any concurrent os.Getenv in the process, and a library has no
+// business changing global process state to talk to itself.
+func otelSDKDisabled() bool {
+	return strings.EqualFold(os.Getenv("OTEL_SDK_DISABLED"), "true")
 }

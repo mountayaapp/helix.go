@@ -8,10 +8,28 @@ import (
 // An Event shall be present as much as possible when passing data across services,
 // allowing to better understand the origin of an event.
 //
-// Event should be used for data that you're okay with potentially exposing to anyone
-// who inspects your network traffic. This is because it's stored in HTTP headers
-// for distributed tracing. If your relevant network traffic is entirely within your
-// own network, then this caveat may not apply.
+// # What leaves the process, and what does not
+//
+// An Event has two distinct representations, and the difference is a
+// data-protection boundary rather than a detail:
+//
+//   - AppendAttrs is the local one. The whole Event goes onto the span, which
+//     stays inside your own telemetry pipeline.
+//   - Propagated is the one that crosses process boundaries, as W3C baggage on
+//     outbound request headers. It is an allow-list of six opaque, low-cardinality
+//     identifiers — the event and application identity, and the tenancy
+//     identifiers needed to correlate one logical request across services.
+//
+// Personal data is never propagated. UserID, IP, UserAgent, and the device,
+// location, network, page, screen, campaign and referrer details stay on the local
+// span. Baggage rides outbound headers to every endpoint the process calls,
+// including third parties that have no business receiving any of it.
+//
+// The same allow-list governs the inbound direction: FromContext rebuilds an Event
+// from the baggage an upstream service sent by reading those six fields and no
+// others. The baggage struct tags below describe the wire shape ToFlatMap and
+// FromFlatMap speak, for a producer and consumer that trust each other; a tag on a
+// field is not a statement that helix will propagate it, or accept it.
 //
 // This is heavily inspired by the following references, and was adapted to better
 // fit this ecosystem:

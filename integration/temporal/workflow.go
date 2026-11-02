@@ -3,9 +3,9 @@ package temporal
 import (
 	"context"
 
+	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration/temporal/temporalrest"
 
-	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 )
 
@@ -52,12 +52,12 @@ type WorkflowRun[Result any] struct {
 	run client.WorkflowRun
 }
 
-// ID returns the immutable workflow Id.
+// ID returns the immutable workflow ID.
 func (wr *WorkflowRun[Result]) ID() string {
 	return wr.run.GetID()
 }
 
-// RunID returns the unique run Id for this specific execution.
+// RunID returns the unique run ID for this specific execution.
 func (wr *WorkflowRun[Result]) RunID() string {
 	return wr.run.GetRunID()
 }
@@ -65,6 +65,9 @@ func (wr *WorkflowRun[Result]) RunID() string {
 // Await blocks until the workflow run completes and returns its result, deserialized
 // into the generic [Result] type. It is the blocking counterpart to
 // Client.WorkflowResultIfClosed.
+//
+// A run that continues as new, is retried or runs on a cron is followed to the run
+// that ends the chain, whose result Await returns.
 func (wr *WorkflowRun[Result]) Await(ctx context.Context) (Result, error) {
 	var output Result
 	err := wr.run.Get(ctx, &output)
@@ -72,9 +75,31 @@ func (wr *WorkflowRun[Result]) Await(ctx context.Context) (Result, error) {
 	return output, err
 }
 
+// AwaitInto blocks until the workflow run completes and deserializes its result
+// into dst, which the caller supplies already populated when the run's result
+// should be merged into an accumulating value rather than replace it. It returns
+// a validation error when dst is nil, rather than discarding the result.
+//
+// The merge is a property of the DataConverter, not of AwaitInto. With the
+// default JSON encoding, a field the workflow left at its zero value under
+// omitempty is absent from the wire and leaves whatever dst already held, while a
+// field without omitempty transmits its zero value and overwrites. A protobuf
+// result is decoded by protojson or proto, which both reset dst before decoding
+// into it: nothing is merged. Callers that want a clean result want Await instead.
+func (wr *WorkflowRun[Result]) AwaitInto(ctx context.Context, dst *Result) error {
+	if dst == nil {
+		return nilDestination()
+	}
+
+	return wr.run.Get(ctx, dst)
+}
+
 // Metadata constructs a Temporal metadata struct suitable for external REST
 // responses. This is used to expose workflow and run identifiers without exposing
 // the entire Temporal client object.
+//
+// The workflow ID reaches the REST client as it is: an ID built from personal data
+// or a secret discloses it.
 func (wr *WorkflowRun[Result]) Metadata() *temporalrest.Metadata {
 	if wr == nil {
 		return nil
@@ -90,15 +115,12 @@ func (wr *WorkflowRun[Result]) Metadata() *temporalrest.Metadata {
 	}
 }
 
-// ScheduleOptions holds the options to pass for creating a new schedule of a
-// workflow.
-type ScheduleOptions struct {
-	TaskQueue       string
-	CronExpressions []string
-
-	// OverlapPolicy controls what happens when an Action would be started by a
-	// Schedule at the same time that an older Action is still running.
-	//
-	// Optional: defaults to SCHEDULE_OVERLAP_POLICY_SKIP.
-	OverlapPolicy enumspb.ScheduleOverlapPolicy
+// nilDestination returns the error AwaitInto reports when it is given no value to
+// deserialize into. It is built on every call because an *errorstack.Error can be
+// appended to, and one shared across calls would collect what each caller added.
+func nilDestination() error {
+	return errorstack.NewValidation(errorstack.Entry{
+		Message: "Must be set",
+		Path:    []any{"dst"},
+	})
 }

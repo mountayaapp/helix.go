@@ -3,93 +3,93 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
 	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	helixlog "github.com/mountayaapp/helix.go/telemetry/log"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	oteltrace "go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap/zapcore"
 )
 
-func init() {
-	// Disable OpenTelemetry SDK globally for tests to avoid creating real exporters.
-	os.Setenv("OTEL_SDK_DISABLED", "true")
-}
-
+// mockServer blocks in Start until Stop is called, in the manner of a real
+// server holding a listener open.
 type mockServer struct {
-	name      string
 	started   atomic.Bool
 	stopped   atomic.Bool
 	startErr  error
 	stopErr   error
-	statusVal int
-	statusErr error
+	healthErr error
 }
 
-func (s *mockServer) Name() string { return s.name }
-func (s *mockServer) Start(_ context.Context) error {
+func (s *mockServer) Start(ctx context.Context) error {
 	s.started.Store(true)
 	if s.startErr != nil {
 		return s.startErr
 	}
 
-	// Block until stopped.
 	for !s.stopped.Load() {
-		time.Sleep(5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Millisecond):
+		}
 	}
 
 	return nil
 }
+
 func (s *mockServer) Stop(_ context.Context) error {
 	s.stopped.Store(true)
 	return s.stopErr
 }
-func (s *mockServer) Status(_ context.Context) (int, error) {
-	return s.statusVal, s.statusErr
-}
+
+func (s *mockServer) CheckHealth(_ context.Context) error { return s.healthErr }
 
 type mockDep struct {
-	name      string
 	closed    atomic.Bool
 	closeErr  error
-	statusVal int
-	statusErr error
+	healthErr error
 }
 
-func (d *mockDep) Name() string                          { return d.name }
-func (d *mockDep) Close(_ context.Context) error         { d.closed.Store(true); return d.closeErr }
-func (d *mockDep) Status(_ context.Context) (int, error) { return d.statusVal, d.statusErr }
+func (d *mockDep) Close(_ context.Context) error {
+	d.closed.Store(true)
+	return d.closeErr
+}
 
+func (d *mockDep) CheckHealth(_ context.Context) error { return d.healthErr }
+
+// slowDep takes delay to report health, to exercise the health-check deadline.
 type slowDep struct {
-	name  string
 	delay time.Duration
 }
 
-func (d *slowDep) Name() string                  { return d.name }
 func (d *slowDep) Close(_ context.Context) error { return nil }
-func (d *slowDep) Status(ctx context.Context) (int, error) {
+
+func (d *slowDep) CheckHealth(ctx context.Context) error {
 	select {
 	case <-time.After(d.delay):
-		return http.StatusOK, nil
+		return nil
 	case <-ctx.Done():
-		return http.StatusServiceUnavailable, ctx.Err()
+		return ctx.Err()
 	}
 }
 
-// newTestService resets the singleton guard and creates a Service with tracing
-// and logging disabled. Additional options can be passed to override defaults.
-func newTestService(t *testing.T, opts ...Option) *Service {
+// newTestService creates a Service with telemetry disabled and the process-wide
+// OpenTelemetry globals left alone, so that tests do not interfere with one
+// another.
+func newTestService(t *testing.T) *Service {
 	t.Helper()
-	serviceGuard = sync.Once{}
-	svc, err := New(opts...)
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+
+	svc, err := New(t.Context(), Config{SkipGlobals: true})
 	require.NoError(t, err)
 	return svc
 }
@@ -99,764 +99,499 @@ func TestNew_Defaults(t *testing.T) {
 
 	assert.NotNil(t, svc.logger)
 	assert.NotNil(t, svc.tracer)
-	assert.NotNil(t, svc.cloud)
-	assert.Equal(t, stateCreated, svc.state)
-	assert.Equal(t, 30*time.Second, svc.shutdownTimeout)
+	assert.Equal(t, defaultShutdownTimeout, svc.shutdownTimeout)
 }
 
-func TestNew_WithOptions(t *testing.T) {
-	svc := newTestService(t, WithShutdownTimeout(10*time.Second))
+func TestNew_ShutdownTimeout(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "true")
 
-	assert.Equal(t, 10*time.Second, svc.shutdownTimeout)
+	svc, err := New(t.Context(), Config{ShutdownTimeout: time.Second, SkipGlobals: true})
+	require.NoError(t, err)
+	assert.Equal(t, time.Second, svc.shutdownTimeout)
 }
 
-func TestNew_Twice(t *testing.T) {
-	_ = newTestService(t)
+// TestNew_ManyPerProcess is the point of removing the singleton: a failed or
+// completed New must not poison the process for every later caller.
+func TestNew_ManyPerProcess(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "true")
 
-	_, err := New()
+	first, err := New(t.Context(), Config{SkipGlobals: true})
+	require.NoError(t, err)
+	require.NotNil(t, first)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "only one instance is allowed")
+	second, err := New(t.Context(), Config{SkipGlobals: true})
+	require.NoError(t, err)
+	require.NotNil(t, second)
+
+	assert.NotSame(t, first, second)
 }
 
-func TestNew_DetectsCloudProvider(t *testing.T) {
-	svc := newTestService(t)
+// TestCloudAttributes_AlwaysNameTheService pins the baseline: whatever provider
+// is detected, the resource names the service, so that a provider which does not
+// — Kubernetes — leaves no service unnamed.
+func TestCloudAttributes_AlwaysNameTheService(t *testing.T) {
+	var named bool
+	for _, attr := range cloudAttributes() {
+		if attr.Key == "service.name" && attr.Value.AsString() != "" {
+			named = true
+		}
+	}
 
-	assert.NotNil(t, svc.cloud)
-	assert.NotEmpty(t, svc.cloud.name())
+	assert.True(t, named)
 }
 
-func TestNew_DefaultSignals(t *testing.T) {
-	svc := newTestService(t)
+func TestNew_LogLevel(t *testing.T) {
+	t.Setenv("OTEL_LOG_LEVEL", "debug")
 
-	assert.Len(t, svc.signals, 2)
-	assert.Contains(t, svc.signals, os.Signal(syscall.SIGINT))
-	assert.Contains(t, svc.signals, os.Signal(syscall.SIGTERM))
+	assert.Equal(t, zapcore.DebugLevel, logLevel(Config{}), "unset falls back to OTEL_LOG_LEVEL")
+	assert.Equal(t, zapcore.WarnLevel, logLevel(Config{LogLevel: helixlog.LevelWarn}))
 }
 
 func TestServe_Success(t *testing.T) {
 	svc := newTestService(t)
-	srv := &mockServer{name: "test-server"}
 
-	err := Serve(svc, srv)
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	assert.Len(t, svc.servers, 1)
+}
 
-	assert.NoError(t, err)
-	assert.Equal(t, srv, svc.server)
+// TestServe_Multiple covers the shape the single-server restriction forbade: a
+// REST API next to a worker.
+func TestServe_Multiple(t *testing.T) {
+	svc := newTestService(t)
+
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, Serve(svc, "worker", &mockServer{}))
+	assert.Len(t, svc.servers, 2)
 }
 
 func TestServe_NilServer(t *testing.T) {
 	svc := newTestService(t)
 
-	err := Serve(svc, nil)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Must be set")
+	assert.Error(t, Serve(svc, "public", nil))
 }
 
 func TestServe_EmptyName(t *testing.T) {
 	svc := newTestService(t)
 
-	err := Serve(svc, &mockServer{name: ""})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Must be set")
+	assert.Error(t, Serve(svc, "", &mockServer{}))
 }
 
-func TestServe_Twice(t *testing.T) {
+func TestServe_DuplicateName(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "first"})
 
-	err := Serve(svc, &mockServer{name: "second"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "is already registered")
-}
-
-func TestServe_AfterStart(t *testing.T) {
-	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	svc.state = stateStarted
-
-	err := Serve(svc, &mockServer{name: "second"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been started")
-}
-
-func TestServe_AfterStop(t *testing.T) {
-	svc := newTestService(t)
-	svc.state = stateStopped
-
-	err := Serve(svc, &mockServer{name: "srv"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been stopped")
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	assert.Error(t, Serve(svc, "public", &mockServer{}))
 }
 
 func TestAttach_Success(t *testing.T) {
 	svc := newTestService(t)
-	dep := &mockDep{name: "test-dep"}
 
-	err := Attach(svc, dep)
-
-	assert.NoError(t, err)
+	require.NoError(t, Attach(svc, "primary", &mockDep{}))
 	assert.Len(t, svc.dependencies, 1)
 }
 
 func TestAttach_MultipleDeps(t *testing.T) {
 	svc := newTestService(t)
 
-	Attach(svc, &mockDep{name: "dep-1"})
-	Attach(svc, &mockDep{name: "dep-2"})
-	Attach(svc, &mockDep{name: "dep-3"})
-
-	assert.Len(t, svc.dependencies, 3)
+	require.NoError(t, Attach(svc, "primary", &mockDep{}))
+	require.NoError(t, Attach(svc, "replica", &mockDep{}))
+	assert.Len(t, svc.dependencies, 2)
 }
 
 func TestAttach_NilDep(t *testing.T) {
 	svc := newTestService(t)
 
-	err := Attach(svc, nil)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Must be set")
+	assert.Error(t, Attach(svc, "primary", nil))
 }
 
 func TestAttach_EmptyName(t *testing.T) {
 	svc := newTestService(t)
 
-	err := Attach(svc, &mockDep{name: ""})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Must be set")
+	assert.Error(t, Attach(svc, "", &mockDep{}))
 }
 
-func TestAttach_DuplicateNamesAllowed(t *testing.T) {
+// TestAttach_DuplicateName is the reason names moved to the call site: two pools
+// of the same kind must be distinguishable.
+func TestAttach_DuplicateName(t *testing.T) {
 	svc := newTestService(t)
 
-	err1 := Attach(svc, &mockDep{name: "dep"})
-	err2 := Attach(svc, &mockDep{name: "dep"})
-
-	assert.NoError(t, err1)
-	assert.NoError(t, err2)
-	assert.Len(t, svc.dependencies, 2)
+	require.NoError(t, Attach(svc, "primary", &mockDep{}))
+	assert.Error(t, Attach(svc, "primary", &mockDep{}))
 }
 
-func TestAttach_AfterStart(t *testing.T) {
-	svc := newTestService(t)
-	svc.state = stateStarted
-
-	err := Attach(svc, &mockDep{name: "dep"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been started")
-}
-
-func TestAttach_AfterStop(t *testing.T) {
-	svc := newTestService(t)
-	svc.state = stateStopped
-
-	err := Attach(svc, &mockDep{name: "dep"})
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been stopped")
-}
-
+// TestStart_NoServer covers the shape a consumer loop or a batch job has: a
+// Service that attached dependencies and registered no server at all. It is legal,
+// and Start says so.
 func TestStart_NoServer(t *testing.T) {
 	svc := newTestService(t)
 
-	err := svc.Start(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Must be set")
-}
-
-func TestStart_ServerError(t *testing.T) {
-	svc := newTestService(t)
-	srv := &mockServer{
-		name:     "failing",
-		startErr: errors.New("bind: address already in use"),
-	}
-	Serve(svc, srv)
-
-	err := svc.Start(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "bind: address already in use")
-	assert.Equal(t, stateCreated, svc.state, "state should remain stateCreated on failure")
+	assert.NoError(t, svc.Start(t.Context()))
+	require.NoError(t, svc.Stop(context.Background()))
 }
 
 func TestStart_AlreadyStarted(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	svc.state = stateStarted
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
 
-	err := svc.Start(t.Context())
+	require.NoError(t, svc.Start(t.Context()))
+	assert.Error(t, svc.Start(t.Context()))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been started")
+	require.NoError(t, svc.Stop(context.Background()))
 }
 
-func TestStart_AfterStop(t *testing.T) {
+func TestRun_ReturnsOnContextCancellation(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	svc.state = stateStopped
+	srv := &mockServer{}
+	require.NoError(t, Serve(svc, "public", srv))
 
-	err := svc.Start(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been stopped")
-}
-
-func TestStart_SignalTriggersGracefulReturn(t *testing.T) {
-	svc := newTestService(t, WithSignals(syscall.SIGUSR1))
-	srv := &mockServer{name: "srv"}
-	Serve(svc, srv)
-
-	done := make(chan error, 1)
+	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
-		done <- svc.Start(t.Context())
+		time.Sleep(20 * time.Millisecond)
+		cancel()
 	}()
 
-	// Wait until the server has started, then send signal.
-	for !srv.started.Load() {
-		time.Sleep(5 * time.Millisecond)
-	}
+	require.NoError(t, svc.Run(ctx))
+	assert.True(t, srv.started.Load())
+	assert.True(t, srv.stopped.Load())
+}
 
-	p, _ := os.FindProcess(os.Getpid())
-	p.Signal(syscall.SIGUSR1)
+func TestRun_ReturnsServerFailure(t *testing.T) {
+	svc := newTestService(t)
+	require.NoError(t, Serve(svc, "public", &mockServer{startErr: errors.New("bind: address in use")}))
 
-	err := <-done
-	assert.NoError(t, err)
-	assert.Equal(t, stateStarted, svc.state)
+	err := svc.Run(t.Context())
 
-	// Verify Stop works after Start.
-	err = svc.Stop(t.Context())
-	assert.NoError(t, err)
-	assert.Equal(t, stateStopped, svc.state)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "public")
+}
+
+// TestRun_TearsDownOnStartupFailure is the defect D2 describes: the startup
+// failure path is the one whose telemetry matters most, and it was the one that
+// skipped teardown.
+func TestRun_TearsDownOnStartupFailure(t *testing.T) {
+	svc := newTestService(t)
+	dep := &mockDep{}
+	require.NoError(t, Attach(svc, "primary", dep))
+	require.NoError(t, Serve(svc, "public", &mockServer{startErr: errors.New("boom")}))
+
+	require.Error(t, svc.Run(t.Context()))
+
+	assert.True(t, dep.closed.Load(), "dependencies must close even when startup failed")
+	assert.True(t, svc.stopped, "telemetry must be flushed even when startup failed")
+}
+
+// TestRun_NoServerRegistered covers a Service that only holds dependencies: Run
+// blocks on the context rather than refusing, and tears down when it is cancelled.
+func TestRun_NoServerRegistered(t *testing.T) {
+	svc := newTestService(t)
+	dep := &mockDep{}
+	require.NoError(t, Attach(svc, "primary", dep))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	require.NoError(t, svc.Run(ctx))
+
+	assert.True(t, dep.closed.Load())
+	assert.True(t, svc.stopped)
 }
 
 func TestStop_Success(t *testing.T) {
 	svc := newTestService(t)
-	srv := &mockServer{name: "srv"}
-	dep := &mockDep{name: "dep"}
-	Serve(svc, srv)
-	Attach(svc, dep)
-	svc.state = stateStarted
+	srv := &mockServer{}
+	dep := &mockDep{}
+	require.NoError(t, Serve(svc, "public", srv))
+	require.NoError(t, Attach(svc, "primary", dep))
+	require.NoError(t, svc.Start(t.Context()))
 
-	err := svc.Stop(t.Context())
-
-	assert.NoError(t, err)
+	require.NoError(t, svc.Stop(context.Background()))
 	assert.True(t, srv.stopped.Load())
 	assert.True(t, dep.closed.Load())
-	assert.Equal(t, stateStopped, svc.state)
 }
 
+// TestStop_NotStarted and TestStop_Twice pin the idempotence that replaced
+// requireState: teardown that refuses to run is how telemetry gets lost.
 func TestStop_NotStarted(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
 
-	err := svc.Stop(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "has not been started yet")
+	assert.NoError(t, svc.Stop(t.Context()))
 }
 
 func TestStop_Twice(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	svc.state = stateStarted
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, svc.Start(t.Context()))
 
-	err := svc.Stop(t.Context())
-	assert.NoError(t, err)
-
-	err = svc.Stop(t.Context())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already been stopped")
-}
-
-func TestStop_NoDeps(t *testing.T) {
-	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	svc.state = stateStarted
-
-	err := svc.Stop(t.Context())
-
-	assert.NoError(t, err)
-	assert.Equal(t, stateStopped, svc.state)
+	require.NoError(t, svc.Stop(context.Background()))
+	assert.NoError(t, svc.Stop(context.Background()))
 }
 
 func TestStop_ServerError(t *testing.T) {
 	svc := newTestService(t)
-	srv := &mockServer{name: "srv", stopErr: errors.New("stop failed")}
-	Serve(svc, srv)
-	svc.state = stateStarted
+	require.NoError(t, Serve(svc, "public", &mockServer{stopErr: errors.New("drain failed")}))
+	require.NoError(t, svc.Start(t.Context()))
 
-	err := svc.Stop(t.Context())
+	err := svc.Stop(context.Background())
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "stop failed")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "public")
 }
 
 func TestStop_DependencyError(t *testing.T) {
 	svc := newTestService(t)
-	srv := &mockServer{name: "srv"}
-	dep := &mockDep{name: "dep", closeErr: errors.New("close failed")}
-	Serve(svc, srv)
-	Attach(svc, dep)
-	svc.state = stateStarted
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, Attach(svc, "primary", &mockDep{closeErr: errors.New("close failed")}))
+	require.NoError(t, svc.Start(t.Context()))
 
-	err := svc.Stop(t.Context())
+	err := svc.Stop(context.Background())
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "close failed")
-}
-
-func TestStop_ServerAndDependencyErrors(t *testing.T) {
-	svc := newTestService(t)
-	srv := &mockServer{name: "srv", stopErr: errors.New("server stop failed")}
-	dep := &mockDep{name: "dep", closeErr: errors.New("dep close failed")}
-	Serve(svc, srv)
-	Attach(svc, dep)
-	svc.state = stateStarted
-
-	err := svc.Stop(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "server stop failed")
-	assert.Contains(t, err.Error(), "dep close failed")
-}
-
-func TestStop_MultipleDependencyErrors(t *testing.T) {
-	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	Attach(svc, &mockDep{name: "dep-1", closeErr: errors.New("err-1")})
-	Attach(svc, &mockDep{name: "dep-2", closeErr: errors.New("err-2")})
-	svc.state = stateStarted
-
-	err := svc.Stop(t.Context())
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "err-1")
-	assert.Contains(t, err.Error(), "err-2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "primary")
 }
 
 func TestStop_ClosesAllDependencies(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv"})
-	deps := make([]*mockDep, 5)
-	for i := range deps {
-		deps[i] = &mockDep{name: fmt.Sprintf("dep-%d", i)}
-		Attach(svc, deps[i])
-	}
-	svc.state = stateStarted
-
-	svc.Stop(t.Context())
-
+	deps := []*mockDep{{}, {}, {}}
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
 	for i, dep := range deps {
-		assert.True(t, dep.closed.Load(), "dep-%d should be closed", i)
+		require.NoError(t, Attach(svc, string(rune('a'+i)), dep))
+	}
+	require.NoError(t, svc.Start(t.Context()))
+
+	require.NoError(t, svc.Stop(context.Background()))
+	for i, dep := range deps {
+		assert.True(t, dep.closed.Load(), "dependency %d must be closed", i)
 	}
 }
 
-func TestStop_DependencyErrorStillStopsServer(t *testing.T) {
+func TestStop_DependencyErrorStillClosesOthers(t *testing.T) {
 	svc := newTestService(t)
-	srv := &mockServer{name: "srv"}
-	dep := &mockDep{name: "dep", closeErr: errors.New("close failed")}
-	Serve(svc, srv)
-	Attach(svc, dep)
-	svc.state = stateStarted
+	healthy := &mockDep{}
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, Attach(svc, "broken", &mockDep{closeErr: errors.New("close failed")}))
+	require.NoError(t, Attach(svc, "healthy", healthy))
+	require.NoError(t, svc.Start(t.Context()))
 
-	err := svc.Stop(t.Context())
-
-	assert.Error(t, err)
-	assert.True(t, srv.stopped.Load())
-	assert.True(t, dep.closed.Load())
+	require.Error(t, svc.Stop(context.Background()))
+	assert.True(t, healthy.closed.Load())
 }
 
-func TestStatus_AllHealthy(t *testing.T) {
+func TestCheckHealth_AllHealthy(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv", statusVal: http.StatusOK})
-	Attach(svc, &mockDep{name: "dep", statusVal: http.StatusOK})
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, Attach(svc, "primary", &mockDep{}))
 
-	status, err := svc.Status(t.Context())
-
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, status)
+	assert.NoError(t, svc.CheckHealth(t.Context()))
 }
 
-func TestStatus_OneUnhealthy(t *testing.T) {
+func TestCheckHealth_NoIntegrations(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv", statusVal: http.StatusOK})
-	Attach(svc, &mockDep{name: "dep", statusVal: http.StatusServiceUnavailable})
 
-	status, err := svc.Status(t.Context())
-
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.NoError(t, svc.CheckHealth(t.Context()))
 }
 
-func TestStatus_WithError(t *testing.T) {
+func TestCheckHealth_UnhealthyDependency(t *testing.T) {
 	svc := newTestService(t)
-	Attach(svc, &mockDep{
-		name:      "failing-dep",
-		statusVal: http.StatusServiceUnavailable,
-		statusErr: errors.New("connection refused"),
-	})
+	require.NoError(t, Attach(svc, "primary", &mockDep{healthErr: errors.New("connection refused")}))
 
-	status, err := svc.Status(t.Context())
+	err := svc.CheckHealth(t.Context())
 
-	assert.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "primary")
 }
 
-func TestStatus_NoIntegrations(t *testing.T) {
+func TestCheckHealth_UnhealthyServer(t *testing.T) {
 	svc := newTestService(t)
+	require.NoError(t, Serve(svc, "public", &mockServer{healthErr: errors.New("not listening")}))
 
-	status, err := svc.Status(t.Context())
+	err := svc.CheckHealth(t.Context())
 
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "public")
 }
 
-func TestStatus_ServerOnly(t *testing.T) {
+func TestCheckHealth_NamesEachFailure(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv", statusVal: http.StatusOK})
+	require.NoError(t, Attach(svc, "primary", &mockDep{healthErr: errors.New("down")}))
+	require.NoError(t, Attach(svc, "replica", &mockDep{healthErr: errors.New("down")}))
 
-	status, err := svc.Status(t.Context())
+	err := svc.CheckHealth(t.Context())
 
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, status)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "primary")
+	assert.Contains(t, err.Error(), "replica")
 }
 
-func TestStatus_DepsOnly(t *testing.T) {
+func TestCheckHealth_TimeoutOnSlowDependency(t *testing.T) {
 	svc := newTestService(t)
-	Attach(svc, &mockDep{name: "dep-1", statusVal: http.StatusOK})
-	Attach(svc, &mockDep{name: "dep-2", statusVal: http.StatusOK})
+	require.NoError(t, Attach(svc, "slow", &slowDep{delay: 10 * time.Second}))
 
-	status, err := svc.Status(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
 
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, status)
+	assert.Error(t, svc.CheckHealth(ctx))
 }
 
-func TestStatus_HighestWins(t *testing.T) {
+func TestCheckHealth_ConcurrentSafety(t *testing.T) {
 	svc := newTestService(t)
-	Serve(svc, &mockServer{name: "srv", statusVal: http.StatusOK})
-	Attach(svc, &mockDep{name: "dep-ok", statusVal: http.StatusOK})
-	Attach(svc, &mockDep{name: "dep-bad", statusVal: http.StatusBadGateway})
-
-	status, err := svc.Status(t.Context())
-
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusBadGateway, status)
-}
-
-func TestStatus_MultipleErrors(t *testing.T) {
-	svc := newTestService(t)
-	Attach(svc, &mockDep{
-		name:      "dep-1",
-		statusVal: http.StatusServiceUnavailable,
-		statusErr: errors.New("dep-1 down"),
-	})
-	Attach(svc, &mockDep{
-		name:      "dep-2",
-		statusVal: http.StatusServiceUnavailable,
-		statusErr: errors.New("dep-2 down"),
-	})
-
-	status, err := svc.Status(t.Context())
-
-	assert.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-}
-
-func TestStatus_ServerErrorWithHealthyDeps(t *testing.T) {
-	svc := newTestService(t)
-	Serve(svc, &mockServer{
-		name:      "srv",
-		statusVal: http.StatusServiceUnavailable,
-		statusErr: errors.New("server unhealthy"),
-	})
-	Attach(svc, &mockDep{name: "dep", statusVal: http.StatusOK})
-
-	status, err := svc.Status(t.Context())
-
-	assert.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-}
-
-func TestStatus_ConcurrentSafety(t *testing.T) {
-	svc := newTestService(t)
-	for i := 0; i < 10; i++ {
-		Attach(svc, &mockDep{name: fmt.Sprintf("dep-%d", i), statusVal: http.StatusOK})
-	}
+	require.NoError(t, Serve(svc, "public", &mockServer{}))
+	require.NoError(t, Attach(svc, "primary", &mockDep{}))
 
 	var wg sync.WaitGroup
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			status, err := svc.Status(t.Context())
-			assert.NoError(t, err)
-			assert.Equal(t, http.StatusOK, status)
-		}()
+	for range 20 {
+		wg.Go(func() {
+			assert.NoError(t, svc.CheckHealth(t.Context()))
+		})
 	}
 
 	wg.Wait()
 }
 
-func TestStatus_TimeoutOnSlowDependency(t *testing.T) {
-	svc := newTestService(t)
-	Attach(svc, &slowDep{name: "slow", delay: 10 * time.Second})
-
-	start := time.Now()
-	status, err := svc.Status(context.Background())
-	elapsed := time.Since(start)
-
-	assert.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-	assert.Less(t, elapsed, 6*time.Second, "should return within statusTimeout")
-}
-
-func TestStatus_RespectsExistingDeadline(t *testing.T) {
-	svc := newTestService(t)
-	Attach(svc, &slowDep{name: "slow", delay: 10 * time.Second})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	status, err := svc.Status(ctx)
-	elapsed := time.Since(start)
-
-	assert.Error(t, err)
-	assert.Equal(t, http.StatusServiceUnavailable, status)
-	assert.Less(t, elapsed, 2*time.Second, "should respect caller's tighter deadline")
-}
-
-func TestContext_EnrichesWithLoggerAndTracer(t *testing.T) {
+// TestIntegrationAPI covers the surface an integration package uses to hand
+// itself to a Service. It is deliberately not reachable from an end-user's
+// handle: that is what keeps lifecycle inside helix.
+func TestIntegrationAPI(t *testing.T) {
 	svc := newTestService(t)
 
-	ctx := Context(t.Context(), svc)
-
-	assert.NotNil(t, log.FromContext(ctx))
-	assert.NotNil(t, trace.FromContext(ctx))
-	assert.Same(t, svc.logger, log.FromContext(ctx))
-	assert.Same(t, svc.tracer, trace.FromContext(ctx))
-}
-
-func TestContext_Idempotent(t *testing.T) {
-	svc := newTestService(t)
-
-	ctx1 := Context(t.Context(), svc)
-	ctx2 := Context(ctx1, svc)
-
-	assert.Same(t, log.FromContext(ctx1), log.FromContext(ctx2))
-	assert.Same(t, trace.FromContext(ctx1), trace.FromContext(ctx2))
-}
-
-func TestContext_PreservesExistingValues(t *testing.T) {
-	svc := newTestService(t)
-
-	type customKey struct{}
-	ctx := context.WithValue(t.Context(), customKey{}, "preserved")
-	ctx = Context(ctx, svc)
-
-	assert.Equal(t, "preserved", ctx.Value(customKey{}))
-	assert.NotNil(t, log.FromContext(ctx))
-	assert.NotNil(t, trace.FromContext(ctx))
-}
-
-func TestTracerProvider(t *testing.T) {
-	svc := newTestService(t)
-
+	assert.NotNil(t, Context(t.Context(), svc))
 	assert.NotNil(t, TracerProvider(svc))
+	assert.NotNil(t, LoggerProvider(svc))
 }
 
-func TestLoggerProvider(t *testing.T) {
+func TestStart_AfterStop(t *testing.T) {
 	svc := newTestService(t)
+	require.NoError(t, svc.Stop(t.Context()))
 
-	// Nop logger has nil provider.
-	assert.Nil(t, LoggerProvider(svc))
+	assert.Error(t, svc.Start(t.Context()), "a stopped Service must not start servers nothing will stop")
 }
 
-func TestWithSignals(t *testing.T) {
-	svc := newTestService(t, WithSignals(syscall.SIGUSR2))
+func TestDone_ClosedWhenAServerFails(t *testing.T) {
+	svc := newTestService(t)
+	failure := errors.New("bind: address already in use")
+	require.NoError(t, Serve(svc, "api", &mockServer{startErr: failure}))
 
-	assert.Equal(t, []os.Signal{syscall.SIGUSR2}, svc.signals)
+	require.NoError(t, svc.Start(t.Context()))
+	t.Cleanup(func() { svc.Stop(context.Background()) })
+
+	select {
+	case <-svc.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Done() was not closed after a server failed")
+	}
+
+	assert.ErrorIs(t, svc.Err(), failure)
 }
 
-func TestWithShutdownTimeout(t *testing.T) {
-	t.Run("zero", func(t *testing.T) {
-		svc := newTestService(t, WithShutdownTimeout(0))
-		assert.Equal(t, time.Duration(0), svc.shutdownTimeout)
-	})
+func TestDone_ClosedByStop(t *testing.T) {
+	svc := newTestService(t)
+	assert.NoError(t, svc.Err())
 
-	t.Run("custom", func(t *testing.T) {
-		svc := newTestService(t, WithShutdownTimeout(5*time.Minute))
-		assert.Equal(t, 5*time.Minute, svc.shutdownTimeout)
-	})
+	require.NoError(t, svc.Stop(t.Context()))
+
+	<-svc.Done()
+	assert.NoError(t, svc.Err())
 }
 
-func TestNew_OTELSDKDisabled(t *testing.T) {
+// exitingServer returns from Start on its own, without an error.
+type exitingServer struct{}
+
+func (exitingServer) Start(context.Context) error       { return nil }
+func (exitingServer) Stop(context.Context) error        { return nil }
+func (exitingServer) CheckHealth(context.Context) error { return nil }
+
+func TestRun_ReturnsWhenAServerExitsCleanly(t *testing.T) {
+	svc := newTestService(t)
+	require.NoError(t, Serve(svc, "worker", exitingServer{}))
+
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(t.Context()) }()
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() kept blocking after its only server exited")
+	}
+}
+
+// hungDep never closes until its context ends.
+type hungDep struct{}
+
+func (hungDep) Close(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (hungDep) CheckHealth(context.Context) error { return nil }
+
+// keepingExporter is an in-memory span exporter whose spans survive Shutdown,
+// which tracetest's own resets.
+type keepingExporter struct {
+	*tracetest.InMemoryExporter
+}
+
+func (keepingExporter) Shutdown(context.Context) error { return nil }
+
+// TestStop_FlushesTelemetryWhenADependencyHangs pins the telemetry reserve: a
+// dependency that spends the whole integrations budget must not leave the tracer
+// provider shutting down on an expired context, which drops the spans explaining
+// what hung.
+func TestStop_FlushesTelemetryWhenADependencyHangs(t *testing.T) {
 	t.Setenv("OTEL_SDK_DISABLED", "true")
 
+	svc, err := New(t.Context(), Config{SkipGlobals: true, ShutdownTimeout: 400 * time.Millisecond})
+	require.NoError(t, err)
+
+	exporter := keepingExporter{tracetest.NewInMemoryExporter()}
+	svc.sdkTracerProvider = sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+	svc.tracer = trace.NewTracerWithProvider(svc.sdkTracerProvider)
+
+	_, span := svc.tracer.Start(t.Context(), oteltrace.SpanKindInternal, "Probe: BeforeStop")
+	span.End()
+
+	require.NoError(t, Attach(svc, "hung", hungDep{}))
+
+	assert.Error(t, svc.Stop(context.Background()))
+	assert.Len(t, exporter.GetSpans(), 1, "the span must be flushed despite the hung dependency")
+}
+
+// countingDep counts its health checks, and holds each one until released.
+type countingDep struct {
+	calls   atomic.Int32
+	release chan struct{}
+}
+
+func (d *countingDep) Close(context.Context) error { return nil }
+
+func (d *countingDep) CheckHealth(context.Context) error {
+	d.calls.Add(1)
+	<-d.release
+	return nil
+}
+
+// TestCheckHealth_CoalescesConcurrentChecks pins that concurrent readiness probes
+// share one check rather than each fanning out to every dependency.
+func TestCheckHealth_CoalescesConcurrentChecks(t *testing.T) {
 	svc := newTestService(t)
+	dep := &countingDep{release: make(chan struct{})}
+	require.NoError(t, Attach(svc, "db", dep))
 
-	assert.NotNil(t, svc.tracer)
-	assert.NotNil(t, svc.logger)
-
-	// Nop logger has nil provider.
-	assert.Nil(t, LoggerProvider(svc))
-}
-
-func TestNew_OTELSDKDisabled_CaseInsensitive(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "True")
-
-	svc := newTestService(t)
-	assert.Nil(t, LoggerProvider(svc))
-}
-
-func TestNew_OTELSDKDisabled_False(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-
-	svc := newTestService(t)
-
-	assert.NotNil(t, svc.tracer)
-	assert.NotNil(t, svc.logger)
-	assert.NotNil(t, TracerProvider(svc))
-	assert.NotNil(t, LoggerProvider(svc))
-}
-
-func TestNew_OTELSDKEnabled_ExporterNone(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-
-	svc := newTestService(t)
-
-	assert.NotNil(t, TracerProvider(svc))
-	assert.NotNil(t, LoggerProvider(svc))
-
-	ctx := Context(t.Context(), svc)
-	assert.NotNil(t, log.FromContext(ctx))
-	assert.NotNil(t, trace.FromContext(ctx))
-}
-
-func TestNew_OTELSDKEnabled_ExporterConsole(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "console")
-	t.Setenv("OTEL_LOGS_EXPORTER", "console")
-
-	svc := newTestService(t)
-
-	assert.NotNil(t, TracerProvider(svc))
-	assert.NotNil(t, LoggerProvider(svc))
-}
-
-func TestNew_OTELSDKEnabled_DefaultProtocolGRPC(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "")
-
-	_ = newTestService(t)
-
-	assert.Equal(t, "grpc", os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"))
-}
-
-func TestNew_OTELSDKEnabled_ProtocolHTTPExplicit(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-
-	svc := newTestService(t)
-
-	assert.NotNil(t, TracerProvider(svc))
-	assert.NotNil(t, LoggerProvider(svc))
-}
-
-func TestNew_OTELSDKDisabled_DoesNotSetProtocol(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "")
-
-	_ = newTestService(t)
-
-	assert.Empty(t, os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"))
-}
-
-func TestNew_OTELLogLevel(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-
-	levels := []string{"debug", "info", "warn", "error"}
-	for _, level := range levels {
-		t.Run(level, func(t *testing.T) {
-			t.Setenv("OTEL_LOG_LEVEL", level)
-			svc := newTestService(t)
-			assert.NotNil(t, svc.logger)
-		})
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() { assert.NoError(t, svc.CheckHealth(t.Context())) })
 	}
-}
 
-func TestNew_OTELResourceAttributes(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging,custom.tag=hello")
+	require.Eventually(t, func() bool { return dep.calls.Load() == 1 }, time.Second, time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	close(dep.release)
+	wg.Wait()
 
-	svc := newTestService(t)
-	assert.NotNil(t, svc.tracer)
-	assert.NotNil(t, svc.logger)
-}
+	assert.Equal(t, int32(1), dep.calls.Load())
 
-func TestNew_OTELServiceName(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_SERVICE_NAME", "my-custom-service")
-
-	svc := newTestService(t)
-	assert.NotNil(t, svc.tracer)
-	assert.NotNil(t, svc.logger)
-
-	// OTEL_SERVICE_NAME must override the cloud-detected service name.
-	var found bool
-	for _, kv := range svc.resource.Attributes() {
-		if string(kv.Key) == "service.name" {
-			assert.Equal(t, "my-custom-service", kv.Value.AsString())
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "service.name attribute not found in resource")
-}
-
-func TestNew_OTELCustomEndpoint(t *testing.T) {
-	t.Setenv("OTEL_SDK_DISABLED", "false")
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:9999")
-
-	svc := newTestService(t)
-	assert.NotNil(t, TracerProvider(svc))
-	assert.NotNil(t, LoggerProvider(svc))
-}
-
-func TestMultipleServices_Sequential(t *testing.T) {
-	for range 5 {
-		t.Run("", func(t *testing.T) {
-			svc := newTestService(t)
-			Attach(svc, &mockDep{name: "dep", statusVal: http.StatusOK})
-
-			status, err := svc.Status(t.Context())
-
-			assert.NoError(t, err)
-			assert.Equal(t, http.StatusOK, status)
-		})
-	}
+	// A check that completed is not reused: the next call checks again.
+	require.NoError(t, svc.CheckHealth(t.Context()))
+	assert.Equal(t, int32(2), dep.calls.Load())
 }

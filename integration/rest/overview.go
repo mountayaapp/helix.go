@@ -3,16 +3,19 @@
 // comes with OpenAPI support as well for request/response validation.
 //
 // When using HTTP response writers, the calling function should return as soon as
-// the handler function is called to avoid writing multiple times to the response
-// writer.
+// the response is written to avoid writing multiple times to the response writer.
 //
 // Example:
 //
-//	MyHandlerFunc(rw http.ResponseWriter, req *http.Request) {
-//	  if req.Header.Get("X-API-KEY") == "" {
-//	    rest.Unauthorized(rw, req)
+//	func handler(rw http.ResponseWriter, req *http.Request) {
+//	  if req.Header.Get("X-API-Key") == "" {
+//	    rest.NewResponseError[rest.NoMetadata](req).
+//	      SetStatus(http.StatusUnauthorized).
+//	      Write(rw)
 //	    return
 //	  }
+//
+//	  rest.NewResponseSuccess[rest.NoMetadata, rest.NoData](req).Write(rw)
 //	}
 package rest
 

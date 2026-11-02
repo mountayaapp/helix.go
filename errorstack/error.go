@@ -3,6 +3,7 @@ package errorstack
 import (
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 )
@@ -24,6 +25,7 @@ const (
 	CodeNotFound           = "NOT_FOUND"
 	CodeMethodNotAllowed   = "METHOD_NOT_ALLOWED"
 	CodeConflict           = "CONFLICT"
+	CodePreconditionFailed = "PRECONDITION_FAILED"
 	CodePayloadTooLarge    = "PAYLOAD_TOO_LARGE"
 	CodeTooManyRequests    = "TOO_MANY_REQUESTS"
 	CodeInternalError      = "INTERNAL_ERROR"
@@ -147,10 +149,14 @@ func NewValidation(entries ...Entry) *Error {
 	out := make([]Entry, 0, len(entries))
 
 	for _, entry := range entries {
-		if entry.Extensions == nil {
-			entry.Extensions = map[string]any{}
-		}
-		entry.Extensions["code"] = CodeValidationFailed
+
+		// A new map rather than a write into the entry's own: the map is shared with
+		// the caller, who may be reusing it across entries or errors.
+		extensions := make(map[string]any, len(entry.Extensions)+1)
+		maps.Copy(extensions, entry.Extensions)
+		extensions["code"] = CodeValidationFailed
+
+		entry.Extensions = extensions
 		out = append(out, entry)
 	}
 
@@ -332,6 +338,44 @@ func EntriesOf(err error) []Entry {
 	}}
 }
 
+// Nest returns the entries describing err, with segments prepended to the path
+// of each one, and nil when err is nil.
+//
+// It is what a component aggregating the failures of several others reports,
+// rather than Wrap. Wrap builds a new single-entry Error and keeps err only as
+// an unserialized cause, so EntriesOf on the result yields the wrapper's own
+// message and code and silently drops everything the wrapped error said —
+// including a CodeServiceUnavailable that would come back out as
+// CodeInternalError. Nest keeps each entry's message, code and extensions
+// intact, and says where the failure came from by extending its path:
+//
+//	errorstack.Nest(err, "dependency", "primary")
+//	// {"message":"Integration is not in a healthy state",
+//	//  "path":["dependency","primary"],
+//	//  "extensions":{"code":"SERVICE_UNAVAILABLE"}}
+//
+// The returned entries are copies, paths and extensions included: mutating them
+// cannot reach the Error they were read from.
+func Nest(err error, segments ...any) []Entry {
+	entries := EntriesOf(err)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	out := make([]Entry, len(entries))
+	for i, entry := range entries {
+		path := make([]any, 0, len(segments)+len(entry.Path))
+		path = append(path, segments...)
+		path = append(path, entry.Path...)
+
+		entry.Path = path
+		entry.Extensions = maps.Clone(entry.Extensions)
+		out[i] = entry
+	}
+
+	return out
+}
+
 // HTTPStatusToCode maps an HTTP status code to its canonical
 // SCREAMING_SNAKE_CASE code. Unknown statuses fall back to CodeInternalError.
 func HTTPStatusToCode(status int) string {
@@ -350,6 +394,8 @@ func HTTPStatusToCode(status int) string {
 		return CodeMethodNotAllowed
 	case http.StatusConflict:
 		return CodeConflict
+	case http.StatusPreconditionFailed:
+		return CodePreconditionFailed
 	case http.StatusRequestEntityTooLarge:
 		return CodePayloadTooLarge
 	case http.StatusTooManyRequests:

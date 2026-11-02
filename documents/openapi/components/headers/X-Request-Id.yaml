@@ -1,0 +1,10 @@
+description: |
+  Identifies the request, so it can be found again in the server's logs and
+  traces: quote it when reporting a problem with the response. Present when
+  the server sets one.
+
+schema:
+  type: string
+  minLength: 1
+
+example: 4bf92f3577b34da6a3ce929d0e0e4736

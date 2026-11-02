@@ -16,14 +16,16 @@ import (
 // is exhaustively tested in internal/locales — this test exists only to guard
 // against accidental decoupling of the wrapper from the shared backing state.
 func TestAddOrEditLanguage_DelegatesToSharedCatalog(t *testing.T) {
-	defer func() {
-		// internal/locales has no public removal API; mutate via package-level
-		// AddOrEditLanguage one more time to overwrite, then verify it's
-		// reachable via the shared package — the integration tests in
-		// internal/locales fully exercise teardown.
-	}()
+	lang := language.MustParse("xh")
 
-	AddOrEditLanguage(language.MustParse("xh"), map[int]string{
+	// The catalog is process-wide and has no way to remove a language. Blanking the
+	// message is the closest thing: an empty message falls back to English, so no
+	// later test sees the marker.
+	t.Cleanup(func() {
+		AddOrEditLanguage(lang, map[int]string{http.StatusBadRequest: ""})
+	})
+
+	AddOrEditLanguage(lang, map[int]string{
 		http.StatusBadRequest: "rest-wrapper-marker",
 	})
 

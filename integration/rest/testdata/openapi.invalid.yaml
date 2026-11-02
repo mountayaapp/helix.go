@@ -1,0 +1,10 @@
+openapi: 3.0.3
+info:
+  title: Things
+  version: 1.0.0
+paths:
+  /things/{id}:
+    get:
+      responses:
+        "200":
+          description: The thing, whose path parameter is never declared.

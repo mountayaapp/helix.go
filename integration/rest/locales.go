@@ -21,6 +21,7 @@ import (
 //   - [http.StatusNotFound]
 //   - [http.StatusMethodNotAllowed]
 //   - [http.StatusConflict]
+//   - [http.StatusPreconditionFailed]
 //   - [http.StatusRequestEntityTooLarge]
 //   - [http.StatusTooManyRequests]
 //   - [http.StatusInternalServerError]
@@ -39,6 +40,7 @@ import (
 //		http.StatusNotFound:              "<locale>",
 //		http.StatusMethodNotAllowed:      "<locale>",
 //		http.StatusConflict:              "<locale>",
+//		http.StatusPreconditionFailed:    "<locale>",
 //		http.StatusRequestEntityTooLarge: "<locale>",
 //		http.StatusTooManyRequests:       "<locale>",
 //		http.StatusInternalServerError:   "<locale>",

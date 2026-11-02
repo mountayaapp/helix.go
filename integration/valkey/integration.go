@@ -3,34 +3,31 @@ package valkey
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-// Ensure *connection complies to the integration.Dependency type.
-var _ integration.Dependency = (*connection)(nil)
+// Ensure dependency complies to the integration.Dependency type.
+var _ integration.Dependency = dependency{}
 
-// Name returns the string representation of the Valkey integration.
-func (conn *connection) Name() string {
-	return identifier
+// dependency adapts a connection to integration.Dependency, and is what gets
+// registered with the Service.
+//
+// It is a distinct type rather than methods on connection so that the value handed
+// back to the caller does not carry the lifecycle contract — not even reachable
+// through a type assertion. The Service owns the Valkey server;
+// the caller only gets to use it.
+type dependency struct {
+	conn *connection
 }
 
 // Close tries to gracefully close the connection with the Valkey server.
-func (conn *connection) Close(ctx context.Context) error {
-	conn.client.Close()
+func (d dependency) Close(ctx context.Context) error {
+	d.conn.client.Close()
 
 	return nil
 }
 
-// Status indicates if the integration is able to ping the Valkey server or not.
-// Returns `200` if connection is working, `503` otherwise.
-func (conn *connection) Status(ctx context.Context) (int, error) {
-	err := conn.client.Do(ctx, conn.client.B().Ping().Build()).Error()
-	if err == nil {
-		return 200, nil
-	}
-
-	return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
-		errorstack.WithCode(errorstack.CodeServiceUnavailable),
-	)
+// CheckHealth reports whether the integration can reach the Valkey server.
+func (d dependency) CheckHealth(ctx context.Context) error {
+	return integration.Unhealthy(d.conn.client.Do(ctx, d.conn.client.B().Ping().Build()).Error())
 }

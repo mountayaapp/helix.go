@@ -2,43 +2,45 @@ package bucket
 
 import (
 	"context"
+	"errors"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 )
 
-// Ensure *connection complies to the integration.Dependency type.
-var _ integration.Dependency = (*connection)(nil)
+// errNotAccessible reports a bucket the driver found not accessible — mostly, one
+// that does not exist — so that the "why" of a health or Connect failure is never
+// empty.
+var errNotAccessible = errors.New("bucket is not accessible")
 
-// Name returns the string representation of the Bucket integration.
-func (conn *connection) Name() string {
-	return identifier
+// Ensure dependency complies to the integration.Dependency type.
+var _ integration.Dependency = dependency{}
+
+// dependency adapts a connection to integration.Dependency, and is what gets
+// registered with the Service.
+//
+// It is a distinct type rather than methods on connection so that the value handed
+// back to the caller does not carry the lifecycle contract — not even reachable
+// through a type assertion. The Service owns the bucket;
+// the caller only gets to use it.
+type dependency struct {
+	conn *connection
 }
 
-// Close tries to gracefully close the connection with the bucket.
-func (conn *connection) Close(ctx context.Context) error {
-	if err := errorstack.Wrap(conn.client.Close(), "Failed to gracefully close connection"); err != nil {
-		return err
+// Close tries to gracefully close the connection with the bucket. Only the first
+// call reaches the driver; a later one returns nil.
+func (d dependency) Close(ctx context.Context) error {
+	if err := d.conn.close(); err != nil {
+		return errorstack.Wrap(err, "Failed to gracefully close connection",
+			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
+		)
 	}
 
 	return nil
 }
 
-// Status indicates if the integration is able to access the bucket or not. Returns
-// `200` if bucket is accessible, `503` otherwise.
-func (conn *connection) Status(ctx context.Context) (int, error) {
-	up, err := conn.client.IsAccessible(ctx)
-	if up && err == nil {
-		return 200, nil
-	}
-
-	if err != nil {
-		return 503, errorstack.Wrap(err, "Integration is not in a healthy state",
-			errorstack.WithCode(errorstack.CodeServiceUnavailable),
-		)
-	}
-
-	return 503, errorstack.New("Integration is not in a healthy state",
-		errorstack.WithCode(errorstack.CodeServiceUnavailable),
-	)
+// CheckHealth reports whether the integration can reach the bucket, by listing
+// it — the same check Connect makes.
+func (d dependency) CheckHealth(ctx context.Context) error {
+	return integration.Unhealthy(accessible(ctx, d.conn.client))
 }

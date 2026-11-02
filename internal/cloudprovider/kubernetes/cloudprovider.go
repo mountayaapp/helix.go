@@ -2,14 +2,17 @@ package kubernetes
 
 import (
 	"os"
+	"strings"
 
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
-// cp is set if the service is running in Kubernetes, nil otherwise.
-var cp cloudprovider.CloudProvider
+// namespaceFile is where Kubernetes mounts the namespace of the pod's service
+// account. A variable so that tests can point it elsewhere.
+var namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 // kubernetes holds some details about the service currently running in Kubernetes
 // and implements the CloudProvider interface.
@@ -18,48 +21,33 @@ type kubernetes struct {
 	pod       string
 }
 
-// init populates the cloud provider if the service is running in Kubernetes.
-func init() {
-	cp = build()
-}
-
-// build populates the cloud provider if the service is running in Kubernetes.
-// Returns nil otherwise.
-func build() cloudprovider.CloudProvider {
-	_, exists := os.LookupEnv("KUBERNETES_SERVICE_HOST")
-	if !exists {
+// Detect returns the cloud provider for Kubernetes, or nil when the process is not
+// running in Kubernetes.
+func Detect() cloudprovider.CloudProvider {
+	if _, exists := os.LookupEnv("KUBERNETES_SERVICE_HOST"); !exists {
 		return nil
 	}
 
-	ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	ns, err := os.ReadFile(namespaceFile)
 	if err != nil {
 		return nil
 	}
 
-	k := &kubernetes{
-		namespace: string(ns),
+	return &kubernetes{
+		namespace: strings.TrimSpace(string(ns)),
 		pod:       os.Getenv("HOSTNAME"),
 	}
-
-	return k
 }
 
-// Get returns the cloud provider interface for Kubernetes. Returns nil if not
-// running in Kubernetes.
-func Get() cloudprovider.CloudProvider {
-	return cp
-}
-
-// String returns the string representation of the Kubernetes cloud provider.
-func (k *kubernetes) String() string {
-	return "kubernetes"
-}
-
-// Attributes returns OpenTelemetry attributes when running in Kubernetes.
+// Attributes returns the semantic-convention attributes of the pod.
+//
+// It does not set service.name. The pod name is unique to one replica and changes
+// on every deploy, so using it as the service's name made every pod a service of
+// its own in every backend. The name comes from OTEL_SERVICE_NAME, or the
+// executable's name when that is unset.
 func (k *kubernetes) Attributes() []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String("kubernetes.namespace", k.namespace),
-		attribute.String("kubernetes.pod", k.pod),
-		attribute.String("service.name", k.pod),
+		semconv.K8SNamespaceName(k.namespace),
+		semconv.K8SPodName(k.pod),
 	}
 }

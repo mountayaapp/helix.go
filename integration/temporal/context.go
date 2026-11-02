@@ -5,7 +5,6 @@ import (
 
 	"github.com/mountayaapp/helix.go/event"
 
-	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/workflow"
 )
@@ -16,54 +15,42 @@ type valueGetter interface {
 	Value(key any) any
 }
 
-// setEventSpanAttributes sets all event fields as span attributes in a single
-// batched call to avoid per-attribute lock acquisition overhead.
-func setEventSpanAttributes(span oteltrace.Span, mapped map[string]string) {
-	attrs := make([]attribute.KeyValue, 0, len(mapped))
-	for k, v := range mapped {
-		attrs = append(attrs, attribute.String(k, v))
-	}
-
-	span.SetAttributes(attrs...)
-}
-
-// eventFromContext tries to retrieve an Event from the given context. Returns true
-// if an Event has been found, false otherwise.
-//
-// If an Event was found and a span is present, event fields are added to the span
-// attributes.
+// eventFromContext returns the Event the workflow or activity received in its
+// header. Returns true if an Event has been found, false otherwise.
 func eventFromContext(ctx valueGetter) (event.Event, bool) {
-	val := ctx.Value(eventCtxKey)
-	if val == nil {
-		return event.Event{}, false
-	}
+	e, ok := ctx.Value(eventCtxKey).(event.Event)
 
-	e, ok := val.(event.Event)
-	if !ok {
-		return event.Event{}, false
-	}
-
-	if span, ok := ctx.Value(spanCtxKey).(oteltrace.Span); ok && span != nil {
-		setEventSpanAttributes(span, event.ToFlatMap(e))
-	}
-
-	return e, true
+	return e, ok
 }
 
-// EventFromWorkflow tries to retrieve an Event from the workflow's context. Returns
-// true if an Event has been found, false otherwise.
+// spanFromContext returns the span the SDK's tracing interceptor opened for the
+// workflow or activity, which it keeps under spanCtxKey: the one place it can put
+// a span on a workflow.Context. Returns nil when there is none.
+func spanFromContext(ctx valueGetter) oteltrace.Span {
+	span, _ := ctx.Value(spanCtxKey).(oteltrace.Span)
+
+	return span
+}
+
+// EventFromWorkflow returns the Event the workflow received in its header. Returns
+// true if an Event has been found, false otherwise — including when the workflow
+// was started without one.
 //
-// If an Event was found and a span is present, event fields are added to the span
-// attributes.
+// The Event holds what the sending client put in the header: the allow-listed
+// identifiers unless that client set ConfigClient.PropagateFullEvent. Its
+// attributes are already on the workflow's span: there is nothing to stamp.
 func EventFromWorkflow(ctx workflow.Context) (event.Event, bool) {
 	return eventFromContext(ctx)
 }
 
-// EventFromActivity tries to retrieve an Event from the activity's context. Returns
-// true if an Event has been found, false otherwise.
+// EventFromActivity returns the Event the activity received in its header.
+// Returns true if an Event has been found, false otherwise — including when the
+// workflow scheduling the activity had none.
 //
-// If an Event was found and a span is present, event fields are added to the span
-// attributes.
+// The Event holds what the worker that scheduled the activity put in the header,
+// under the same rule as EventFromWorkflow. The context also carries it for
+// event.FromContext, so that the integrations the activity calls propagate it
+// further.
 func EventFromActivity(ctx context.Context) (event.Event, bool) {
 	return eventFromContext(ctx)
 }

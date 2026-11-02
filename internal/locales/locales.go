@@ -1,8 +1,3 @@
-// Package locales centralizes the canonical HTTP-status → message catalog used by
-// both the REST and GraphQL integrations. Both transports are thin wrappers
-// around the same backing state, so a service that adds or edits a locale via
-// either rest.AddOrEditLanguage or graphql.AddOrEditLanguage sees the change
-// applied across both error paths — no silent divergence between the two.
 package locales
 
 import (
@@ -27,6 +22,7 @@ var defaults = map[int]string{
 	http.StatusNotFound:              "Resource does not exist",
 	http.StatusMethodNotAllowed:      "Method is not allowed for this resource",
 	http.StatusConflict:              "Resource conflicts with current state",
+	http.StatusPreconditionFailed:    "Resource does not meet the precondition",
 	http.StatusRequestEntityTooLarge: "Payload exceeds size limit",
 	http.StatusTooManyRequests:       "Rate limit has been exceeded",
 	http.StatusInternalServerError:   "Internal server error",
@@ -53,7 +49,7 @@ func cloneDefaults() map[int]string {
 // AddOrEditLanguage adds or replaces the message catalog for a given language.
 // Previously-set entries for the same language are preserved unless the new
 // catalog overrides them; the language matcher is rebuilt so subsequent
-// GetPreferredLanguage calls can resolve the new language.
+// PreferredLanguage calls can resolve the new language.
 func AddOrEditLanguage(lang language.Tag, locales map[int]string) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -67,11 +63,11 @@ func AddOrEditLanguage(lang language.Tag, locales map[int]string) {
 	matcher = language.NewMatcher(languages)
 }
 
-// GetPreferredLanguage returns the language to use for the given request. The
+// PreferredLanguage returns the language to use for the given request. The
 // "lang" cookie wins over the "Accept-Language" header (the cookie is an
 // explicit preference; the header is a hint). Falls back to English on a nil
 // request or when no supported language is matched.
-func GetPreferredLanguage(req *http.Request) language.Tag {
+func PreferredLanguage(req *http.Request) language.Tag {
 	mu.RLock()
 	m := matcher
 	mu.RUnlock()
@@ -91,13 +87,13 @@ func GetPreferredLanguage(req *http.Request) language.Tag {
 }
 
 // Message returns the localized message for the given (request, status) pair.
-// The language is resolved from the request via GetPreferredLanguage. Returns
+// The language is resolved from the request via PreferredLanguage. Returns
 // the English fallback when the resolved language has no entry for status, and
 // an empty string when even English has no entry — the caller is responsible
 // for handling that (typically by passing the status through HTTPStatusToCode
 // to keep the wire shape valid).
 func Message(req *http.Request, status int) string {
-	lang := GetPreferredLanguage(req)
+	lang := PreferredLanguage(req)
 
 	mu.RLock()
 	defer mu.RUnlock()

@@ -1,0 +1,22 @@
+# Every tool this repository's commands and its CI run on: `mise install` installs them, and
+# .github/workflows/ci.yml installs the same versions from this file.
+#
+# The oldest mise allowed to read this file, and the version CI runs, so no contributor's
+# mise is older than the one CI checks with.
+min_version = "2026.9.15"
+
+[tools]
+# go.mod's `go` line names the oldest Go every module builds with; this is the one used here.
+go = "1.27.3"
+jq = "1.8.2"
+# Built from source with the Go above (mise's go backend): golangci-lint refuses a module
+# whose `go` line is newer than the Go it was built with, which a prebuilt binary can be.
+"go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint" = "2.15.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+
+# The gate: what CI runs on every push and pull request, and what `make release` runs before
+# it tags anything. The tests need Docker: several modules test against real servers started
+# in containers.
+[tasks.ci]
+description = "Lint, test and govulncheck every module"
+run = "make lint test vulncheck"

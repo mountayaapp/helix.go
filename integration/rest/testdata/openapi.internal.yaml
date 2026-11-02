@@ -1,0 +1,16 @@
+openapi: 3.0.3
+info:
+  title: Things (internal)
+  version: 1.0.0
+paths:
+  /things/{id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The thing was deleted.

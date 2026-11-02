@@ -6,7 +6,6 @@ import (
 	"github.com/mountayaapp/helix.go/service"
 
 	"go.temporal.io/sdk/activity"
-	"go.temporal.io/sdk/contrib/sysinfo"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
@@ -22,44 +21,57 @@ type Worker struct {
 	worker worker.Worker
 }
 
-// New creates a Temporal worker along with a client and registers the worker as a
-// server via service.Serve. Use this for worker services that process workflows and
-// activities.
-func New(svc *service.Service, cfg ConfigWorker) (*Client, *Worker, error) {
+// New creates a Temporal worker polling cfg.TaskQueue, along with the client it
+// polls with. Use this for worker services that process workflows and activities.
+//
+// Both are registered with svc from inside, which owns them from there: the worker
+// as a server, started by Run and drained by Stop, and its client as a dependency,
+// closed once every server has drained. The Worker handed back registers workflows
+// and activities, and the Client starts and signals workflows; neither carries
+// lifecycle methods. Register everything before the Service starts.
+func New(ctx context.Context, svc *service.Service, cfg ConfigWorker) (*Client, *Worker, error) {
 
 	// No need to continue if ConfigWorker is not valid.
-	err := cfg.sanitize()
+	if err := cfg.sanitize(); err != nil {
+		return nil, nil, err
+	}
+
+	name := cfg.name()
+
+	c, err := dial(ctx, svc, &cfg.Client, name, "config", "client")
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Dial the Temporal server.
-	c, err := dialClient(svc, &cfg.Client)
-	if err != nil {
+	server := newServerConnection()
+	server.worker = worker.New(c, cfg.TaskQueue, workerOptions(&cfg, server))
+
+	// The client is attached before the worker is served, so that every path out of
+	// here leaves it with exactly one owner: this function until Attach succeeds,
+	// the Service from then on, which closes it whether or not Serve does.
+	if err := service.Attach(svc, name, &clientConnection{client: c}); err != nil {
+		c.Close()
 		return nil, nil, err
 	}
 
-	// Create a Temporal worker.
-	var optsWorker = worker.Options{
+	if err := service.Serve(svc, name, server); err != nil {
+		return nil, nil, err
+	}
+
+	return newClient(c, &cfg.Client), &Worker{worker: server.worker}, nil
+}
+
+// workerOptions returns the SDK options of a worker configured by cfg and run by
+// server.
+func workerOptions(cfg *ConfigWorker, server *serverConnection) worker.Options {
+	return worker.Options{
 		WorkerActivitiesPerSecond:    cfg.WorkerActivitiesPerSecond,
 		TaskQueueActivitiesPerSecond: cfg.TaskQueueActivitiesPerSecond,
 		EnableSessionWorker:          cfg.EnableSessionWorker,
-		SysInfoProvider:              sysinfo.SysInfoProvider(),
+		WorkerStopTimeout:            cfg.StopTimeout,
+		SysInfoProvider:              cfg.SysInfoProvider,
+		OnFatalError:                 server.fail,
 	}
-
-	w := worker.New(c, cfg.TaskQueue, optsWorker)
-
-	sc := &serverConnection{
-		client: c,
-		worker: w,
-	}
-
-	// Register the worker connection as a server.
-	if err := service.Serve(svc, sc); err != nil {
-		return nil, nil, err
-	}
-
-	return &Client{client: c}, &Worker{worker: w}, nil
 }
 
 // RegisterWorkflow links a workflow implementation to its name on the worker. Input

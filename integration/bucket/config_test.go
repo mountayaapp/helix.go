@@ -49,6 +49,20 @@ func TestConfig_Sanitize(t *testing.T) {
 			),
 		},
 		{
+			name: "unknown driver returns error",
+			before: Config{
+				Driver: Driver("ftp"),
+				Bucket: "anything",
+			},
+			after: Config{
+				Driver: Driver("ftp"),
+				Bucket: "anything",
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{Message: "Must be one of: aws, azure, google, local", Path: []any{"config", "driver"}},
+			),
+		},
+		{
 			name: "missing bucket returns error",
 			before: Config{
 				Driver: DriverLocal,
@@ -61,49 +75,57 @@ func TestConfig_Sanitize(t *testing.T) {
 			),
 		},
 		{
-			name: "subfolder without trailing slash returns error",
+			name: "subfolder without trailing slash gets one",
 			before: Config{
 				Driver:    DriverLocal,
 				Bucket:    "anything",
-				Subfolder: "not/a/valid/path",
+				Subfolder: "my/subfolder",
 			},
 			after: Config{
 				Driver:    DriverLocal,
 				Bucket:    "anything",
-				Subfolder: "not/a/valid/path",
-			},
-			err: errorstack.NewValidation(
-				errorstack.Entry{
-					Message: "Must end with a trailing slash",
-					Path:    []any{"config", "subfolder"},
-				},
-			),
-		},
-		{
-			name: "subfolder with trailing slash is valid",
-			before: Config{
-				Driver:    DriverLocal,
-				Bucket:    "anything",
-				Subfolder: "valid/path/",
-			},
-			after: Config{
-				Driver:    DriverLocal,
-				Bucket:    "anything",
-				Subfolder: "valid/path/",
+				Subfolder: "my/subfolder/",
 			},
 			err: nil,
 		},
 		{
-			name: "subfolder as root slash is valid",
+			name: "subfolder with a leading slash loses it",
+			before: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "/my/subfolder/",
+			},
+			after: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "my/subfolder/",
+			},
+			err: nil,
+		},
+		{
+			name: "subfolder with repeated slashes at either end keeps one trailing",
+			before: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "//my/subfolder//",
+			},
+			after: Config{
+				Driver:    DriverLocal,
+				Bucket:    "anything",
+				Subfolder: "my/subfolder/",
+			},
+			err: nil,
+		},
+		{
+			name: "subfolder as root slash is no subfolder",
 			before: Config{
 				Driver:    DriverLocal,
 				Bucket:    "anything",
 				Subfolder: "/",
 			},
 			after: Config{
-				Driver:    DriverLocal,
-				Bucket:    "anything",
-				Subfolder: "/",
+				Driver: DriverLocal,
+				Bucket: "anything",
 			},
 			err: nil,
 		},
@@ -122,20 +144,28 @@ func TestConfig_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "all three errors combined",
+			name: "every error combined",
 			before: Config{
+				Driver:    DriverGoogleCloud,
+				Bucket:    "Not_Valid?",
 				Subfolder: "not/a/valid/path",
+				Region:    "europe-west1",
+				Endpoint:  "http://localhost:4443",
 			},
 			after: Config{
-				Subfolder: "not/a/valid/path",
+				Driver:    DriverGoogleCloud,
+				Bucket:    "Not_Valid?",
+				Subfolder: "not/a/valid/path/",
+				Region:    "europe-west1",
+				Endpoint:  "http://localhost:4443",
 			},
 			err: errorstack.NewValidation(
-				errorstack.Entry{Message: "Must be set", Path: []any{"config", "driver"}},
-				errorstack.Entry{Message: "Must be set", Path: []any{"config", "bucket"}},
 				errorstack.Entry{
-					Message: "Must end with a trailing slash",
-					Path:    []any{"config", "subfolder"},
+					Message: "Must be 3 to 222 lowercase letters, digits, '.', '-' or '_', starting and ending with a letter or digit",
+					Path:    []any{"config", "bucket"},
 				},
+				errorstack.Entry{Message: "Must be empty for the google driver", Path: []any{"config", "region"}},
+				errorstack.Entry{Message: "Must be empty for the google driver", Path: []any{"config", "endpoint"}},
 			),
 		},
 	}
@@ -146,6 +176,34 @@ func TestConfig_Sanitize(t *testing.T) {
 
 			assert.Equal(t, tc.after, tc.before)
 			assert.Equal(t, tc.err, err)
+		})
+	}
+}
+
+// TestConfig_SanitizeRequiresNoCredentials pins that no driver reads credentials
+// from the environment to validate a Config. Each of them used to refuse one
+// with no static key in it, which ruled out every credential that is not a
+// static key: IAM Roles for Service Accounts, instance profiles, GKE Workload
+// Identity and Azure managed identity alike.
+func TestConfig_SanitizeRequiresNoCredentials(t *testing.T) {
+	for _, key := range []string{
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
+		"GOOGLE_APPLICATION_CREDENTIALS",
+		"AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_KEY", "AZURE_STORAGE_SAS_TOKEN",
+	} {
+		t.Setenv(key, "")
+	}
+
+	testcases := []Config{
+		{Driver: DriverAWS, Bucket: "my-bucket"},
+		{Driver: DriverAWS, Bucket: "my-bucket", Region: "eu-west-1"},
+		{Driver: DriverGoogleCloud, Bucket: "my-bucket"},
+		{Driver: DriverAzure, Bucket: "my-container"},
+	}
+
+	for _, cfg := range testcases {
+		t.Run(string(cfg.Driver), func(t *testing.T) {
+			assert.NoError(t, cfg.sanitize())
 		})
 	}
 }

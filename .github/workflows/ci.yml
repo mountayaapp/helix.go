@@ -9,43 +9,45 @@ on:
 permissions:
   contents: read
 
+# One run at a time per branch or pull request. On a pull request a newer push
+# supersedes the run still going for an older one, so that run is cancelled. On
+# main a run in progress is never cancelled, and the next one waits for it: a
+# release pushes the tagged commit and, seconds later, the commit that restores
+# the local replaces, and cancelling the first would leave the tagged tree
+# untested.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Third-party actions are pinned to a commit rather than a tag: a tag can be moved
+# to point at different code, a commit cannot. The tag each one resolved to is kept
+# in the trailing comment so that updating stays a readable diff.
+#
+# The job gets its tools from mise.toml: mise-action installs the versions it
+# pins, the same ones `mise install` gives a contributor, and caches them between
+# runs. A tool version is changed there and nowhere else. mise itself is pinned
+# through the action's `version` input, to the min_version mise.toml sets.
+
 jobs:
-  lint:
-    if: "!startsWith(github.event.head_commit.message, 'version: Release')"
-    name: Lint
+  ci:
+    name: CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      # mise.toml has golangci-lint built from source rather than taken from a
+      # release binary on purpose: golangci-lint refuses to run when the Go version
+      # it was built with is older than the module's `go` directive, and mise
+      # builds it with the Go mise.toml pins. The version is pinned so that a new
+      # linter release cannot fail a build nothing in this repository changed.
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
-          # Read the version from go.mod so the toolchain can never drift from
-          # the modules. Every module in the repo is bumped in lockstep.
-          go-version-file: go.mod
+          version: 2026.9.15
 
-      # Installed from source rather than from a release binary on purpose:
-      # golangci-lint refuses to run when the Go version it was built with is
-      # older than the module's `go` directive, and `go install` builds it with
-      # the toolchain selected above.
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-
-      - name: Run linters
-        run: make lint
-
-  test:
-    if: "!startsWith(github.event.head_commit.message, 'version: Release')"
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run tests
-        run: make test
+      # The gate, mise.toml's `ci` task: lint, test and govulncheck across every
+      # module, the same run `make release` requires before it tags. It also runs
+      # on the release commit itself, so the tagged tree is tested. The tests start
+      # their servers in containers, on the Docker the runner provides.
+      - name: Run the gate
+        run: mise run ci

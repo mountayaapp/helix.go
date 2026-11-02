@@ -1,18 +1,24 @@
 package bucket
 
 import (
-	"fmt"
-	"os"
+	"net/url"
+	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
 	_ "gocloud.dev/blob/gcsblob"
 )
 
-// DriverGoogleCloud allows to use Google Cloud Storage as bucket driver. This
-// driver relies on generic environment variables required by the Google Cloud SDK:
+// DriverGoogleCloud uses Google Cloud Storage.
 //
-//   - GOOGLE_APPLICATION_CREDENTIALS
+// Credentials come from Application Default Credentials: the file named by
+// GOOGLE_APPLICATION_CREDENTIALS, the gcloud CLI's user credentials, or the
+// metadata server — which is how Workload Identity on GKE and the attached
+// service account on Compute Engine and Cloud Run are picked up. Nothing is
+// required in the environment beyond what that chain needs.
+//
+// Neither Config.Region nor Config.Endpoint applies: a bucket name is global,
+// and the Cloud Storage client reaches an emulator through STORAGE_EMULATOR_HOST.
 //
 // Config example:
 //
@@ -20,34 +26,32 @@ import (
 //	  Driver: bucket.DriverGoogleCloud,
 //	  Bucket: "my-bucket",
 //	}
-var DriverGoogleCloud Driver = &driverGoogleCloud{}
+const DriverGoogleCloud Driver = "google"
 
-// driverGoogleCloud is the internal type to use Google Cloud as bucket driver.
+// googleBucketName is the Cloud Storage naming rule. The rules it leaves to the
+// service — no "goog" prefix, 63 characters per dot-separated component — cannot
+// be used to reshape the URL, so a name breaking them is refused at Connect.
+var googleBucketName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$`)
+
+// driverGoogleCloud is the behaviour behind DriverGoogleCloud.
 type driverGoogleCloud struct{}
 
-// string returns the string representation of the Google Cloud bucket driver.
-func (d *driverGoogleCloud) string() string {
-	return "google"
-}
+// validate ensures the bucket name is one Cloud Storage accepts, and that no
+// field the driver has no use for is set.
+func (driverGoogleCloud) validate(cfg *Config) []errorstack.Entry {
+	entries := validateName(cfg.Bucket, googleBucketName,
+		"Must be 3 to 222 lowercase letters, digits, '.', '-' or '_', starting and ending with a letter or digit")
 
-// validate ensures Config and environment variables are valid for the Google Cloud
-// bucket driver.
-func (d *driverGoogleCloud) validate(cfg *Config) []errorstack.Entry {
-	var entries []errorstack.Entry
-
-	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
-		entries = append(entries, errorstack.Entry{
-			Message: "Must be set",
-			Path:    []any{"env", "google_application_credentials"},
-		})
-	}
+	entries = append(entries, unsupported(DriverGoogleCloud, "region", cfg.Region)...)
+	entries = append(entries, unsupported(DriverGoogleCloud, "endpoint", cfg.Endpoint)...)
 
 	return entries
 }
 
-// url returns the Go Cloud bucket URL of the Google Cloud bucket driver.
-func (d *driverGoogleCloud) url(cfg *Config) string {
-	path := fmt.Sprintf("gs://%s", cfg.Bucket)
-
-	return path
+// url returns the gcsblob URL of the bucket.
+func (driverGoogleCloud) url(cfg *Config) (*url.URL, error) {
+	return &url.URL{
+		Scheme: "gs",
+		Host:   cfg.Bucket,
+	}, nil
 }

@@ -20,6 +20,21 @@ func normalizePEM(data []byte) []byte {
 	return data
 }
 
+// normalizePEMs returns a new slice holding each of pems normalized, or nil when
+// pems is empty.
+func normalizePEMs(pems [][]byte) [][]byte {
+	if len(pems) == 0 {
+		return nil
+	}
+
+	out := make([][]byte, len(pems))
+	for i, pem := range pems {
+		out[i] = normalizePEM(pem)
+	}
+
+	return out
+}
+
 // NormalizeErrorMessage capitalizes the first letter of an error message to match
 // the helix.go formatting convention. Safe on empty error strings.
 func NormalizeErrorMessage(err error) string {

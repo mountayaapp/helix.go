@@ -2,111 +2,110 @@ package httpclient
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
 )
 
-// Ensure *connection complies to the integration.Dependency type.
-var _ integration.Dependency = (*connection)(nil)
+// Ensure dependency complies to the integration.Dependency type.
+var _ integration.Dependency = dependency{}
 
-// Name returns the human-readable name of the client.
-func (conn *connection) Name() string {
-	return conn.config.Name
+// dependency adapts a connection to integration.Dependency, and is what gets
+// registered with the Service.
+//
+// It is a distinct type rather than methods on connection so that the value handed
+// back to the caller does not carry the lifecycle contract — not even reachable
+// through a type assertion. The Service owns the HTTP client;
+// the caller only gets to use it.
+type dependency struct {
+	conn *connection
 }
 
-// Close releases idle connections held by the underlying HTTP client.
-func (conn *connection) Close(ctx context.Context) error {
-	conn.client.CloseIdleConnections()
+// Close releases idle connections held by the underlying transport. The
+// instrumented transport forwards the call to the one it wraps — the client's
+// own, or Config.Transport — which the probe shares.
+func (d dependency) Close(ctx context.Context) error {
+	d.conn.client.CloseIdleConnections()
 
 	return nil
 }
 
-// Status reports the health of the client. When a custom Status function is
-// configured in the Config, it is used as is. Otherwise, every endpoint is probed
-// concurrently with GET {endpoint}{HealthPath}: the integration is healthy (`200`)
-// only when every endpoint is reachable and responds below 500, and unhealthy
-// (`503`) otherwise, with one error entry naming each failing endpoint. Because a
-// 4xx still counts as reachable, an API that exposes no health endpoint is healthy
-// without any configuration.
-func (conn *connection) Status(ctx context.Context) (int, error) {
-	ctx, span := trace.Start(ctx, trace.SpanKindClient, spanStatus)
-	defer span.End()
+// CheckHealth reports whether the client can reach its endpoints.
+//
+// When a custom HealthCheck is configured it decides, and a failure it reports is
+// wrapped with integration.Unhealthy. Otherwise, when a HealthPath is configured,
+// every endpoint is probed concurrently with GET {endpoint}{HealthPath}: the
+// integration is healthy only when every endpoint is reachable and responds below
+// 500, and unhealthy otherwise, with one entry per failing endpoint, in
+// configuration order, whose path is its index in Endpoints. Because a 4xx still
+// counts as reachable, an API that exposes no health endpoint is healthy. When
+// neither is configured, the client is always healthy and nothing is sent.
+//
+// Probes are neither traced nor measured: see connection.probe.
+func (d dependency) CheckHealth(ctx context.Context) error {
+	conn := d.conn
 
-	if conn.config.Status != nil {
-		status, err := conn.config.Status(ctx, conn)
-		if err != nil {
-			span.RecordError("health check failed", err)
-		}
+	if conn.config.HealthCheck != nil {
+		return integration.Unhealthy(conn.config.HealthCheck(ctx, conn.probe))
+	}
 
-		return status, err
+	if conn.config.health == nil {
+		return nil
 	}
 
 	var (
-		mu      sync.Mutex
-		worst   = http.StatusOK
-		entries []errorstack.Entry
-		wg      sync.WaitGroup
+		errs = make([]error, len(conn.endpoints))
+		wg   sync.WaitGroup
 	)
 
-	check := func(status int, err error) {
-		mu.Lock()
-		if status > worst {
-			worst = status
-		}
-		if err != nil {
-			entries = append(entries, errorstack.EntriesOf(err)...)
-		}
-		mu.Unlock()
-	}
-
-	for _, endpoint := range conn.endpoints {
+	for i, e := range conn.endpoints {
 		wg.Go(func() {
-			check(conn.probe(ctx, endpoint))
+			errs[i] = conn.probe.checkEndpoint(ctx, e)
 		})
 	}
 
 	wg.Wait()
 
-	if len(entries) > 0 {
-		err := errorstack.New("Integration is not in a healthy state",
-			errorstack.WithCode(errorstack.CodeServiceUnavailable),
-		).Append(entries...)
-
-		span.RecordError("health check failed", err)
-		return worst, err
+	// Collected by index rather than as the probes finish, so that the same
+	// failures always read the same way.
+	var entries []errorstack.Entry
+	for i, err := range errs {
+		entries = append(entries, errorstack.Nest(integration.Unhealthy(err), "endpoints", i)...)
 	}
 
-	return worst, nil
+	if len(entries) == 0 {
+		return nil
+	}
+
+	return &errorstack.Error{Entries: entries}
 }
 
-// probe checks a single endpoint by issuing GET {endpoint}{HealthPath}. The endpoint
-// is healthy (`200`) as long as it is reachable and responds with a status below 500
-// — so an API that exposes no health endpoint (returning 404) is still healthy. A
-// transport error or a 5xx response yields `503` and an error naming the endpoint.
-func (conn *connection) probe(ctx context.Context, endpoint string) (int, error) {
-	resp, err := conn.attempt(ctx, endpoint, http.MethodGet, conn.config.HealthPath, nil)
+// checkEndpoint checks a single endpoint by issuing GET {endpoint}{HealthPath}.
+// The endpoint is healthy as long as it is reachable and responds with a status
+// below 500 — so an API that exposes no health endpoint (returning 404) is still
+// healthy. A transport error or a 5xx response is returned as the reason it is
+// not.
+func (conn *connection) checkEndpoint(ctx context.Context, e *endpoint) error {
+	req := (&http.Request{
+		Method: http.MethodGet,
+		URL:    conn.config.health,
+		Header: make(http.Header),
+	}).WithContext(ctx)
+
+	resp, err := conn.attempt(ctx, e, req, true)
 	if err != nil {
-		return http.StatusServiceUnavailable, errorstack.Wrap(err, fmt.Sprintf("Endpoint %q is not reachable", endpoint),
-			errorstack.WithCode(errorstack.CodeServiceUnavailable),
-			errorstack.WithPath("endpoints"),
-		)
+		return err
 	}
 
 	defer drainClose(resp)
 
 	// Reachable and not server-erroring is healthy: a 4xx (e.g. 404 when the API
 	// has no health endpoint) still means the endpoint is up and serving requests.
-	if resp.StatusCode < 500 {
-		return http.StatusOK, nil
+	if resp.StatusCode < http.StatusInternalServerError {
+		return nil
 	}
 
-	return http.StatusServiceUnavailable, errorstack.New(fmt.Sprintf("Endpoint %q returned an unhealthy status (%d)", endpoint, resp.StatusCode),
-		errorstack.WithCode(errorstack.CodeServiceUnavailable),
-		errorstack.WithPath("endpoints"),
-	)
+	return statusError(resp.StatusCode)
 }

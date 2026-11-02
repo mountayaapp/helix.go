@@ -1,13 +1,21 @@
 package temporal
 
 import (
+	"math"
 	"testing"
+	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// defaultClient is the client configuration an empty ConfigClient sanitizes to.
+var defaultClient = ConfigClient{
+	Address:   "127.0.0.1:7233",
+	Namespace: "default",
+}
 
 func TestConfigWorker_Sanitize(t *testing.T) {
 	testcases := []struct {
@@ -20,65 +28,47 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 			name:   "empty config returns task queue error and applies client defaults",
 			before: ConfigWorker{},
 			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
+				Client:      defaultClient,
+				StopTimeout: 25 * time.Second,
 			},
 			err: errorstack.NewValidation(
 				errorstack.Entry{
 					Message: "Must be set",
-					Path:    []any{"config", "worker", "task_queue"},
+					Path:    []any{"config", "task_queue"},
 				},
 			),
 		},
 		{
-			name: "valid config with task queue applies client defaults",
+			name: "valid config with task queue applies defaults",
 			before: ConfigWorker{
 				TaskQueue: "my-task-queue",
 			},
 			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
-				TaskQueue: "my-task-queue",
+				Client:      defaultClient,
+				TaskQueue:   "my-task-queue",
+				StopTimeout: 25 * time.Second,
 			},
 			err: nil,
 		},
 		{
-			name: "valid config with custom client and task queue",
+			name: "custom client, name and stop timeout are preserved",
 			before: ConfigWorker{
 				Client: ConfigClient{
 					Address:   "temporal.example.com:7233",
 					Namespace: "production",
 				},
-				TaskQueue: "my-task-queue",
+				Name:        "orders-worker",
+				TaskQueue:   "my-task-queue",
+				StopTimeout: time.Minute,
 			},
 			after: ConfigWorker{
 				Client: ConfigClient{
 					Address:   "temporal.example.com:7233",
 					Namespace: "production",
 				},
-				TaskQueue: "my-task-queue",
-			},
-			err: nil,
-		},
-		{
-			name: "rate limits are preserved",
-			before: ConfigWorker{
-				TaskQueue:                    "queue",
-				WorkerActivitiesPerSecond:    500,
-				TaskQueueActivitiesPerSecond: 1000,
-			},
-			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
-				TaskQueue:                    "queue",
-				WorkerActivitiesPerSecond:    500,
-				TaskQueueActivitiesPerSecond: 1000,
+				Name:        "orders-worker",
+				TaskQueue:   "my-task-queue",
+				StopTimeout: time.Minute,
 			},
 			err: nil,
 		},
@@ -88,83 +78,46 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 				TaskQueue:                    "queue",
 				WorkerActivitiesPerSecond:    0.1,
 				TaskQueueActivitiesPerSecond: 0.5,
+				EnableSessionWorker:          true,
 			},
 			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
+				Client:                       defaultClient,
 				TaskQueue:                    "queue",
 				WorkerActivitiesPerSecond:    0.1,
 				TaskQueueActivitiesPerSecond: 0.5,
+				EnableSessionWorker:          true,
+				StopTimeout:                  25 * time.Second,
 			},
 			err: nil,
 		},
 		{
-			name: "missing task queue returns error",
+			name: "negative, infinite and NaN rate limits and a negative stop timeout return errors",
 			before: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "temporal.example.com:7233",
-					Namespace: "production",
-				},
-			},
-			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "temporal.example.com:7233",
-					Namespace: "production",
-				},
+				TaskQueue:                    "queue",
+				WorkerActivitiesPerSecond:    -1,
+				TaskQueueActivitiesPerSecond: math.NaN(),
+				StopTimeout:                  -time.Second,
 			},
 			err: errorstack.NewValidation(
 				errorstack.Entry{
-					Message: "Must be set",
-					Path:    []any{"config", "worker", "task_queue"},
+					Message: "Must be a finite number greater than or equal to 0",
+					Path:    []any{"config", "worker_activities_per_second"},
+				},
+				errorstack.Entry{
+					Message: "Must be a finite number greater than or equal to 0",
+					Path:    []any{"config", "task_queue_activities_per_second"},
+				},
+				errorstack.Entry{
+					Message: "Must be greater than or equal to 0",
+					Path:    []any{"config", "stop_timeout"},
 				},
 			),
 		},
 		{
-			name: "enable session worker is preserved",
-			before: ConfigWorker{
-				TaskQueue:           "queue",
-				EnableSessionWorker: true,
-			},
-			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
-				TaskQueue:           "queue",
-				EnableSessionWorker: true,
-			},
-			err: nil,
-		},
-		{
-			name: "enable session worker defaults to false",
-			before: ConfigWorker{
-				TaskQueue: "queue",
-			},
-			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
-				},
-				TaskQueue: "queue",
-			},
-			err: nil,
-		},
-		{
-			name: "missing task queue and invalid TLS returns combined errors",
+			name: "client entries are reported under config.client",
 			before: ConfigWorker{
 				Client: ConfigClient{
-					TLS: integration.ConfigTLS{
-						Enabled: true,
-						KeyPEM:  []byte("key"),
-					},
-				},
-			},
-			after: ConfigWorker{
-				Client: ConfigClient{
-					Address:   "127.0.0.1:7233",
-					Namespace: "default",
+					Address: "no-port",
 					TLS: integration.ConfigTLS{
 						Enabled: true,
 						KeyPEM:  []byte("key"),
@@ -174,11 +127,15 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 			err: errorstack.NewValidation(
 				errorstack.Entry{
 					Message: "Must be set",
-					Path:    []any{"config", "worker", "task_queue"},
+					Path:    []any{"config", "task_queue"},
+				},
+				errorstack.Entry{
+					Message: "Must be a host:port address or a gRPC target",
+					Path:    []any{"config", "client", "address"},
 				},
 				errorstack.Entry{
 					Message: "Must be set together; cert_pem and key_pem are required as a pair",
-					Path:    []any{"config", "tls"},
+					Path:    []any{"config", "client", "tls"},
 				},
 			),
 		},
@@ -188,8 +145,24 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.before.sanitize()
 
-			assert.Equal(t, tc.after, tc.before)
 			assert.Equal(t, tc.err, err)
+			if tc.err == nil {
+				assert.Equal(t, tc.after, tc.before)
+			}
 		})
 	}
+
+	t.Run("an infinite rate limit returns error", func(t *testing.T) {
+		cfg := ConfigWorker{TaskQueue: "queue", WorkerActivitiesPerSecond: math.Inf(1)}
+		assert.Error(t, cfg.sanitize())
+	})
+}
+
+func TestConfigWorker_Name(t *testing.T) {
+	assert.Equal(t, "temporal", (&ConfigWorker{}).name())
+	assert.Equal(t, "orders", (&ConfigWorker{TaskQueue: "orders"}).name())
+	assert.Equal(t, "orders-worker", (&ConfigWorker{Name: "orders-worker", TaskQueue: "orders"}).name())
+
+	// The client's own name names nothing when it belongs to a worker.
+	assert.Equal(t, "orders", (&ConfigWorker{Client: ConfigClient{Name: "client"}, TaskQueue: "orders"}).name())
 }

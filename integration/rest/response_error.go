@@ -13,14 +13,14 @@ var _ json.Marshaler = (*ResponseError[any])(nil)
 
 var fallbackErrorResponse = []byte(`{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_ERROR"}}]}`)
 
-// ResponseError builds a GraphQL-spec error response for HTTP status codes 3xx,
-// 4xx, and 5xx. The serialized envelope is:
+// ResponseError builds a GraphQL-spec error response for HTTP status codes 4xx and
+// 5xx. The serialized envelope is:
 //
 //	{"errors":[{"message":"…","path":[…],"extensions":{"code":"…"}}], "extensions":{…}}
 //
-// Validations supersede the seeded fallback entry: calling SetValidations
-// replaces errors[] with one entry per validation. SetMetadata folds the typed
-// metadata under top-level extensions.metadata.
+// SetStatus seeds a single fallback entry from the status. SetValidations and
+// SetEntries supersede it, replacing errors[] with the entries they are given.
+// SetMetadata folds the typed metadata under top-level extensions.metadata.
 type ResponseError[Metadata any] struct {
 	request    *http.Request
 	statusCode int
@@ -28,10 +28,13 @@ type ResponseError[Metadata any] struct {
 	metadata   *Metadata
 }
 
-// NewResponseError creates a new HTTP response for status codes 3xx, 4xx, and
-// 5xx. The status code defaults to http.StatusInternalServerError so a caller
-// that forgets to call SetStatus still produces a valid HTTP error response
-// (the seeded fallback entry uses CodeInternalError, matching).
+// NewResponseError creates a new HTTP response for status codes 4xx and 5xx. The
+// status code defaults to http.StatusInternalServerError so a caller that forgets
+// to call SetStatus still produces a valid HTTP error response (the seeded
+// fallback entry uses CodeInternalError, matching).
+//
+// A 3xx is not an error and has no envelope: answer a redirect with
+// http.Redirect.
 func NewResponseError[Metadata any](req *http.Request) *ResponseError[Metadata] {
 	return &ResponseError[Metadata]{
 		request:    req,
@@ -44,14 +47,25 @@ func NewResponseError[Metadata any](req *http.Request) *ResponseError[Metadata] 
 }
 
 // SetStatus sets the response's status code and seeds a single fallback entry
-// built from the status' localized message and canonical code. SetValidations
-// later replaces this entry when called.
+// built from the status' localized message and canonical code. SetValidations or
+// SetEntries later replaces this entry when called, so call SetStatus first.
+//
+// The statuses with a localized message and a code of their own are the ones
+// AddOrEditLanguage lists. Any other is answered with net/http's English text for
+// it, under INTERNAL_ERROR; use SetEntries to give it a message and code of its
+// own.
 func (res *ResponseError[Metadata]) SetStatus(status int) *ResponseError[Metadata] {
+	message := locales.Message(res.request, status)
+	if message == "" {
+		message = http.StatusText(status)
+	}
+
+	if message == "" {
+		message = locales.Message(res.request, http.StatusInternalServerError)
+	}
+
 	res.statusCode = status
-	res.err = errorstack.New(
-		locales.Message(res.request, status),
-		errorstack.WithCode(errorstack.HTTPStatusToCode(status)),
-	)
+	res.err = errorstack.New(message, errorstack.WithCode(errorstack.HTTPStatusToCode(status)))
 
 	return res
 }
@@ -68,6 +82,47 @@ func (res *ResponseError[Metadata]) SetMetadata(metadata Metadata) *ResponseErro
 // the root entry".
 func (res *ResponseError[Metadata]) SetValidations(entries ...errorstack.Entry) *ResponseError[Metadata] {
 	res.err = errorstack.NewValidation(entries...)
+	return res
+}
+
+// SetEntries replaces errors[] with the given entries, each keeping its own
+// message, code and path. An entry without a code gets the one the response's
+// status maps to, so call SetStatus first. Without entries it does nothing, and
+// the seeded fallback entry stands.
+//
+// It is the counterpart to SetValidations for entries that are not validations: a
+// message more specific than the status' own, under the status' code or a code of
+// the application's. Forcing them to VALIDATION_FAILED would say the caller sent
+// something malformed.
+//
+//	rest.NewResponseError[rest.NoMetadata](req).
+//	  SetStatus(http.StatusConflict).
+//	  SetEntries(errorstack.Entry{
+//	    Message: "Email address is already registered",
+//	    Path:    []any{"request", "body", "email"},
+//	  }).
+//	  Write(rw)
+func (res *ResponseError[Metadata]) SetEntries(entries ...errorstack.Entry) *ResponseError[Metadata] {
+	if len(entries) == 0 {
+		return res
+	}
+
+	code := errorstack.HTTPStatusToCode(res.statusCode)
+	out := make([]errorstack.Entry, len(entries))
+	for i, entry := range entries {
+		// A new map rather than a write into the entry's own: the map is shared with
+		// the caller, who may be reusing it across entries or responses.
+		if _, ok := entry.Extensions["code"]; !ok {
+			extensions := make(map[string]any, len(entry.Extensions)+1)
+			maps.Copy(extensions, entry.Extensions)
+			extensions["code"] = code
+			entry.Extensions = extensions
+		}
+
+		out[i] = entry
+	}
+
+	res.err = &errorstack.Error{Entries: out}
 	return res
 }
 

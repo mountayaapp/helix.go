@@ -2,6 +2,7 @@ package valkey
 
 import (
 	"testing"
+	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
@@ -20,7 +21,9 @@ func TestConfig_Sanitize(t *testing.T) {
 			name:   "empty config applies default address",
 			before: Config{},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 			},
 			err: nil,
 		},
@@ -32,9 +35,11 @@ func TestConfig_Sanitize(t *testing.T) {
 				Password: "secret",
 			},
 			after: Config{
-				Address:  "valkey.example.com:6379",
-				User:     "admin",
-				Password: "secret",
+				Address:                "valkey.example.com:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
+				User:                   "admin",
+				Password:               "secret",
 			},
 			err: nil,
 		},
@@ -44,7 +49,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				Address: "valkey.custom.com:6380",
 			},
 			after: Config{
-				Address: "valkey.custom.com:6380",
+				Address:                "valkey.custom.com:6380",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 			},
 			err: nil,
 		},
@@ -55,9 +62,11 @@ func TestConfig_Sanitize(t *testing.T) {
 				Password: "mypassword",
 			},
 			after: Config{
-				Address:  "127.0.0.1:6379",
-				User:     "myuser",
-				Password: "mypassword",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
+				User:                   "myuser",
+				Password:               "mypassword",
 			},
 			err: nil,
 		},
@@ -70,7 +79,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -92,7 +103,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					KeyPEM:  []byte("key"),
@@ -115,7 +128,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 				TLS: integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
@@ -133,13 +148,113 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 				TLS: integration.ConfigTLS{
 					Enabled: false,
 					CertPEM: []byte("cert"),
 				},
 			},
 			err: nil,
+		},
+		{
+			name: "database, client name and timeouts are preserved",
+			before: Config{
+				Database:     3,
+				ClientName:   "worker",
+				DialTimeout:  time.Second,
+				WriteTimeout: 2 * time.Second,
+				RecordKeys:   true,
+			},
+			after: Config{
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
+				Database:               3,
+				ClientName:             "worker",
+				DialTimeout:            time.Second,
+				WriteTimeout:           2 * time.Second,
+				RecordKeys:             true,
+			},
+			err: nil,
+		},
+		{
+			name: "a subscriber backlog is preserved",
+			before: Config{
+				SubscriberBacklog:      64,
+				SubscriberBacklogBytes: 1 << 20,
+			},
+			after: Config{
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      64,
+				SubscriberBacklogBytes: 1 << 20,
+			},
+			err: nil,
+		},
+		{
+			name: "a negative subscriber backlog returns errors",
+			before: Config{
+				SubscriberBacklog:      -1,
+				SubscriberBacklogBytes: -1,
+			},
+			after: Config{
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      -1,
+				SubscriberBacklogBytes: -1,
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must not be negative",
+					Path:    []any{"config", "subscriber_backlog"},
+				},
+				errorstack.Entry{
+					Message: "Must not be negative",
+					Path:    []any{"config", "subscriber_backlog_bytes"},
+				},
+			),
+		},
+		{
+			name: "negative database and timeouts return errors alongside TLS ones",
+			before: Config{
+				Database:     -1,
+				DialTimeout:  -time.Second,
+				WriteTimeout: -time.Second,
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					CertPEM: []byte("cert"),
+				},
+			},
+			after: Config{
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
+				Database:               -1,
+				DialTimeout:            -time.Second,
+				WriteTimeout:           -time.Second,
+				TLS: integration.ConfigTLS{
+					Enabled: true,
+					CertPEM: []byte("cert"),
+				},
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must not be negative",
+					Path:    []any{"config", "database"},
+				},
+				errorstack.Entry{
+					Message: "Must be a positive duration",
+					Path:    []any{"config", "dial_timeout"},
+				},
+				errorstack.Entry{
+					Message: "Must be a positive duration",
+					Path:    []any{"config", "write_timeout"},
+				},
+				errorstack.Entry{
+					Message: "Must be set together; cert_pem and key_pem are required as a pair",
+					Path:    []any{"config", "tls"},
+				},
+			),
 		},
 		{
 			name: "TLS with InsecureSkipVerify is valid",
@@ -150,7 +265,9 @@ func TestConfig_Sanitize(t *testing.T) {
 				},
 			},
 			after: Config{
-				Address: "127.0.0.1:6379",
+				Address:                "127.0.0.1:6379",
+				SubscriberBacklog:      defaultSubscriberBacklog,
+				SubscriberBacklogBytes: defaultSubscriberBacklogBytes,
 				TLS: integration.ConfigTLS{
 					Enabled:            true,
 					InsecureSkipVerify: true,

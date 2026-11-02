@@ -7,6 +7,7 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 
+	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,9 +16,9 @@ var schemaEntry = errorstack.Entry{
 	Path:    []any{"config", "schema"},
 }
 
-var valkeyEntry = errorstack.Entry{
+var cacheEntry = errorstack.Entry{
 	Message: "Must be set",
-	Path:    []any{"config", "apq", "valkey"},
+	Path:    []any{"config", "apq", "cache"},
 }
 
 var tlsPairEntry = errorstack.Entry{
@@ -25,7 +26,33 @@ var tlsPairEntry = errorstack.Entry{
 	Path:    []any{"config", "tls"},
 }
 
+// sanitized returns the Config sanitize turns an empty one into, with change
+// applied on top.
+func sanitized(change func(cfg *Config)) Config {
+	cfg := Config{
+		Address:             ":8080",
+		Path:                "/graphql",
+		QueryCacheSize:      defaultQueryCacheSize,
+		ParserTokenLimit:    defaultParserTokenLimit,
+		ComplexityLimit:     defaultComplexityLimit,
+		DepthLimit:          defaultDepthLimit,
+		MaxRequestBodyBytes: defaultMaxRequestBodyBytes,
+		TraceResolvers:      ResolverTracingRoot,
+		ReadHeaderTimeout:   10 * time.Second,
+		ReadTimeout:         30 * time.Second,
+		IdleTimeout:         120 * time.Second,
+	}
+
+	if change != nil {
+		change(&cfg)
+	}
+
+	return cfg
+}
+
 func TestConfig_Sanitize(t *testing.T) {
+	cache := lru.New[string](1)
+
 	testcases := []struct {
 		name   string
 		before Config
@@ -35,12 +62,8 @@ func TestConfig_Sanitize(t *testing.T) {
 		{
 			name:   "empty config applies defaults and returns schema error",
 			before: Config{},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-			},
-			err: errorstack.NewValidation(schemaEntry),
+			after:  sanitized(nil),
+			err:    errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "custom address and path are preserved",
@@ -48,69 +71,127 @@ func TestConfig_Sanitize(t *testing.T) {
 				Address: ":9090",
 				Path:    "/api/graphql",
 			},
-			after: Config{
-				Address:        ":9090",
-				Path:           "/api/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-			},
+			after: sanitized(func(cfg *Config) {
+				cfg.Address = ":9090"
+				cfg.Path = "/api/graphql"
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
-			name: "APQ enabled without valkey returns schema and valkey errors",
+			name: "explicit limits and timeouts are preserved",
+			before: Config{
+				QueryCacheSize:      10,
+				ParserTokenLimit:    100,
+				ComplexityLimit:     200,
+				DepthLimit:          5,
+				MaxRequestBodyBytes: 1024,
+				TraceResolvers:      ResolverTracingAll,
+				RequestTimeout:      5 * time.Second,
+				ReadHeaderTimeout:   2 * time.Second,
+				ReadTimeout:         3 * time.Second,
+				IdleTimeout:         4 * time.Second,
+			},
+			after: sanitized(func(cfg *Config) {
+				cfg.QueryCacheSize = 10
+				cfg.ParserTokenLimit = 100
+				cfg.ComplexityLimit = 200
+				cfg.DepthLimit = 5
+				cfg.MaxRequestBodyBytes = 1024
+				cfg.TraceResolvers = ResolverTracingAll
+				cfg.RequestTimeout = 5 * time.Second
+				cfg.ReadHeaderTimeout = 2 * time.Second
+				cfg.ReadTimeout = 3 * time.Second
+				cfg.IdleTimeout = 4 * time.Second
+			}),
+			err: errorstack.NewValidation(schemaEntry),
+		},
+		{
+			name: "negative limits and timeouts are refused",
+			before: Config{
+				ParserTokenLimit:    -1,
+				ComplexityLimit:     -1,
+				DepthLimit:          -1,
+				MaxRequestBodyBytes: -1,
+				RequestTimeout:      -1,
+				ReadHeaderTimeout:   -1,
+				ReadTimeout:         -1,
+				IdleTimeout:         -1,
+			},
+			after: sanitized(func(cfg *Config) {
+				cfg.ParserTokenLimit = -1
+				cfg.ComplexityLimit = -1
+				cfg.DepthLimit = -1
+				cfg.MaxRequestBodyBytes = -1
+				cfg.RequestTimeout = -1
+				cfg.ReadHeaderTimeout = -1
+				cfg.ReadTimeout = -1
+				cfg.IdleTimeout = -1
+			}),
+			err: errorstack.NewValidation(
+				schemaEntry,
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "parser_token_limit"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "complexity_limit"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "depth_limit"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "max_request_body_bytes"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "request_timeout"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "read_header_timeout"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "read_timeout"}},
+				errorstack.Entry{Message: "Must not be negative", Path: []any{"config", "idle_timeout"}},
+			),
+		},
+		{
+			name:   "an unknown resolver tracing mode is refused",
+			before: Config{TraceResolvers: "some"},
+			after: sanitized(func(cfg *Config) {
+				cfg.TraceResolvers = "some"
+			}),
+			err: errorstack.NewValidation(schemaEntry, errorstack.Entry{
+				Message: `Must be one of "root", "all" or "none"`,
+				Path:    []any{"config", "trace_resolvers"},
+			}),
+		},
+		{
+			name: "APQ enabled without cache returns schema and cache errors",
 			before: Config{
 				APQ: ConfigAPQ{
 					Enabled: true,
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				APQ: ConfigAPQ{
-					Enabled: true,
-					Prefix:  "apq:",
-					TTL:     1 * time.Hour,
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry, valkeyEntry),
+			after: sanitized(func(cfg *Config) {
+				cfg.APQ = ConfigAPQ{
+					Enabled:        true,
+					MaxQueryLength: defaultAPQMaxQueryLength,
+				}
+			}),
+			err: errorstack.NewValidation(schemaEntry, cacheEntry),
 		},
 		{
-			name: "APQ enabled with custom prefix and TTL preserves values",
+			name: "APQ enabled with cache and custom length preserves values",
 			before: Config{
 				APQ: ConfigAPQ{
-					Enabled: true,
-					Prefix:  "custom:",
-					TTL:     30 * time.Minute,
+					Enabled:        true,
+					Cache:          cache,
+					MaxQueryLength: 100,
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				APQ: ConfigAPQ{
-					Enabled: true,
-					Prefix:  "custom:",
-					TTL:     30 * time.Minute,
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry, valkeyEntry),
+			after: sanitized(func(cfg *Config) {
+				cfg.APQ = ConfigAPQ{
+					Enabled:        true,
+					Cache:          cache,
+					MaxQueryLength: 100,
+				}
+			}),
+			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
-			name: "APQ disabled only returns schema error",
+			name: "APQ disabled applies no APQ default",
 			before: Config{
 				APQ: ConfigAPQ{
 					Enabled: false,
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				APQ: ConfigAPQ{
-					Enabled: false,
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry),
+			after: sanitized(nil),
+			err:   errorstack.NewValidation(schemaEntry),
 		},
 		{
 			name: "GraphiQL enabled applies default path",
@@ -119,15 +200,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: true,
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				GraphiQL: ConfigGraphiQL{
+			after: sanitized(func(cfg *Config) {
+				cfg.GraphiQL = ConfigGraphiQL{
 					Enabled: true,
 					Path:    "/graphiql",
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
@@ -138,51 +216,47 @@ func TestConfig_Sanitize(t *testing.T) {
 					Path:    "/custom/graphiql",
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				GraphiQL: ConfigGraphiQL{
+			after: sanitized(func(cfg *Config) {
+				cfg.GraphiQL = ConfigGraphiQL{
 					Enabled: true,
 					Path:    "/custom/graphiql",
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
-			name: "GraphiQL disabled only returns schema error",
+			name: "GraphiQL on the GraphQL path is refused",
 			before: Config{
 				GraphiQL: ConfigGraphiQL{
-					Enabled: false,
+					Enabled: true,
+					Path:    "/graphql",
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				GraphiQL: ConfigGraphiQL{
-					Enabled: false,
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry),
+			after: sanitized(func(cfg *Config) {
+				cfg.GraphiQL = ConfigGraphiQL{
+					Enabled: true,
+					Path:    "/graphql",
+				}
+			}),
+			err: errorstack.NewValidation(schemaEntry, errorstack.Entry{
+				Message: "Must differ from path",
+				Path:    []any{"config", "graphiql", "path"},
+			}),
 		},
 		{
-			name: "GraphiQL disabled does not apply default path",
+			name: "GraphiQL disabled does not apply nor check its path",
 			before: Config{
 				GraphiQL: ConfigGraphiQL{
 					Enabled: false,
-					Path:    "",
+					Path:    "/health",
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				GraphiQL: ConfigGraphiQL{
+			after: sanitized(func(cfg *Config) {
+				cfg.GraphiQL = ConfigGraphiQL{
 					Enabled: false,
-					Path:    "",
-				},
-			},
+					Path:    "/health",
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
@@ -192,31 +266,11 @@ func TestConfig_Sanitize(t *testing.T) {
 					Enabled: true,
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				Introspection: ConfigIntrospection{
+			after: sanitized(func(cfg *Config) {
+				cfg.Introspection = ConfigIntrospection{
 					Enabled: true,
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry),
-		},
-		{
-			name: "Introspection disabled only returns schema error",
-			before: Config{
-				Introspection: ConfigIntrospection{
-					Enabled: false,
-				},
-			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				Introspection: ConfigIntrospection{
-					Enabled: false,
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
@@ -227,15 +281,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				TLS: integration.ConfigTLS{
+			after: sanitized(func(cfg *Config) {
+				cfg.TLS = integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry, tlsPairEntry),
 		},
 		{
@@ -246,15 +297,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				TLS: integration.ConfigTLS{
+			after: sanitized(func(cfg *Config) {
+				cfg.TLS = integration.ConfigTLS{
 					Enabled: true,
 					KeyPEM:  []byte("key"),
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry, tlsPairEntry),
 		},
 		{
@@ -266,16 +314,13 @@ func TestConfig_Sanitize(t *testing.T) {
 					KeyPEM:  []byte("key"),
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				TLS: integration.ConfigTLS{
+			after: sanitized(func(cfg *Config) {
+				cfg.TLS = integration.ConfigTLS{
 					Enabled: true,
 					CertPEM: []byte("cert"),
 					KeyPEM:  []byte("key"),
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 		{
@@ -286,34 +331,12 @@ func TestConfig_Sanitize(t *testing.T) {
 					CertPEM: []byte("cert"),
 				},
 			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				TLS: integration.ConfigTLS{
+			after: sanitized(func(cfg *Config) {
+				cfg.TLS = integration.ConfigTLS{
 					Enabled: false,
 					CertPEM: []byte("cert"),
-				},
-			},
-			err: errorstack.NewValidation(schemaEntry),
-		},
-		{
-			name: "TLS with InsecureSkipVerify returns only schema error",
-			before: Config{
-				TLS: integration.ConfigTLS{
-					Enabled:            true,
-					InsecureSkipVerify: true,
-				},
-			},
-			after: Config{
-				Address:        ":8080",
-				Path:           "/graphql",
-				QueryCacheSize: defaultQueryCacheSize,
-				TLS: integration.ConfigTLS{
-					Enabled:            true,
-					InsecureSkipVerify: true,
-				},
-			},
+				}
+			}),
 			err: errorstack.NewValidation(schemaEntry),
 		},
 	}
@@ -326,6 +349,63 @@ func TestConfig_Sanitize(t *testing.T) {
 			assert.Equal(t, tc.err, err)
 		})
 	}
+}
+
+// TestConfig_Sanitize_Paths covers the rules both endpoint paths follow. A path
+// the serve mux cannot parse used to make New panic, and a probe path would have
+// served the endpoint outside Middleware, since the probes bypass it.
+func TestConfig_Sanitize_Paths(t *testing.T) {
+	const (
+		slash = `Must start with "/"`
+		root  = `Must not be "/"`
+		clean = "Must be a clean path, without wildcards, query, fragment or whitespace"
+		probe = "Must not be a health probe path"
+	)
+
+	testcases := []struct {
+		path string
+		want string
+	}{
+		{path: "/graphql", want: ""},
+		{path: "/api/v1/graphql", want: ""},
+		{path: "graphql", want: slash},
+		{path: "/", want: root},
+		{path: "/graphql/", want: clean},
+		{path: "//graphql", want: clean},
+		{path: "/api/../graphql", want: clean},
+		{path: "/{name}", want: clean},
+		{path: "/graphql?x=1", want: clean},
+		{path: "/graph ql", want: clean},
+		{path: integration.PathLiveness, want: probe},
+		{path: integration.PathReadiness, want: probe},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, checkPath(tc.path))
+
+			cfg := Config{Schema: testSchema(nil), Path: tc.path}
+			err := cfg.sanitize()
+			if tc.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+
+			assert.Equal(t, errorstack.NewValidation(errorstack.Entry{
+				Message: tc.want,
+				Path:    []any{"config", "path"},
+			}), err)
+		})
+	}
+
+	t.Run("GraphiQL follows the same rules", func(t *testing.T) {
+		cfg := Config{Schema: testSchema(nil), GraphiQL: ConfigGraphiQL{Enabled: true, Path: integration.PathReadiness}}
+
+		assert.Equal(t, errorstack.NewValidation(errorstack.Entry{
+			Message: probe,
+			Path:    []any{"config", "graphiql", "path"},
+		}), cfg.sanitize())
+	})
 }
 
 // TestConfig_Sanitize_QueryCacheSize covers the field's own rules, which the table

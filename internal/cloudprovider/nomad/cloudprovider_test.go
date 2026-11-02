@@ -1,89 +1,53 @@
 package nomad
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func TestBuild_NoEnvVar(t *testing.T) {
+func TestDetect_NoEnvVar(t *testing.T) {
+	t.Setenv("NOMAD_JOB_ID", "")
+	os.Unsetenv("NOMAD_JOB_ID")
 
-	// The init() already ran without NOMAD_JOB_ID, so cp should be nil.
-	assert.Nil(t, cp)
+	assert.Nil(t, Detect())
 }
 
-func TestBuild_WithEnvVars(t *testing.T) {
-	t.Setenv("NOMAD_JOB_ID", "job-123")
+func TestDetect_InNomad(t *testing.T) {
+	t.Setenv("NOMAD_ALLOC_ID", "5f3b2c1a-9d8e-4f7a-b6c5-1e2d3c4b5a69")
 	t.Setenv("NOMAD_DC", "dc1")
-	t.Setenv("NOMAD_JOB_NAME", "my-job")
+	t.Setenv("NOMAD_GROUP_NAME", "api")
+	t.Setenv("NOMAD_JOB_ID", "web")
+	t.Setenv("NOMAD_JOB_NAME", "web")
 	t.Setenv("NOMAD_NAMESPACE", "default")
-	t.Setenv("NOMAD_REGION", "us-east-1")
-	t.Setenv("NOMAD_TASK_NAME", "web")
+	t.Setenv("NOMAD_REGION", "global")
+	t.Setenv("NOMAD_TASK_NAME", "server")
 
-	provider := build()
+	provider := Detect()
+	require.NotNil(t, provider)
 
-	assert.NotNil(t, provider)
-	assert.Equal(t, "nomad", provider.String())
+	assert.Equal(t, []attribute.KeyValue{
+		attribute.String("nomad.alloc_id", "5f3b2c1a-9d8e-4f7a-b6c5-1e2d3c4b5a69"),
+		attribute.String("nomad.datacenter", "dc1"),
+		attribute.String("nomad.group", "api"),
+		attribute.String("nomad.job_id", "web"),
+		attribute.String("nomad.job_name", "web"),
+		attribute.String("nomad.namespace", "default"),
+		attribute.String("nomad.region", "global"),
+		attribute.String("nomad.task", "server"),
+		attribute.String("service.name", "server"),
+	}, provider.Attributes())
 }
 
-func TestBuild_WithPartialEnvVars(t *testing.T) {
-	t.Setenv("NOMAD_JOB_ID", "job-456")
-	t.Setenv("NOMAD_DC", "")
-	t.Setenv("NOMAD_JOB_NAME", "")
-	t.Setenv("NOMAD_NAMESPACE", "")
-	t.Setenv("NOMAD_REGION", "")
-	t.Setenv("NOMAD_TASK_NAME", "")
+// TestAttributes_EmptyTaskLeavesServiceUnnamed pins that a missing task name
+// never overrides the service's name with an empty one.
+func TestAttributes_EmptyTaskLeavesServiceUnnamed(t *testing.T) {
+	n := &nomad{jobID: "web"}
 
-	provider := build()
-
-	assert.NotNil(t, provider)
-	assert.Equal(t, "nomad", provider.String())
-}
-
-func TestGet(t *testing.T) {
-
-	// In test environment without NOMAD_JOB_ID, Get() returns nil.
-	provider := Get()
-
-	assert.Nil(t, provider)
-}
-
-func TestString(t *testing.T) {
-	n := &nomad{}
-
-	assert.Equal(t, "nomad", n.String())
-}
-
-func TestAttributes(t *testing.T) {
-	n := &nomad{
-		datacenter: "dc1",
-		jobId:      "job-123",
-		jobName:    "my-job",
-		namespace:  "default",
-		region:     "us-east-1",
-		task:       "web",
+	for _, attr := range n.Attributes() {
+		assert.NotEqual(t, attribute.Key("service.name"), attr.Key)
 	}
-
-	attrs := n.Attributes()
-
-	assert.Len(t, attrs, 7)
-	assert.Equal(t, attribute.String("nomad.datacenter", "dc1"), attrs[0])
-	assert.Equal(t, attribute.String("nomad.job_id", "job-123"), attrs[1])
-	assert.Equal(t, attribute.String("nomad.job_name", "my-job"), attrs[2])
-	assert.Equal(t, attribute.String("nomad.namespace", "default"), attrs[3])
-	assert.Equal(t, attribute.String("nomad.region", "us-east-1"), attrs[4])
-	assert.Equal(t, attribute.String("nomad.task", "web"), attrs[5])
-	assert.Equal(t, attribute.String("service.name", "web"), attrs[6])
-}
-
-func TestAttributes_ServiceNameMatchesTask(t *testing.T) {
-	n := &nomad{
-		task: "api-worker",
-	}
-
-	attrs := n.Attributes()
-
-	assert.Len(t, attrs, 7)
-	assert.Equal(t, attribute.String("service.name", "api-worker"), attrs[6])
 }

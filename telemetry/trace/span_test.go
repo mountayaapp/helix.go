@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	otelTrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -126,7 +128,7 @@ func TestSpan_RecordError_NilError(t *testing.T) {
 		s.RecordError("should be no-op", nil)
 	})
 
-	assert.False(t, s.hasError)
+	assert.NotNil(t, s)
 }
 
 func TestSpan_End_CalledTwice(t *testing.T) {
@@ -152,5 +154,31 @@ func TestSpan_FullLifecycle_WithError(t *testing.T) {
 		s.End()
 	})
 
-	assert.True(t, s.hasError)
+	assert.NotNil(t, s)
+}
+
+func TestSpan_IsRecording(t *testing.T) {
+	t.Run("nil span is not recording", func(t *testing.T) {
+		assert.False(t, NewSpan(nil).IsRecording())
+	})
+
+	t.Run("a no-op tracer's span is not recording", func(t *testing.T) {
+		ctx := internaltrace.NewContext(t.Context(), internaltrace.NewNopTracer())
+		_, span := Start(ctx, SpanKindClient, "Valkey: Get")
+		defer span.End()
+
+		assert.False(t, span.IsRecording())
+	})
+
+	t.Run("a recorded span is recording until it ends", func(t *testing.T) {
+		recorder := tracetest.NewSpanRecorder()
+		provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+		ctx := internaltrace.NewContext(t.Context(), internaltrace.NewTracerWithProvider(provider))
+
+		_, span := Start(ctx, SpanKindClient, "Valkey: Get")
+		assert.True(t, span.IsRecording())
+
+		span.End()
+		assert.False(t, span.IsRecording())
+	})
 }

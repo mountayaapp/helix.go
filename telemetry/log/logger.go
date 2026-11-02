@@ -7,17 +7,18 @@ import (
 	"github.com/mountayaapp/helix.go/internal/telemetry/log"
 
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
-// Level controls the minimum log level.
+// Level is the minimum level a Service logs at, set through
+// service.Config.LogLevel. Its zero value means unset.
 type Level int8
 
+// The levels a Service can log at, from the most verbose to the least.
 const (
-	LevelDebug Level = Level(zapcore.DebugLevel)
-	LevelInfo  Level = Level(zapcore.InfoLevel)
-	LevelWarn  Level = Level(zapcore.WarnLevel)
-	LevelError Level = Level(zapcore.ErrorLevel)
+	LevelDebug Level = iota + 1
+	LevelInfo
+	LevelWarn
+	LevelError
 )
 
 // Field is a structured log field. Type alias for zap.Field — no wrapper overhead.
@@ -64,34 +65,36 @@ func Duration(key string, val time.Duration) Field {
 	return zap.Duration(key, val)
 }
 
-// Debug logs a message at the debug level with optional structured fields. It
-// extracts the Logger from the context. If no Logger is found, the call is a no-op.
+// Debug logs a message at the debug level with optional structured fields, through
+// the context's Logger, or the process-wide one when the context carries none.
 func Debug(ctx context.Context, msg string, fields ...Field) {
-	if l := log.FromContext(ctx); l != nil {
-		l.Debug(ctx, msg, fields...)
-	}
+	loggerFrom(ctx).Debug(ctx, msg, fields...)
 }
 
-// Info logs a message at the info level with optional structured fields. It
-// extracts the Logger from the context. If no Logger is found, the call is a no-op.
+// Info logs a message at the info level with optional structured fields, through
+// the context's Logger, or the process-wide one when the context carries none.
 func Info(ctx context.Context, msg string, fields ...Field) {
-	if l := log.FromContext(ctx); l != nil {
-		l.Info(ctx, msg, fields...)
-	}
+	loggerFrom(ctx).Info(ctx, msg, fields...)
 }
 
-// Warn logs a message at the warn level with optional structured fields. It
-// extracts the Logger from the context. If no Logger is found, the call is a no-op.
+// Warn logs a message at the warn level with optional structured fields, through
+// the context's Logger, or the process-wide one when the context carries none.
 func Warn(ctx context.Context, msg string, fields ...Field) {
-	if l := log.FromContext(ctx); l != nil {
-		l.Warn(ctx, msg, fields...)
-	}
+	loggerFrom(ctx).Warn(ctx, msg, fields...)
 }
 
-// Error logs a message at the error level with optional structured fields. It
-// extracts the Logger from the context. If no Logger is found, the call is a no-op.
+// Error logs a message at the error level with optional structured fields, through
+// the context's Logger, or the process-wide one when the context carries none.
 func Error(ctx context.Context, msg string, fields ...Field) {
+	loggerFrom(ctx).Error(ctx, msg, fields...)
+}
+
+// loggerFrom returns the Logger carried by ctx or, when it carries none, the
+// process-wide one.
+func loggerFrom(ctx context.Context) *log.Logger {
 	if l := log.FromContext(ctx); l != nil {
-		l.Error(ctx, msg, fields...)
+		return l
 	}
+
+	return log.Default()
 }

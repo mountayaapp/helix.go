@@ -1,7 +1,7 @@
 # helix.go
 
 [![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go)
-[![GitHub Release](https://img.shields.io/github/v/release/mountayaapp/helix.go)](https://github.com/mountayaapp/helix.go/releases/latest)
+[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 helix is a Go library for building observable microservices. Every integration
@@ -12,15 +12,17 @@ boilerplate.
 
 ## Why helix
 
-- **Zero-config observability.** All integrations emit distributed traces, structured
-  logs, and record errors via OpenTelemetry out of the box.
+- **Zero-config observability.** All integrations emit distributed traces, metrics,
+  and structured logs correlated with their traces, and record errors via
+  OpenTelemetry out of the box.
 
 - **Solid foundations.** Every integration is thread-safe, connection-pooled,
   and heavily tested. Built for services that handle real traffic at scale.
 
-- **End-to-end context propagation.** Attach an `event.Event` once and it travels
-  across service boundaries — REST handlers, Temporal workflows, database calls —
-  through the distributed tracing context.
+- **End-to-end context propagation.** Attach an `event.Event` once and its
+  identifiers travel across service boundaries — REST handlers, Temporal workflows,
+  database calls — alongside the distributed trace. Personal data never leaves the
+  process.
 
 - **Consistent error handling.** The `errorstack` package emits a single
   GraphQL-spec error envelope (`{errors:[…], extensions:{…}}`) shared by REST and
@@ -34,8 +36,14 @@ boilerplate.
   uses [gqlgen](https://gqlgen.com/)'s schema-first approach with generated types
   and resolvers.
 
-- **Managed lifecycle.** `svc.Start()` and `svc.Stop()` handle signal trapping,
-  graceful shutdown ordering, and concurrent dependency cleanup.
+- **Managed lifecycle.** `svc.Run(ctx)` starts every server, blocks until the
+  context is cancelled, and always tears down — servers drain, dependencies close
+  concurrently, telemetry flushes — including when startup failed. Signals belong
+  to your `main`; cancel the context you hand it.
+
+- **Testable instrumentation.** `service/servicetest` gives a Service whose
+  traces, logs and metrics are recorded in memory, so a test can assert on what
+  your handlers actually emitted.
 
 ## Requirements
 
@@ -52,57 +60,79 @@ package main
 
 import (
   "context"
+  "log/slog"
   "net/http"
+  "os"
+  "os/signal"
+  "syscall"
 
   "github.com/mountayaapp/helix.go/service"
+  "github.com/mountayaapp/helix.go/integration/postgres"
   "github.com/mountayaapp/helix.go/integration/rest"
 )
 
 func main() {
+  if err := run(); err != nil {
+    slog.Error("fatal", "err", err)
+    os.Exit(1)
+  }
+}
 
-  // Create the Service. It auto-detects the cloud provider
-  // and sets up OpenTelemetry for logging and tracing.
-  svc, err := service.New()
+func run() error {
+  ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+  defer stop()
+
+  // Create the Service. It auto-detects the cloud provider and sets up
+  // OpenTelemetry for logging and tracing.
+  svc, err := service.New(ctx, service.Config{})
   if err != nil {
-    panic(err)
+    return err
   }
 
-  // Create a REST API on port 8080.
-  router, err := rest.New(svc, rest.Config{
-    Address: ":8080",
+  // Dependencies are built with a context, then attached under a name you
+  // choose — so two pools of the same kind stay distinguishable.
+  // Connect registers the pool with the Service, which owns its lifecycle from
+  // there. What you get back can query, not close.
+  db, err := postgres.Connect(ctx, svc, postgres.Config{
+    Name:     "primary",
+    Database: "myapp",
+    User:     "postgres",
+    Password: os.Getenv("POSTGRES_PASSWORD"),
   })
   if err != nil {
-    panic(err)
+    return err
   }
 
-  router.GET("/hello", func(rw http.ResponseWriter, req *http.Request) {
+  // Create a REST API on port 8080. Its readiness probe reports on every
+  // dependency attached to the Service.
+  api, err := rest.New(ctx, svc, rest.Config{Address: ":8080"})
+  if err != nil {
+    return err
+  }
+
+  api.GET("/hello", func(rw http.ResponseWriter, req *http.Request) {
+    // db is available here; its lifecycle belongs to svc.
+    _ = db
+
     rest.NewResponseSuccess[rest.NoMetadata, rest.NoData](req).
       SetStatus(http.StatusOK).
       Write(rw)
   })
 
-  // Start blocks until an interrupt signal is received.
-  ctx := context.Background()
-  if err := svc.Start(ctx); err != nil {
-    panic(err)
-  }
-
-  // Gracefully stop: server drains first, then dependencies
-  // close, then telemetry is flushed.
-  if err := svc.Stop(ctx); err != nil {
-    panic(err)
-  }
+  // Run blocks until SIGINT/SIGTERM, then drains the servers, closes the
+  // dependencies, and flushes telemetry — including when startup failed.
+  return svc.Run(ctx)
 }
 ```
 
-The REST API already emits OpenTelemetry traces for every request, records errors,
-and exposes liveness (`GET /health`) and readiness (`GET /ready`) probes — no
-additional setup required.
+The REST API already emits OpenTelemetry traces and metrics for every request,
+records errors, and exposes liveness (`GET /health`) and readiness (`GET /ready`)
+probes — no additional setup required.
 
 ## Viewing traces and logs locally
 
-helix exports traces and logs via OTLP. To see them locally, you can start an
-all-in-one observability stack with [ClickStack](https://clickhouse.com/clickstack):
+helix exports traces, metrics and logs via OTLP. To see them locally, you can start
+an all-in-one observability stack with [ClickStack](https://clickhouse.com/clickstack):
 
 1. Start ClickStack:
 
@@ -118,14 +148,35 @@ all-in-one observability stack with [ClickStack](https://clickhouse.com/clicksta
 3. Run your service with the right environment variables:
 
    ```sh
-   $ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+   $ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
      OTEL_EXPORTER_OTLP_HEADERS="Authorization=<your-ingestion-key>" \
-     OTEL_EXPORTER_OTLP_INSECURE=true \
      OTEL_SERVICE_NAME=my-service \
      go run .
    ```
 
 You'll see distributed traces for every request in the ClickStack UI.
+
+### One vocabulary, owned
+
+Every span helix emits is named `<Humanized>: <Operation>` and carries attribute
+keys of the form `<identifier>.<path>` — `PostgreSQL: Exec` with `postgres.query`,
+`Bucket: Write` with `bucket.key`, `REST: GET /things/:id` with `rest.route`. One
+convention across all nine integrations, built in one place
+(`integration.Instrument`) and enforced by a test
+(`servicetest.AssertConvention`).
+
+That is a deliberate trade. A backend's built-in HTTP and database views key off
+the OpenTelemetry semantic conventions and will not recognise these attributes, so
+dashboards query `rest.*` rather than `http.*`. What it buys is that the same
+question has the same answer in every integration — which composing upstream
+instrumentation cannot give you, since each package is pinned to whichever
+semantic convention version it happened to adopt, and they are years apart.
+
+One consequence is worth stating plainly: **helix suppresses `gocloud.dev/blob`'s
+own spans and metrics.** The bucket integration is built on gocloud, which emits
+from the global tracer and meter providers with no way to inject one and no way to
+turn it off, so every bucket operation was recorded twice. It is the only
+third-party instrumentation helix discards.
 
 The screenshot below shows a trace where an HTTP API flows into a Temporal worker
 with full event context preserved end-to-end. Developers only wrote business logic;
@@ -138,24 +189,58 @@ all observability was handled by helix.
 ### Service
 
 The `Service` is the central container. It owns the logger, tracer, and cloud
-provider detection, and manages the full application lifecycle. Only one instance
-is allowed per application.
+provider detection, and manages the full application lifecycle — including the
+lifecycle of every integration attached to it. More than one may exist in a
+process.
+
+The zero `Config` is usable: resources are detected from the standard `OTEL_*`
+environment, the global OpenTelemetry providers are installed, and shutdown gets a
+30-second budget.
 
 ```go
-svc, err := service.New(
-  service.WithShutdownTimeout(10 * time.Second),
-)
+svc, err := service.New(ctx, service.Config{
+  ShutdownTimeout: 10 * time.Second,
+})
 ```
 
-Available options:
+Config fields:
 
-- `WithShutdownTimeout(duration)` — Maximum duration for graceful shutdown.
-  Defaults to 30 seconds.
-- `WithSignals(signals...)` — Override shutdown signals.
-  Defaults to `SIGINT`, `SIGTERM`.
+- `ShutdownTimeout` — Maximum duration for graceful shutdown. Zero means 30 seconds.
+  Up to five seconds of it (a quarter, when it is shorter than twenty) is kept for
+  flushing telemetry last.
+- `LogLevel` — Minimum level logged, to stderr and to the OpenTelemetry export
+  alike (`log.LevelDebug` … `log.LevelError`). Zero defers to `OTEL_LOG_LEVEL`, then
+  info.
+- `SkipGlobals` — Leave the process-wide OpenTelemetry providers and propagator
+  untouched, along with the default logger and tracer that `telemetry/log` and
+  `telemetry/trace` fall back to. Set it when a second `Service` runs in the same
+  process, or when the application installs its own globals.
+- `TracerProvider` / `LoggerProvider` / `MeterProvider` — Supply telemetry
+  providers instead of the SDK ones built from the environment. These are API
+  types, so the `Service` does not own their lifecycle. `service/servicetest` uses
+  them to record all three signals in memory.
+- `Propagator` — The `TextMapPropagator` used to carry trace context across
+  process boundaries. Zero means the W3C pair (`TraceContext` + `Baggage`). The
+  integrations carry this one rather than reading the global, so `SkipGlobals`
+  does not silently stop propagation.
 
-Tracing, logging, and exporter configuration are controlled through OpenTelemetry
-environment variables (see [Environment variables](#environment-variables)).
+Signal handling belongs to the application: cancel the context you pass to `Run`.
+`Run` also returns when any server exits on its own.
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+
+return svc.Run(ctx)
+```
+
+Applications that embed a `Service` in a lifecycle of their own call `Start` and
+`Stop` instead of `Run`, and wait on `svc.Done()` — closed when a server exits or
+`Stop` is called — with `svc.Err()` reporting why. A stopped `Service` cannot be
+started again.
+
+Tracing, metrics, logging, and exporter configuration are controlled through
+OpenTelemetry environment variables (see [Environment variables](#environment-variables)).
 
 ### Integrations
 
@@ -165,37 +250,43 @@ helix models integrations as two types that map to the service lifecycle:
 |---|---|---|
 | **Role** | Defines how the service accepts work | Connects to an external system |
 | **Interface** | `integration.Server` | `integration.Dependency` |
-| **Cardinality** | One per Service | Many per Service |
-| **Constructor** | `New(svc, ...)` | `Connect(svc, ...)` |
-| **Registration** | Automatic via `service.Serve()` | Automatic via `service.Attach()` |
-| **Startup** | Blocking — listens for incoming work | Eager — connects in constructor |
+| **Cardinality** | Many per Service | Many per Service |
+| **Constructor** | `New(ctx, svc, ...)` | `Connect(ctx, svc, ...)` |
+| **Registration** | Automatic, inside the constructor | Automatic, inside the constructor |
+| **Startup** | Blocking — listens for incoming work | Eager — connects and pings in constructor |
 | **Shutdown** | Stopped first (drains in-flight work) | Closed concurrently after server stops |
 
-Constructors handle registration automatically — you never need to call
-`service.Serve()` or `service.Attach()` directly.
+A constructor takes a context and the Service, dials, registers itself, and hands
+back a narrow interface — one that can *use* the connection but not close it. The
+Service owns every lifecycle: you cannot start a server twice, close a pool the
+Service still holds, or forget to shut something down, because the handle you hold
+has no such methods. `Config.Name` is what distinguishes two pools of the same kind
+in health output and error context.
 
 #### Servers
 
-Servers define how a service receives and processes work. Only one server can be
-registered per service.
+Servers define how a service receives and processes work. More than one can be
+registered: a REST API alongside a Temporal worker is an ordinary shape.
 
 - **[REST API](./integration/rest/README.md)** — HTTP router with OpenAPI
   validation, typed responses, and path parameters.
 - **[GraphQL API](./integration/graphql/README.md)** — GraphQL server with
-  schema-first design, optional GraphiQL playground and automatic persisted queries.
+  schema-first design, body, depth and complexity limits, optional GraphiQL
+  playground and automatic persisted queries (backed by any cache, Valkey included).
 - **[MCP server](./integration/mcp/README.md)** — Model Context Protocol server
   over Streamable HTTP, with swappable authentication including OAuth 2.0 Resource
   Server support.
 - **[Temporal worker](./integration/temporal/README.md)** — Workflow and activity
-  worker with automatic tracing across workflow executions.
+  worker with typed handles, graceful activity draining, and tracing across
+  workflow executions.
 
 #### Dependencies
 
 Dependencies connect to external systems. Multiple dependencies can be attached
 to a single service.
 
-- **[Temporal](./integration/temporal/README.md)** — Client for starting
-  and scheduling workflows.
+- **[Temporal](./integration/temporal/README.md)** — Client for starting,
+  signalling, querying, updating and scheduling workflows.
 - **[PostgreSQL](./integration/postgres/README.md)** — Transactional database
   (also supports CockroachDB, Neon, AlloyDB, and other PostgreSQL-compatible
   databases).
@@ -206,8 +297,9 @@ to a single service.
 - **[Bucket](./integration/bucket/README.md)** — Blob storage with drivers for AWS
   S3, Azure Blob Storage, Google Cloud Storage.
 - **[HTTP Client](./integration/httpclient/README.md)** — Client for external HTTP
-  APIs with round-robin across endpoints, automatic failover, and per-endpoint
-  health checks reflected in the service status.
+  APIs with round-robin across endpoints, failover that never replays a
+  non-idempotent request, same-host redirects only, and opt-in per-endpoint health
+  checks.
 
 > **Note:** Integrations in this repository are maintained exclusively by the helix
 > team. We do not accept new integrations via pull requests, but you are free to
@@ -215,16 +307,64 @@ to a single service.
 
 #### Shutdown order
 
-When `svc.Stop()` is called:
+When `svc.Stop()` is called — which `svc.Run()` always does, on every exit path:
 
-1. The server stops first, draining in-flight work.
-2. All dependencies close concurrently once the server is idle.
-3. The tracer is flushed and shut down.
-4. The logger provider is flushed and shut down.
-5. The logger is synced.
+1. All servers stop first, concurrently, draining in-flight work. A request that
+   does not end on its own — a server-sent event stream — has its context
+   cancelled once half the budget is gone, and is closed when the budget runs out.
+2. All dependencies close concurrently once the servers are idle.
+3. Telemetry flushes: traces, then metrics, then logs, then stderr is synced.
 
-This guarantees no dependency connection is torn down while the server is still
-processing requests, and all telemetry is flushed before the process exits.
+This guarantees no dependency connection is torn down while a server is still
+processing requests, and that telemetry is flushed last, with time reserved for it.
+
+Every wait is bounded by `ShutdownTimeout`, including the ones on integrations
+helix does not control: an integration that will not drain is reported as such
+rather than allowed to hold the process open, because teardown that cannot finish
+loses the same telemetry as teardown that never ran. A telemetry collector that
+cannot be reached is logged to stderr rather than reported as a shutdown failure,
+so that it cannot turn a clean shutdown into a non-zero exit code.
+
+### Health probes
+
+Every HTTP server integration answers `GET /health` (liveness: the process is
+serving) and `GET /ready` (readiness: every server and dependency attached to the
+`Service` is healthy). Concurrent readiness probes share one check.
+
+A failing readiness probe answers a generic `503` envelope:
+
+```json
+{"errors":[{"message":"Service is temporarily unavailable","extensions":{"code":"SERVICE_UNAVAILABLE"}}]}
+```
+
+The probes are served on the application's own listener, to callers helix knows
+nothing about, and the reason a dependency is unhealthy — a driver error — names
+hosts, users and databases. Which integration failed, and why, is written to the
+log and recorded on the probe's span instead.
+
+### Trust boundary
+
+An HTTP server continues the trace its caller sent and reads the caller's baggage,
+which is what makes a request crossing several helix services one trace. Of an
+`Event`, only six fields ever travel in baggage — the event's ID and name, the
+organization and tenant identifiers, and the application's name and version — in
+both directions: helix never puts any other `Event` field in baggage, and never
+reads any other back. Personal data (`UserID`, `IP`, `UserAgent`, device,
+location, …) stays on the local span.
+
+Baggage that is not the `Event`'s is passed on as it was received: whatever a
+caller of a non-public server sent travels on with the outbound calls that server
+makes. For calls to a third party, give the HTTP client `Propagator:
+propagation.TraceContext{}` so that it sends the trace context and no baggage at
+all.
+
+A server reachable from the internet should not trust what its caller sends. Set
+`PublicEndpoint: true` in its config: the server then starts a trace of its own
+(linked to the caller's, so the two remain navigable) and ignores inbound baggage,
+so that nothing a client puts in its headers is propagated onward as though a
+trusted upstream service had set it. An `Event` rebuilt from inbound baggage is
+client input either way: fine for correlating telemetry, never a basis for an
+authorization decision.
 
 ## Examples
 
@@ -236,7 +376,11 @@ processing requests, and all telemetry is flushed before the process exits.
 
   import (
     "context"
+    "log/slog"
     "net/http"
+    "os"
+    "os/signal"
+    "syscall"
 
     "github.com/mountayaapp/helix.go/integration/postgres"
     "github.com/mountayaapp/helix.go/integration/rest"
@@ -246,35 +390,51 @@ processing requests, and all telemetry is flushed before the process exits.
   )
 
   func main() {
-    svc, err := service.New()
+    if err := run(); err != nil {
+      slog.Error("fatal", "err", err)
+      os.Exit(1)
+    }
+  }
+
+  func run() error {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+
+    svc, err := service.New(ctx, service.Config{})
     if err != nil {
-      panic(err)
+      return err
     }
 
-    // Connect dependencies.
-    db, err := postgres.Connect(svc, postgres.Config{
+    // Connect each dependency under a name of your choosing. Connect pings it,
+    // and registers it with the Service, which closes it on shutdown once the
+    // servers have drained.
+    db, err := postgres.Connect(ctx, svc, postgres.Config{
+      Name:     "primary",
       Address:  "127.0.0.1:5432",
       Database: "myapp",
       User:     "postgres",
-      Password: "secret",
+      Password: os.Getenv("POSTGRES_PASSWORD"),
     })
     if err != nil {
-      panic(err)
+      return err
     }
 
-    cache, err := valkey.Connect(svc, valkey.Config{
+    cache, err := valkey.Connect(ctx, svc, valkey.Config{
+      Name:    "cache",
       Address: "127.0.0.1:6379",
     })
     if err != nil {
-      panic(err)
+      return err
     }
 
-    // Create the server.
-    router, err := rest.New(svc, rest.Config{
-      Address: ":8080",
+    // Create the server. PublicEndpoint: it is reachable from the internet, so
+    // it does not trust the trace context and baggage its callers send.
+    router, err := rest.New(ctx, svc, rest.Config{
+      Address:        ":8080",
+      PublicEndpoint: true,
     })
     if err != nil {
-      panic(err)
+      return err
     }
 
     router.GET("/users/:id", func(rw http.ResponseWriter, req *http.Request) {
@@ -290,14 +450,7 @@ processing requests, and all telemetry is flushed before the process exits.
         Write(rw)
     })
 
-    ctx := context.Background()
-    if err := svc.Start(ctx); err != nil {
-      panic(err)
-    }
-
-    if err := svc.Stop(ctx); err != nil {
-      panic(err)
-    }
+    return svc.Run(ctx)
   }
   ```
 </details>
@@ -354,9 +507,15 @@ processing requests, and all telemetry is flushed before the process exits.
 <details>
   <summary>Event propagation across services</summary>
 
-  The `event.Event` object carries context (like `UserID`) across service
-  boundaries, automatically tied to the distributed trace. Downstream services
-  receive it without any manual serialization.
+  An `event.Event` describes what a request is about. Attach it to the context
+  once: the integrations stamp all of it on the entry span — locally — and carry
+  its identifiers to the services and workflows the request reaches.
+
+  Only six fields ever leave the process: the event's `ID` and `Name`, the
+  `OrganizationID` and `TenantID`, and the application's name and version. They
+  travel as W3C baggage over HTTP, and in a dedicated `event` header through
+  Temporal, encoded with the client's `DataConverter`. Personal data — `UserID`,
+  `IP`, `UserAgent`, device, location — stays on the local span.
 
   ```go
   import (
@@ -364,19 +523,25 @@ processing requests, and all telemetry is flushed before the process exits.
 
     "github.com/mountayaapp/helix.go/event"
     "github.com/mountayaapp/helix.go/integration/rest"
+
+    "go.temporal.io/sdk/client"
   )
 
   router.POST("/orders", func(rw http.ResponseWriter, req *http.Request) {
-    e := event.Event{
-      UserID: "usr_123",
-    }
 
     // Attach the event to the context.
-    ctx := event.NewContext(req.Context(), e)
+    ctx := event.NewContext(req.Context(), event.Event{
+      ID:       "evt_123",
+      Name:     "order.placed",
+      TenantID: "tenant_42",
+      UserID:   "usr_123", // On this service's spans only.
+    })
 
-    // The event is automatically propagated to downstream services via ctx.
-    // For example, a Temporal workflow will receive it through distributed tracing.
-    _, err := OrderWorkflow.Execute(ctx, client, opts, payload)
+    // The workflow — and every activity it schedules — receives the event's
+    // identifiers through ctx.
+    _, err := temporalClient.ExecuteWorkflow(ctx, ProcessOrder, client.StartWorkflowOptions{
+      TaskQueue: "orders",
+    }, input)
     if err != nil {
       rest.NewResponseError[rest.NoMetadata](req).
         SetStatus(http.StatusServiceUnavailable).
@@ -389,6 +554,11 @@ processing requests, and all telemetry is flushed before the process exits.
       Write(rw)
   })
   ```
+
+  `temporal.ConfigClient.PropagateFullEvent` opts in to sending the whole `Event`
+  through Temporal. Temporal history keeps the header for the namespace's
+  retention period, so opt in only when the workflows need the personal data and
+  the history may hold it.
 </details>
 
 <details>
@@ -401,6 +571,10 @@ processing requests, and all telemetry is flushed before the process exits.
   ```go
   import (
     "context"
+    "log/slog"
+    "os"
+    "os/signal"
+    "syscall"
 
     "github.com/mountayaapp/helix.go/service"
     "github.com/mountayaapp/helix.go/integration/mcp"
@@ -415,12 +589,22 @@ processing requests, and all telemetry is flushed before the process exits.
   }
 
   func main() {
-    svc, err := service.New()
+    if err := run(); err != nil {
+      slog.Error("fatal", "err", err)
+      os.Exit(1)
+    }
+  }
+
+  func run() error {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+
+    svc, err := service.New(ctx, service.Config{})
     if err != nil {
-      panic(err)
+      return err
     }
 
-    err = mcp.New(svc, mcp.Config{
+    err = mcp.New(ctx, svc, mcp.Config{
       ServerInfo: mcp.ServerInfo{Name: "greeter", Version: "v1.0.0"},
       Register: func(server *mcp.Server) {
         mcp.AddTool(server, &mcp.Tool{
@@ -433,12 +617,10 @@ processing requests, and all telemetry is flushed before the process exits.
       },
     })
     if err != nil {
-      panic(err)
+      return err
     }
 
-    if err := svc.Start(context.Background()); err != nil {
-      panic(err)
-    }
+    return svc.Run(ctx)
   }
   ```
 </details>
@@ -470,6 +652,10 @@ processing requests, and all telemetry is flushed before the process exits.
       Write(rw)
   })
   ```
+
+  Outside a request — in `main`, or in work detached from one — `log` and `trace`
+  fall back to the Service's logger and tracer, which `service.New` installs
+  process-wide unless `SkipGlobals` is set.
 
   Available log levels: `log.Debug`, `log.Info`, `log.Warn`, `log.Error`.
 
@@ -561,18 +747,67 @@ processing requests, and all telemetry is flushed before the process exits.
   }
 
   // Wrap an existing error to preserve it for errors.Is/As while attaching a
-  // canonical lifecycle message and code.
-  func fetchUser(id string) error {
-    user, err := db.QueryRow(ctx, "SELECT * FROM users WHERE id = $1", id)
+  // canonical message and code. The cause never reaches the envelope.
+  func fetchUserName(ctx context.Context, id string) (string, error) {
+    var name string
+    err := db.QueryRow(ctx, "SELECT name FROM users WHERE id = $1", id).Scan(&name)
     if err != nil {
-      return errorstack.Wrap(err, "Failed to handle request",
+      return "", errorstack.Wrap(err, "Failed to handle request",
         errorstack.WithCode(errorstack.CodeInternalError),
       )
     }
-    return nil
+    return name, nil
   }
   ```
 </details>
+
+## Testing
+
+The point of automatic instrumentation is that you do not write it — which means
+you cannot review it either. `service/servicetest` gives you a `Service` whose
+three signals are recorded in memory, so a test can assert on what your code
+actually emitted.
+
+```go
+func TestCreateUser(t *testing.T) {
+  svc, rec := servicetest.New(t)
+
+  api, err := rest.New(t.Context(), svc, rest.Config{Address: "127.0.0.1:0"})
+  require.NoError(t, err)
+  api.POST("/users", createUser)
+
+  // Drive the API's full handler chain — probes, middleware, telemetry — without
+  // a listener.
+  rw := httptest.NewRecorder()
+  api.Handler().ServeHTTP(rw, httptest.NewRequest(http.MethodPost, "/users", body))
+  require.Equal(t, http.StatusCreated, rw.Code)
+
+  // What did it emit?
+  for _, s := range servicetest.Summarize(rec.Spans()) {
+    t.Log(s)  // "…/helix.go | server | REST: POST /users | rest.method,rest.name,…"
+  }
+
+  // And is it consistent with every other integration?
+  servicetest.AssertConvention(t, rec.Spans())
+}
+```
+
+- `rec.Spans()` — the spans that have ended, in the order they ended.
+- `rec.Records()` — the log records emitted so far.
+- `rec.Metrics()` — every metric, collected on demand.
+- `servicetest.Summarize` — spans reduced to name, scope, kind and attribute
+  *keys*. Values, timings and IDs are excluded on purpose: they differ on every
+  run, and a golden that includes them tests the environment rather than the
+  instrumentation.
+- `servicetest.AssertConvention` — fails for any span that does not follow the
+  house convention (`<Humanized>: <Operation>`, keys namespaced under one
+  identifier, no foreign vocabulary). Every integration in this repository is held
+  to it; a third-party one can be too.
+
+Stopping the `Service` is registered on `t`, so a test never has to remember to do
+it. All three providers record synchronously, so there is nothing to flush before
+asserting. A test using it must not call `t.Parallel`, which matches the house
+convention of not using it at all.
 
 ## Environment variables
 
@@ -581,48 +816,58 @@ helix respects all standard
 The most common ones are listed below.
 
 - `OTEL_SDK_DISABLED` — Set to `true` to disable the OpenTelemetry SDK entirely
-  (noop tracer and logger). Default: `"false"`.
-- `OTEL_LOG_LEVEL` — Log level (`debug`, `info`, `warn`, `error`).
-  Default: `"info"`.
-- `OTEL_TRACES_EXPORTER` — Trace exporter (`otlp`, `console`, `none`).
+  (no-op traces, metrics and logs). Default: `"false"`.
+- `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` —
+  Exporter per signal (`otlp`, `console`, `none`; metrics also `prometheus`).
   Default: `"otlp"`.
-- `OTEL_LOGS_EXPORTER` — Log exporter (`otlp`, `console`, `none`).
-  Default: `"otlp"`.
-- `OTEL_EXPORTER_OTLP_PROTOCOL` — OTLP transport protocol (`grpc`, `http/protobuf`).
-  Default: `"grpc"`.
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP endpoint for traces and logs.
-  Default: `"http://localhost:4317"`.
+- `OTEL_EXPORTER_OTLP_PROTOCOL` — OTLP transport protocol (`http/protobuf`,
+  `grpc`). Default: `"http/protobuf"`, the OpenTelemetry specification's default.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP endpoint for every signal.
+  Default: `"http://localhost:4318"` (`http://localhost:4317` for `grpc`).
 - `OTEL_EXPORTER_OTLP_HEADERS` — Headers for OTLP requests (e.g. `Authorization=<token>`).
-- `OTEL_EXPORTER_OTLP_INSECURE` — Set to `true` to disable TLS.
+- `OTEL_EXPORTER_OTLP_INSECURE` — Set to `true` to disable TLS with `grpc`.
   Default: `"false"`.
 - `OTEL_SERVICE_NAME` — Override the service name resource attribute.
-  Default: auto-detected from process.
+  Default: the executable's name.
+- `OTEL_LOG_LEVEL` — Log level (`debug`, `info`, `warn`, `error`) when
+  `service.Config.LogLevel` is not set. Default: `"info"`. Strictly, this variable
+  is the OpenTelemetry SDK's own diagnostic level; helix honours it for
+  compatibility, and `Config.LogLevel` is the explicit way.
 
 ## Cloud providers
 
 helix automatically detects the orchestrator or cloud provider a service runs on.
-When recognized, traces and logs are enriched with platform-specific attributes.
+When recognized, traces, metrics and logs are enriched with platform-specific
+attributes. `service.name` defaults to the executable's name unless the platform
+provides a stable one, and `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` override
+everything.
 
 <details>
   <summary>Kubernetes</summary>
 
-  Additional OpenTelemetry attributes (traces and logs exported via OTLP):
+  Additional OpenTelemetry attributes, from the semantic conventions:
 
-  - `kubernetes.namespace`
-  - `kubernetes.pod`
+  - `k8s.namespace.name`
+  - `k8s.pod.name`
 
   Additional stderr log fields:
 
-  - `kubernetes_namespace`
-  - `kubernetes_pod`
+  - `k8s_namespace_name`
+  - `k8s_pod_name`
+
+  The pod is never used as the service's name: it is unique to one replica, and
+  changes on every deploy.
 </details>
 
 <details>
   <summary>Nomad</summary>
 
-  Additional OpenTelemetry attributes (traces and logs exported via OTLP):
+  Detected when `NOMAD_JOB_ID` is set. Additional OpenTelemetry attributes, read
+  from the task's [runtime environment](https://developer.hashicorp.com/nomad/docs/reference/runtime-environment-settings):
 
+  - `nomad.alloc_id`
   - `nomad.datacenter`
+  - `nomad.group`
   - `nomad.job_id`
   - `nomad.job_name`
   - `nomad.namespace`
@@ -631,121 +876,18 @@ When recognized, traces and logs are enriched with platform-specific attributes.
 
   Additional stderr log fields:
 
+  - `nomad_alloc_id`
   - `nomad_datacenter`
+  - `nomad_group`
   - `nomad_job_id`
   - `nomad_job_name`
   - `nomad_namespace`
   - `nomad_region`
   - `nomad_task`
+
+  `service.name` is set to the task's name, which every allocation shares and which
+  stays the same across deploys.
 </details>
-
-<details>
-  <summary>Qovery</summary>
-
-  Additional OpenTelemetry attributes (traces and logs exported via OTLP):
-
-  - `qovery.application_id`
-  - `qovery.cloud_provider_region`
-  - `qovery.environment_id`
-  - `qovery.environment_name`
-  - `qovery.environment_type`
-  - `qovery.kubernetes_cluster_domain`
-  - `qovery.kubernetes_cluster_name`
-  - `qovery.kubernetes_namespace_name`
-  - `qovery.project_id`
-
-  Additional stderr log fields:
-
-  - `qovery_application_id`
-  - `qovery_cloud_provider_region`
-  - `qovery_environment_id`
-  - `qovery_environment_name`
-  - `qovery_environment_type`
-  - `qovery_kubernetes_cluster_domain`
-  - `qovery_kubernetes_cluster_name`
-  - `qovery_kubernetes_namespace_name`
-  - `qovery_project_id`
-</details>
-
-<details>
-  <summary>Render</summary>
-
-  Additional OpenTelemetry attributes (traces and logs exported via OTLP):
-
-  - `render.instance_id`
-  - `render.service_id`
-  - `render.service_name`
-  - `render.service_type`
-
-  Additional stderr log fields:
-
-  - `render_instance_id`
-  - `render_service_id`
-  - `render_service_name`
-  - `render_service_type`
-</details>
-
-## Migrating to v0.29.0
-
-v0.29.0 requires **Go 1.27** and contains breaking changes.
-
-### Temporal: workflows no longer take a client or a worker
-
-Go 1.27 added generic methods, so the type parameters now live on the client and
-worker instead of being pushed onto a separate handle that had to be passed one.
-`Client` and `Worker` are concrete types rather than interfaces (Go does not allow
-interface methods to declare type parameters).
-
-Handles are still declared as package-level variables; only the call shape moved:
-
-```go
-// before                                     // after
-ProcessOrder.Execute(ctx, c, opts, input)     c.ExecuteWorkflow(ctx, ProcessOrder, opts, input)
-ProcessOrder.Register(worker, impl)           worker.RegisterWorkflow(ProcessOrder, impl)
-ChargeUser.Register(worker, impl)             worker.RegisterActivity(ChargeUser, impl)
-ProcessOrder.CreateSchedule(ctx, c, opts)     c.CreateSchedule(ctx, ProcessOrder, opts)
-ProcessOrder.GetResultIfClosed(ctx, c, w, r)  c.WorkflowResultIfClosed(ctx, ProcessOrder, w, r)
-sig.Signal(ctx, c, workflowID, runID, p)      c.SignalWorkflow(ctx, sig, workflowID, runID, p)
-```
-
-Result retrieval is now a single call that returns the typed value:
-
-```go
-// before                                     // after
-var out OrderResult                           out, err := run.Await(ctx)
-err := run.GetResult(ctx, &out)
-```
-
-`WorkflowRun.GetId`/`GetRunId`/`GetMetadata` became `ID`/`RunID`/`Metadata`, and
-`NewRepeatableActivity` now returns the exported `RepeatableActivity` type.
-
-### Renames
-
-| Before | After |
-| --- | --- |
-| `log.LogLevel`, `log.LogLevelDebug`, … | `log.Level`, `log.LevelDebug`, … |
-| `event.EventFromContext` | `event.FromContext` |
-| `event.ContextWithEvent` | `event.NewContext` |
-| `event.EventFromJSON` | `event.FromJSON` |
-| `valkey.StreamEntry.Id` | `valkey.StreamEntry.ID` |
-| `mcp.OAuthResourceServer.ResourceId` | `mcp.OAuthResourceServer.ResourceID` |
-| `service.Context(svc, ctx)` | `service.Context(ctx, svc)` |
-
-`event.FromJSON` now takes `[]byte` instead of `json.RawMessage`; existing callers
-passing a `RawMessage` keep compiling, since its underlying type is `[]byte`.
-
-### JSON is now handled by `encoding/json/v2`
-
-The wire format is unchanged — every numeric and boolean field tagged `omitempty`
-was moved to `omitzero`, which reproduces v1's behaviour exactly. Two v2 behaviours
-are stricter and *are* visible to consumers:
-
-- **Duplicate object keys are rejected.** v1 silently kept the last one.
-- **Invalid UTF-8 is rejected**, on both marshal and unmarshal. v1 substituted
-  U+FFFD.
-
-If you feed helix untrusted or non-conforming JSON, these now surface as errors
-rather than being silently repaired.
 
 ## Versioning
 

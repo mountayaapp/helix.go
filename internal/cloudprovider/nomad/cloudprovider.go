@@ -6,67 +6,66 @@ import (
 	"github.com/mountayaapp/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
-
-// cp is set if the service is running in Nomad, nil otherwise.
-var cp cloudprovider.CloudProvider
 
 // nomad holds some details about the service currently running in Nomad and
 // implements the CloudProvider interface.
+//
+// The fields come from the runtime environment Nomad sets for every task:
+// https://developer.hashicorp.com/nomad/docs/reference/runtime-environment-settings.
 type nomad struct {
+	allocID    string
 	datacenter string
-	jobId      string
+	group      string
+	jobID      string
 	jobName    string
 	namespace  string
 	region     string
 	task       string
 }
 
-// init populates the cloud provider if the service is running in Nomad.
-func init() {
-	cp = build()
-}
-
-// build populates the cloud provider if the service is running in Nomad. Returns
-// nil otherwise.
-func build() cloudprovider.CloudProvider {
-	_, exists := os.LookupEnv("NOMAD_JOB_ID")
-	if !exists {
+// Detect returns the cloud provider for Nomad, or nil when the process is not
+// running in Nomad.
+func Detect() cloudprovider.CloudProvider {
+	if _, exists := os.LookupEnv("NOMAD_JOB_ID"); !exists {
 		return nil
 	}
 
-	n := &nomad{
+	return &nomad{
+		allocID:    os.Getenv("NOMAD_ALLOC_ID"),
 		datacenter: os.Getenv("NOMAD_DC"),
-		jobId:      os.Getenv("NOMAD_JOB_ID"),
+		group:      os.Getenv("NOMAD_GROUP_NAME"),
+		jobID:      os.Getenv("NOMAD_JOB_ID"),
 		jobName:    os.Getenv("NOMAD_JOB_NAME"),
 		namespace:  os.Getenv("NOMAD_NAMESPACE"),
 		region:     os.Getenv("NOMAD_REGION"),
 		task:       os.Getenv("NOMAD_TASK_NAME"),
 	}
-
-	return n
 }
 
-// Get returns the cloud provider interface for Nomad. Returns nil if not running
-// in Nomad.
-func Get() cloudprovider.CloudProvider {
-	return cp
-}
-
-// String returns the string representation of the Nomad cloud provider.
-func (n *nomad) String() string {
-	return "nomad"
-}
-
-// Attributes returns OpenTelemetry attributes when running in Nomad.
+// Attributes returns the attributes of the allocation. The OpenTelemetry semantic
+// conventions define none for Nomad, hence the nomad namespace.
+//
+// It sets service.name to the task's name. Unlike a Kubernetes pod, a task is not
+// one replica: its name is shared by every allocation and stays the same across
+// deploys. An empty task name leaves service.name alone, so that it never replaces
+// the executable's name with nothing.
 func (n *nomad) Attributes() []attribute.KeyValue {
-	return []attribute.KeyValue{
+	attrs := []attribute.KeyValue{
+		attribute.String("nomad.alloc_id", n.allocID),
 		attribute.String("nomad.datacenter", n.datacenter),
-		attribute.String("nomad.job_id", n.jobId),
+		attribute.String("nomad.group", n.group),
+		attribute.String("nomad.job_id", n.jobID),
 		attribute.String("nomad.job_name", n.jobName),
 		attribute.String("nomad.namespace", n.namespace),
 		attribute.String("nomad.region", n.region),
 		attribute.String("nomad.task", n.task),
-		attribute.String("service.name", n.task),
 	}
+
+	if n.task != "" {
+		attrs = append(attrs, semconv.ServiceName(n.task))
+	}
+
+	return attrs
 }

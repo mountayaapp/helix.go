@@ -33,14 +33,35 @@ import (
 //	  "event.subscriptions.0.id":          "sub_2N6YZQXgQAv87zMmvlHxePCSsRs",
 //	  "event.subscriptions.0.customer_id": "cus_2N6YZMi3sBDPQBZrZJoYBwhNQNv",
 //	}
+//
+// ToFlatMap is the inverse of FromFlatMap, which is how an Event is rebuilt from
+// the baggage an upstream service sent. It exists to complete that pair, for
+// interoperating with a producer that speaks the same wire shape.
+//
+// It is not how helix propagates an Event, and must not be used as though it
+// were. It walks the whole struct with reflection — every field, including
+// UserID, IP and UserAgent — so building baggage from it ships personal data to
+// every endpoint the process calls, third parties included, and overruns the
+// 8,192-byte W3C budget on a populated Event. Event.Propagated is the outbound
+// direction: an allow-list, non-reflective, and budget-aware.
 func ToFlatMap(e Event) map[string]string {
 	m := make(map[string]string)
 	flattenValue(reflect.ValueOf(e), "event", m)
 	return m
 }
 
+// maxFlatMapSliceLen caps the number of elements FromFlatMap builds for a slice
+// field. Keys indexing past it are ignored. It matches the 64 members a W3C
+// baggage header may carry, so no map built from one is ever truncated by it.
+const maxFlatMapSliceLen = 64
+
 // FromFlatMap deserializes an Event from a flat map using baggage struct tags.
-// Keys must be prefixed with "event." and use "." as the level separator.
+// Keys must be prefixed with "event." and use "." as the level separator. Slice
+// fields hold at most 64 elements: keys indexing past that are ignored.
+//
+// It decodes every tagged field, personal data included, and is therefore not how
+// helix reads inbound baggage — FromContext reads only the allow-listed fields
+// Propagated sends. FromFlatMap is for a map the caller already trusts.
 func FromFlatMap(m map[string]string) Event {
 	var e Event
 	unflattenValue(reflect.ValueOf(&e).Elem(), "event", m)
@@ -84,7 +105,7 @@ func flattenValue(v reflect.Value, prefix string, m map[string]string) {
 				m[key] = strconv.FormatFloat(f, 'f', -1, 64)
 			}
 
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if !fv.IsNil() {
 				switch field.Type.Elem().Kind() {
 				case reflect.Bool:
@@ -169,7 +190,7 @@ func unflattenValue(v reflect.Value, prefix string, m map[string]string) {
 				}
 			}
 
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if val, ok := m[key]; ok {
 				switch field.Type.Elem().Kind() {
 				case reflect.Bool:
@@ -209,8 +230,11 @@ func unflattenValue(v reflect.Value, prefix string, m map[string]string) {
 						continue
 					}
 
+					// An index past the cap is ignored rather than honoured: the slice is
+					// sized from the largest index seen, so an uncapped one would let a
+					// single key decide how much memory the decode allocates.
 					idx, err := strconv.Atoi(rest[:dotIdx])
-					if err != nil {
+					if err != nil || idx < 0 || idx >= maxFlatMapSliceLen {
 						continue
 					}
 

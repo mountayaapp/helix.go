@@ -7,64 +7,104 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/workflow"
 )
 
-// dialClient creates a Temporal client from the given ConfigClient. It handles TLS,
-// tracer, logger, context propagator, and client.Dial. This is the shared helper
-// used by both Connect and New.
-func dialClient(svc *service.Service, cfg *ConfigClient) (client.Client, error) {
-	var entries []errorstack.Entry
+// dial connects a Temporal client configured by cfg, named name in telemetry. It
+// is the helper Connect and New share: it wires the tracer, the logger, the
+// metrics handler and the Event propagator, and dials.
+//
+// path is where cfg sits in the configuration the caller was given — "config" for
+// Connect, "config", "client" for New — so that a TLS entry points at the field a
+// caller has to fix.
+//
+// Nothing is dialed when the TLS configuration cannot be built: a client that
+// asked for TLS and could not have it must not fall back to plaintext.
+func dial(ctx context.Context, svc *service.Service, cfg *ConfigClient, name string, path ...any) (client.Client, error) {
 
-	// Try to build the tracer.
-	t, err := buildTracer(svc, *cfg)
+	// The Instrument does not open the SDK's spans - the interceptor does, and that
+	// is the point of keeping it - but it still owns what they are called and what
+	// they carry, so that this integration does not name things its own way. It
+	// also carries the meter the SDK's own metrics are reported through.
+	inst, err := integration.NewInstrument(integration.InstrumentConfig{
+		Identifier: identifier,
+		Humanized:  humanized,
+		Name:       name,
+		Attributes: []attribute.KeyValue{
+			attrKeyServerAddress.String(cfg.Address),
+			attrKeyNamespace.String(cfg.Namespace),
+		},
+		TracerProvider: service.TracerProvider(svc),
+		MeterProvider:  service.MeterProvider(svc),
+		Propagator:     service.Propagator(svc),
+	})
 	if err != nil {
-		entries = append(entries, errorstack.Entry{
-			Message: integration.NormalizeErrorMessage(err),
-			Path:    []any{"config"},
-		})
+		return nil, err
 	}
 
-	// Set the default Temporal config, using custom logger, context propagator, and
-	// tracer.
-	var opts = client.Options{
+	tlsConfig, entries := cfg.TLS.ToStandardTLS()
+	if len(entries) > 0 {
+		return nil, errorstack.NewValidation(rebase(entries, path...)...)
+	}
+
+	tracer, err := buildTracer(inst, svc)
+	if err != nil {
+		return nil, errorstack.Wrap(err, "Failed to build the Temporal tracer",
+			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
+		)
+	}
+
+	logger := newCustomLogger(svc)
+
+	// The SDK reports its own metrics - task-queue latencies, poller counts, task
+	// failures - and they are the ones that say whether a worker is keeping up.
+	// Handing it the Service's meter is what makes them reach the same pipeline as
+	// everything else, instead of the no-op the SDK defaults to.
+	opts := client.Options{
 		HostPort:  cfg.Address,
 		Namespace: cfg.Namespace,
-		Logger:    newCustomLogger(svc),
+		Logger:    logger,
+		MetricsHandler: opentelemetry.NewMetricsHandler(opentelemetry.MetricsHandlerOptions{
+			Meter:             inst.Meter(),
+			InitialAttributes: attribute.NewSet(inst.AppendIdentity(nil)...),
+
+			// The SDK panics on a meter error by default, which turns a telemetry
+			// problem into a process one. Nothing here is worth that.
+			OnError: func(error) {},
+		}),
 		ContextPropagators: []workflow.ContextPropagator{
-			&custompropagator{
-				cachedCtx: service.Context(context.Background(), svc),
-			},
+			newCustomPropagator(cfg, logger.logger),
 		},
+
+		// The first interceptor is the outermost. attributesInterceptor comes after
+		// the tracing interceptor so that it runs inside it, once the span exists.
 		Interceptors: []interceptor.ClientInterceptor{
-			interceptor.NewTracingInterceptor(customtracer{
-				Tracer: t,
-			}),
+			interceptor.NewTracingInterceptor(tracer),
+			&attributesInterceptor{},
 		},
 		DataConverter: cfg.DataConverter,
+		ConnectionOptions: client.ConnectionOptions{
+			TLS: tlsConfig,
+		},
 	}
 
-	// Set TLS options only if enabled in ConfigClient.
-	if cfg.TLS.Enabled {
-		var tlsEntries []errorstack.Entry
-		opts.ConnectionOptions.TLS, tlsEntries = cfg.TLS.ToStandardTLS()
-		entries = append(entries, tlsEntries...)
+	if cfg.APIKey != "" {
+		opts.Credentials = client.NewAPIKeyStaticCredentials(cfg.APIKey)
 	}
 
-	// Try to create the Temporal client.
-	c, err := client.Dial(opts)
+	// DialContext connects eagerly and checks the server's health, so an address
+	// that cannot be reached — or credentials it refuses — fail here rather than
+	// on the first workflow.
+	c, err := client.DialContext(ctx, opts)
 	if err != nil {
-		entries = append(entries, errorstack.Entry{
-			Message: integration.NormalizeErrorMessage(err),
-			Path:    []any{"config"},
-		})
-	}
-
-	// Stop here if validation entries were collected.
-	if len(entries) > 0 {
-		return nil, errorstack.NewValidation(entries...)
+		return nil, errorstack.Wrap(err, "Failed to connect to Temporal",
+			errorstack.WithCode(errorstack.CodeServiceUnavailable),
+			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
+		)
 	}
 
 	return c, nil
