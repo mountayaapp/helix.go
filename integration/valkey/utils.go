@@ -27,6 +27,11 @@ var (
 // space take thousands of round trips.
 const defaultScanCount = 1000
 
+// defaultSScanCount is the COUNT a set scan sends when OptionsSScan leaves it
+// unset: a page of about a hundred members, a few kilobytes to a few hundred
+// depending on the members, rather than the server's own ten.
+const defaultSScanCount = 100
+
 // compareAndSetScript sets KEYS[1] to ARGV[2] when it holds ARGV[1], with a
 // time-to-live of ARGV[3] milliseconds when that is positive and none otherwise,
 // and returns 1; it returns 0 and leaves the key alone when it holds anything

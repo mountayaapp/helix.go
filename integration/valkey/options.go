@@ -56,6 +56,25 @@ type OptionsScan struct {
 	Limit int `json:"limit,omitzero"`
 }
 
+// OptionsSScan is used to set options when scanning the members of a set.
+type OptionsSScan struct {
+
+	// Match keeps only the members matching this glob-style pattern. The server
+	// matches a page after reading it, so a page may hold fewer members than Count,
+	// or none, while the scan is not done. Empty keeps every member.
+	Match string `json:"match,omitzero"`
+
+	// Count is how many members the server examines per page. It is a hint: a page
+	// of a small set holds the whole set, whatever Count is, and a page of a large
+	// one may hold a few more or fewer. It trades the number of round trips against
+	// the size of a page.
+	//
+	// Default:
+	//
+	//   100
+	Count int64 `json:"count,omitzero"`
+}
+
 // OptionsXRange is used to set options when reading a range of a stream.
 type OptionsXRange struct {
 

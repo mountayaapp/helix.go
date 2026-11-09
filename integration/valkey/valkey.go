@@ -178,8 +178,24 @@ type Valkey interface {
 	SRem(ctx context.Context, key string, members []string) (int64, error)
 
 	// SMembers returns every member of the set stored at key, in no particular
-	// order. A missing key is an empty set, not an error.
+	// order. A missing key is an empty set, not an error. A set that can grow large
+	// is read with SScan instead, a page at a time.
 	SMembers(ctx context.Context, key string) ([]string, error)
+
+	// SScan returns one page of the members of the set stored at key, and the
+	// cursor to pass for the next page: a scan starts at cursor 0, and is done once
+	// the cursor returned is 0 again. A missing key is an empty set, done at once.
+	// See OptionsSScan for matching members and sizing pages.
+	//
+	// Only a page is held at a time, whatever the set's size. A member in the set
+	// for the whole scan is returned at least once, and may be returned more than
+	// once, across pages; one added or removed during the scan may be returned or
+	// not. A page may be empty while the scan is not done.
+	SScan(ctx context.Context, key string, cursor uint64, opts *OptionsSScan) ([]string, uint64, error)
+
+	// SCard returns how many members the set stored at key holds, without reading
+	// them. A missing key is an empty set: 0, not an error.
+	SCard(ctx context.Context, key string) (int64, error)
 
 	// Publish publishes message to channel for live fan-out to the subscribers
 	// connected at that moment. The message is copied before the call returns.
@@ -842,6 +858,67 @@ func (conn *connection) SMembers(ctx context.Context, key string) ([]string, err
 	}
 
 	return members, nil
+}
+
+// SScan returns a page of the members of a set, and the cursor of the next page.
+//
+// It automatically handles tracing and error recording.
+func (conn *connection) SScan(ctx context.Context, key string, cursor uint64, opts *OptionsSScan) ([]string, uint64, error) {
+	attrs := conn.keyAttrs(key)
+	count := int64(defaultSScanCount)
+	var match string
+	if opts != nil {
+		if opts.Count > 0 {
+			count = opts.Count
+		}
+
+		match = opts.Match
+		if match != "" {
+			attrs = append(attrs, conn.patternAttrs(match)...)
+		}
+	}
+
+	ctx, op := conn.inst.StartOperation(ctx, trace.SpanKindClient, "SScan", attrs...)
+	defer op.End(ctx)
+
+	// The set is one key, so a cluster client sends the scan to the node holding
+	// it, and the cursor is that node's.
+	scan := conn.client.B().Sscan().Key(key).Cursor(cursor)
+	var cmd valkey.Completed
+	if match != "" {
+		cmd = scan.Match(match).Count(count).Build()
+	} else {
+		cmd = scan.Count(count).Build()
+	}
+
+	entry, err := conn.client.Do(ctx, cmd).AsScanEntry()
+	if err != nil {
+		op.RecordError("failed to scan set members", err)
+		return nil, 0, err
+	}
+
+	members := entry.Elements
+	if members == nil {
+		members = []string{}
+	}
+
+	return members, entry.Cursor, nil
+}
+
+// SCard returns how many members a set holds.
+//
+// It automatically handles tracing and error recording.
+func (conn *connection) SCard(ctx context.Context, key string) (int64, error) {
+	ctx, op := conn.inst.StartOperation(ctx, trace.SpanKindClient, "SCard", conn.keyAttrs(key)...)
+	defer op.End(ctx)
+
+	count, err := conn.client.Do(ctx, conn.client.B().Scard().Key(key).Build()).AsInt64()
+	if err != nil {
+		op.RecordError("failed to count set members", err)
+		return 0, err
+	}
+
+	return count, nil
 }
 
 // Publish publishes a message to a channel for live fan-out to current subscribers.

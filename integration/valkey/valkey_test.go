@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -463,6 +464,118 @@ func TestValkey_Sets(t *testing.T) {
 		_, err = conn.SRem(ctx, "set:text", []string{"a"})
 		require.Error(t, err)
 		assert.Equal(t, codes.Error, lastSpan(t, rec, "Valkey: SRem").Status().Code)
+	})
+}
+
+// TestValkey_SScan pins the set scan: a large set is read a page at a time, the
+// pages together holding every member, each page about the size asked; Match keeps
+// only the members it matches; SCard counts the members without reading them; a
+// small set is one page; a missing set is done at once and counts none; and a key
+// that is not a set fails both calls.
+func TestValkey_SScan(t *testing.T) {
+	conn, rec := connectTest(t, Config{})
+	ctx := t.Context()
+
+	// scanAll scans key to the end, and returns every member seen, how many pages
+	// it took, and the largest page.
+	scanAll := func(t *testing.T, key string, opts *OptionsSScan) (map[string]int, int, int) {
+		t.Helper()
+
+		seen := map[string]int{}
+		var cursor uint64
+		var pages, largest int
+		for {
+			page, next, err := conn.SScan(ctx, key, cursor, opts)
+			require.NoError(t, err)
+			require.NotNil(t, page)
+
+			pages++
+			largest = max(largest, len(page))
+			for _, member := range page {
+				seen[member]++
+			}
+
+			cursor = next
+			if cursor == 0 {
+				return seen, pages, largest
+			}
+
+			require.Less(t, pages, 10000, "the scan never ended")
+		}
+	}
+
+	members := make([]string, 0, 5000)
+	for i := range 5000 {
+		members = append(members, fmt.Sprintf("member:%04d", i))
+	}
+	_, err := conn.SAdd(ctx, "sscan:large", members, nil)
+	require.NoError(t, err)
+
+	t.Run("a large set is read a page at a time, every member at least once", func(t *testing.T) {
+		seen, pages, largest := scanAll(t, "sscan:large", &OptionsSScan{Count: 100})
+
+		assert.Len(t, seen, len(members))
+		for _, member := range members {
+			assert.Positive(t, seen[member], "member %s never returned", member)
+		}
+		assert.Greater(t, pages, 10, "the set was read in too few pages")
+		assert.Less(t, largest, 1000, "a page holds far more than Count")
+	})
+
+	t.Run("the default page is about a hundred members", func(t *testing.T) {
+		_, pages, largest := scanAll(t, "sscan:large", nil)
+
+		assert.Greater(t, pages, 10)
+		assert.Less(t, largest, 1000)
+	})
+
+	t.Run("Match keeps only the members it matches", func(t *testing.T) {
+		seen, _, _ := scanAll(t, "sscan:large", &OptionsSScan{Match: "member:00*", Count: 500})
+
+		assert.Len(t, seen, 100)
+		for member := range seen {
+			assert.True(t, strings.HasPrefix(member, "member:00"), member)
+		}
+	})
+
+	t.Run("SCard counts the members without reading them", func(t *testing.T) {
+		count, err := conn.SCard(ctx, "sscan:large")
+		require.NoError(t, err)
+		assert.Equal(t, int64(len(members)), count)
+
+		count, err = conn.SCard(ctx, "sscan:none")
+		require.NoError(t, err)
+		assert.Zero(t, count, "a missing set is empty")
+	})
+
+	t.Run("a small set is one page", func(t *testing.T) {
+		_, err := conn.SAdd(ctx, "sscan:small", []string{"a", "b", "c"}, nil)
+		require.NoError(t, err)
+
+		page, next, err := conn.SScan(ctx, "sscan:small", 0, &OptionsSScan{Count: 1})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"a", "b", "c"}, page)
+		assert.Zero(t, next)
+	})
+
+	t.Run("a missing set is done at once", func(t *testing.T) {
+		page, next, err := conn.SScan(ctx, "sscan:none", 0, nil)
+		require.NoError(t, err)
+		assert.NotNil(t, page)
+		assert.Empty(t, page)
+		assert.Zero(t, next)
+	})
+
+	t.Run("a key that is not a set fails the call", func(t *testing.T) {
+		require.NoError(t, conn.Set(ctx, "sscan:text", []byte("text"), nil))
+
+		_, _, err := conn.SScan(ctx, "sscan:text", 0, nil)
+		require.Error(t, err)
+		assert.Equal(t, codes.Error, lastSpan(t, rec, "Valkey: SScan").Status().Code)
+
+		_, err = conn.SCard(ctx, "sscan:text")
+		require.Error(t, err)
+		assert.Equal(t, codes.Error, lastSpan(t, rec, "Valkey: SCard").Status().Code)
 	})
 }
 

@@ -65,6 +65,10 @@ func TestTelemetryGolden(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cache.SMembers(ctx, "set")
 	require.NoError(t, err)
+	_, _, err = cache.SScan(ctx, "set", 0, &OptionsSScan{Match: "m*"})
+	require.NoError(t, err)
+	_, err = cache.SCard(ctx, "set")
+	require.NoError(t, err)
 	_, err = cache.SRem(ctx, "set", []string{"m"})
 	require.NoError(t, err)
 	require.NoError(t, cache.Delete(ctx, []string{"a", "n"}))
@@ -121,6 +125,8 @@ func TestTelemetryGolden(t *testing.T) {
 		"github.com/mountayaapp/helix.go | client | Valkey: Do | valkey.address,valkey.command,valkey.database,valkey.name",
 		"github.com/mountayaapp/helix.go | client | Valkey: SAdd | valkey.address,valkey.database,valkey.key,valkey.name",
 		"github.com/mountayaapp/helix.go | client | Valkey: SMembers | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountayaapp/helix.go | client | Valkey: SScan | valkey.address,valkey.database,valkey.key,valkey.name,valkey.pattern",
+		"github.com/mountayaapp/helix.go | client | Valkey: SCard | valkey.address,valkey.database,valkey.key,valkey.name",
 		"github.com/mountayaapp/helix.go | client | Valkey: SRem | valkey.address,valkey.database,valkey.key,valkey.name",
 		"github.com/mountayaapp/helix.go | client | Valkey: Delete | valkey.address,valkey.database,valkey.keys,valkey.name",
 		"github.com/mountayaapp/helix.go | client | Valkey: Subscribe | valkey.address,valkey.channel,valkey.database,valkey.name",
@@ -161,7 +167,7 @@ func TestTelemetryGolden(t *testing.T) {
 	slices.Sort(operations)
 	assert.Equal(t, []string{
 		"CompareAndDelete", "CompareAndSet", "Decrement", "Delete", "Do", "Exists",
-		"Expire", "Get", "Increment", "IncrementTTL", "MGet", "Publish", "SAdd", "SMembers",
-		"SRem", "Scan", "Set", "SetNX", "Subscribe", "XAdd", "XRange",
+		"Expire", "Get", "Increment", "IncrementTTL", "MGet", "Publish", "SAdd", "SCard", "SMembers",
+		"SRem", "SScan", "Scan", "Set", "SetNX", "Subscribe", "XAdd", "XRange",
 	}, operations)
 }

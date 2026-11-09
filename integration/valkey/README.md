@@ -269,6 +269,41 @@ indexing keys that expire on their own lives as long as they are written, and
 expires once nobody writes. Members whose keys have expired stay in the set until
 removed, so read them back through `MGet`, which leaves a missing key out.
 
+A set that can grow large is read a page at a time with `SScan`, so only a page is
+held in memory, whatever the set's size:
+
+```go
+var cursor uint64
+for {
+  page, next, err := store.SScan(ctx, "jobs:pending", cursor, &valkey.OptionsSScan{
+    Count: 100,
+  })
+  if err != nil {
+    return err
+  }
+
+  for _, member := range page {
+    // ...
+  }
+
+  cursor = next
+  if cursor == 0 {
+    break
+  }
+}
+```
+
+`SCard` returns how many members a set holds without reading them, `0` for a
+missing set. A scan starts at cursor `0` and is done once the cursor returned is
+`0` again; a missing set is done at once. `OptionsSScan.Count` is how many
+members the server examines per page (default `100`), a hint: a small set comes
+back whole in one page. `OptionsSScan.Match` keeps the members matching a
+glob-style pattern, after the page is read, so a page may be empty while the
+scan is not done. A member in the set for the whole scan is returned at least
+once and may be returned more than once; one added or removed during the scan
+may be returned or not. The set is one key, so in a cluster the scan goes to
+the node holding it.
+
 ### Pub/Sub
 
 ```go
@@ -382,8 +417,8 @@ Every method but `B` opens one span, named after itself:
   `Valkey: Increment`, `Valkey: Decrement`, `Valkey: IncrementTTL`,
   `Valkey: CompareAndSet`, `Valkey: CompareAndDelete`, `Valkey: Expire`,
   `Valkey: Scan`, `Valkey: MGet`, `Valkey: Delete`, `Valkey: SAdd`,
-  `Valkey: SRem`, `Valkey: SMembers`, `Valkey: XAdd`, `Valkey: XRange`,
-  `Valkey: Do` — `client` spans.
+  `Valkey: SRem`, `Valkey: SMembers`, `Valkey: SScan`, `Valkey: SCard`,
+  `Valkey: XAdd`, `Valkey: XRange`, `Valkey: Do` — `client` spans.
 - `Valkey: Publish` — a `producer` span.
 - `Valkey: Subscribe` — a `client` span covering the subscription's setup, from
   sending `SUBSCRIBE` to the server confirming it.
@@ -401,7 +436,7 @@ Every span carries:
 With `Config.RecordKeys`, what a command is given is recorded as well:
 - `valkey.key` — the key, or the stream of `XAdd` and `XRange`
 - `valkey.keys` — the keys of `MGet` and `Delete`
-- `valkey.pattern` — the pattern of `Scan`
+- `valkey.pattern` — the pattern of `Scan`, and the `Match` of `SScan`
 - `valkey.channel` — the channel of `Publish`, `Subscribe` and `Receive`
 
 `RecordKeys` is off by default: keys and channels routinely embed session tokens,
