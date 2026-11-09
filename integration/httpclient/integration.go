@@ -23,10 +23,12 @@ type dependency struct {
 	conn *connection
 }
 
-// Close releases idle connections held by the underlying transport. The
-// instrumented transport forwards the call to the one it wraps — the client's
-// own, or Config.Transport — which the probe shares.
+// Close stops the background probe of an optional client (Config.Optional), and
+// waits for a probe in flight within ctx, then releases idle connections held by
+// the underlying transport. The instrumented transport forwards the call to the
+// one it wraps — the client's own, or Config.Transport — which the probe shares.
 func (d dependency) Close(ctx context.Context) error {
+	d.conn.prober.close(ctx)
 	d.conn.client.CloseIdleConnections()
 
 	return nil
@@ -43,10 +45,26 @@ func (d dependency) Close(ctx context.Context) error {
 // counts as reachable, an API that exposes no health endpoint is healthy. When
 // neither is configured, the client is always healthy and nothing is sent.
 //
+// An optional client (Config.Optional) is reported healthy at once, without a
+// probe: what its upstream does never gates the Service's readiness, and a probe
+// to an upstream that hangs would hold a readiness probe for as long as the
+// client's Timeout. Its background probe reports the upstream on the
+// httpclient.reachable gauge instead.
+//
 // Probes are neither traced nor measured: see connection.probe.
 func (d dependency) CheckHealth(ctx context.Context) error {
 	conn := d.conn
 
+	if conn.config.Optional {
+		return nil
+	}
+
+	return conn.checkHealth(ctx)
+}
+
+// checkHealth probes the client's upstream as CheckHealth describes, whether or
+// not the client is optional: the background probe of an optional one runs it too.
+func (conn *connection) checkHealth(ctx context.Context) error {
 	if conn.config.HealthCheck != nil {
 		return integration.Unhealthy(conn.config.HealthCheck(ctx, conn.probe))
 	}

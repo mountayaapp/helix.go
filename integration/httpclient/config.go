@@ -164,6 +164,25 @@ type Config struct {
 	// it empty for each endpoint to be verified against its own host.
 	TLS integration.ConfigTLS `json:"tls"`
 
+	// Optional marks the upstream as one the Service can run without: its health
+	// never gates the Service's readiness, so an upstream that is down, or hangs,
+	// leaves every replica ready, and its requests fail as they fail against any
+	// upstream that is down. CheckHealth answers at once, healthy, without a probe.
+	//
+	// Whether the upstream answers is reported instead on the httpclient.reachable
+	// gauge, per endpoint, which a background probe keeps current every 15
+	// seconds, through HealthPath or HealthCheck, from 15 seconds after the client
+	// is attached until it is closed. Without either, nothing is probed and
+	// nothing is reported.
+	//
+	// Set it for a client whose upstream serves part of the Service's work, so
+	// that upstream being down costs that part, never the whole Service.
+	//
+	// Default:
+	//
+	//   false
+	Optional bool `json:"optional"`
+
 	// urls are the Endpoints, parsed once by sanitize.
 	urls []*url.URL
 

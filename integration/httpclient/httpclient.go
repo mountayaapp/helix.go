@@ -94,6 +94,10 @@ type connection struct {
 	// index is the round-robin cursor.
 	index atomic.Uint64
 
+	// prober probes the upstream in the background for an optional client
+	// (Config.Optional), and is nil for any other.
+	prober *prober
+
 	// probe is this connection as a health check sees it: the same endpoints,
 	// headers and policies, sending through the same transport, but tracing,
 	// measuring and propagating nothing. Readiness is polled every few seconds by
@@ -107,7 +111,9 @@ type connection struct {
 //
 // It does not probe the endpoints: an unreachable endpoint is reported through
 // the Service's readiness when probing is configured, not at startup, so a
-// temporarily down upstream does not prevent the Service from starting.
+// temporarily down upstream does not prevent the Service from starting. An
+// optional client (Config.Optional) reports it on the httpclient.reachable gauge
+// instead, probing in the background from an interval after it is attached.
 func Connect(ctx context.Context, svc *service.Service, cfg Config) (HTTPClient, error) {
 
 	// No need to continue if Config is not valid.
@@ -137,6 +143,8 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (HTTPClient,
 	if err := service.Attach(svc, cfg.name(), dependency{conn: conn}); err != nil {
 		return nil, err
 	}
+
+	conn.prober.start()
 
 	return conn, nil
 }
@@ -189,6 +197,7 @@ func newConnection(cfg *Config, instCfg integration.InstrumentConfig) (*connecti
 			endpoints: endpoints,
 		},
 	}
+	conn.prober = newProber(conn)
 
 	return conn, nil
 }

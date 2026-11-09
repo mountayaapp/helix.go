@@ -16,7 +16,8 @@ A single client can target one or more interchangeable endpoints:
 - **Every attempt is traced**, and carries the trace context to the service being
   called, so a request crossing several helix services is one trace.
 - **Health** of every endpoint can be reported through the Service's readiness
-  probe. It is opt-in.
+  probe, or, for an upstream the Service can run without, on a gauge that never
+  gates readiness. Both are opt-in.
 - **Safe by default**: a request path cannot leave an endpoint's host, a redirect
   to another host is not followed, and no query string reaches a span or an error.
 
@@ -56,6 +57,9 @@ $ go get github.com/mountayaapp/helix.go/integration/httpclient
   check, starting with `/`. Default: empty, which turns probing off.
 - `HealthCheck` (`func(ctx, httpclient.HTTPClient) error`) — Optional override for
   the health check. Takes precedence over `HealthPath`.
+- `Optional` (`bool`) — The upstream never gates the Service's readiness: the
+  health check answers healthy at once, and a background probe reports the
+  upstream on the `httpclient.reachable` gauge instead. Default: `false`.
 - `TLS` (`integration.ConfigTLS`) — TLS settings for the default transport, for a
   custom certificate authority or a client certificate. Must not be enabled
   together with `Transport`.
@@ -253,6 +257,35 @@ Health probes — the default ones and the requests a `HealthCheck` sends throug
 the client it receives — are neither traced nor measured, and propagate nothing:
 a readiness probe polled every few seconds is not traffic.
 
+### Upstreams the Service can run without
+
+An upstream that serves part of the Service's work, and that the Service can keep
+running without, should not gate readiness: when it is down, every replica would
+turn unready, and a rollout whose new replicas must turn ready first would stall,
+though each could serve everything else. Mark such a client `Optional`:
+
+```go
+routing, err := httpclient.Connect(ctx, svc, httpclient.Config{
+  Name:       "routing",
+  Endpoints:  []string{"https://routing-1.internal", "https://routing-2.internal"},
+  HealthPath: "/health",
+  Optional:   true,
+})
+```
+
+Its health check then answers healthy at once, without a probe, so an upstream
+that hangs cannot hold the readiness probe either. Its requests fail as they fail
+against any upstream that is down.
+
+Whether the upstream answers is reported instead on the `httpclient.reachable`
+gauge, which a background probe keeps current every 15 seconds, each probe
+bounded to 5 seconds, until the client is closed. The first probe comes 15
+seconds after `Connect`, not at it: a client a short-lived process connects and
+closes probes nothing, and replicas started together do not all probe at once.
+The probe is the health check the client would otherwise run: per endpoint with
+`HealthPath`, reported under `httpclient.endpoint`, or for the client as a whole
+with a `HealthCheck`. Without either, nothing is probed and nothing is reported.
+
 ## Telemetry
 
 ### Spans
@@ -304,3 +337,8 @@ httpclient.status_code: 201
   attributes.
 - `httpclient.response.size` (`By`) — size of each response body, from
   `Content-Length`, by the same attributes.
+- `httpclient.reachable` (`1`) — for an `Optional` client, whether the upstream
+  answered its last background probe: `1` when it did, `0` when it did not, by
+  `httpclient.name`, and `httpclient.endpoint` when the client probes `HealthPath`.
+  Nothing is reported before the first probe ends, 15 seconds after `Connect`, nor
+  once the client is closed.
