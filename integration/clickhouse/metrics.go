@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/mountayaapp/helix.go/integration"
 
@@ -27,12 +28,12 @@ type poolMetrics struct {
 	closed       bool
 }
 
-// register registers the observable gauges for conn. A provider that rejects an
-// instrument hands back a working no-op, so failures are dropped rather than
-// turned into a connection failure over telemetry. It does nothing once
-// unregister has run: a callback registered after Close would go on reading a
-// pool that is gone.
-func (m *poolMetrics) register(inst *integration.Instrument, conn driver.Conn) {
+// register registers the observable gauges for conn, and for whether its server
+// was reachable at the last ping. A provider that rejects an instrument hands
+// back a working no-op, so failures are dropped rather than turned into a
+// connection failure over telemetry. It does nothing once unregister has run: a
+// callback registered after Close would go on reading a pool that is gone.
+func (m *poolMetrics) register(inst *integration.Instrument, conn driver.Conn, reachable *atomic.Bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -53,6 +54,14 @@ func (m *poolMetrics) register(inst *integration.Instrument, conn driver.Conn) {
 	maxConnections, err := meter.Int64ObservableGauge(inst.Identifier()+".pool.connections.max",
 		otelmetric.WithUnit("{connection}"),
 		otelmetric.WithDescription("Maximum number of connections the pool may hold open."),
+	)
+	if err != nil {
+		return
+	}
+
+	up, err := meter.Int64ObservableGauge(inst.Identifier()+".reachable",
+		otelmetric.WithUnit("1"),
+		otelmetric.WithDescription("Whether the server answered the last ping, at connect or at a health check: 1 when it did, 0 when it did not."),
 	)
 	if err != nil {
 		return
@@ -82,9 +91,15 @@ func (m *poolMetrics) register(inst *integration.Instrument, conn driver.Conn) {
 			observer.ObserveInt64(connections, int64(stats.Open), otelmetric.WithAttributes(acquired...))
 			observer.ObserveInt64(maxConnections, int64(stats.MaxOpenConns), identity)
 
+			var reached int64
+			if reachable.Load() {
+				reached = 1
+			}
+			observer.ObserveInt64(up, reached, identity)
+
 			return nil
 		},
-		connections, maxConnections,
+		connections, maxConnections, up,
 	)
 	if err != nil {
 		return

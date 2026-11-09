@@ -22,9 +22,10 @@ type dependency struct {
 }
 
 // Close tries to gracefully close the connection with the ClickHouse database.
-// The pool's metrics are unregistered first, so that no collection reads a pool
-// that is being torn down.
+// The prober is stopped, waited for within ctx, and the pool's metrics are
+// unregistered first, so that nothing reads a pool that is being torn down.
 func (d dependency) Close(ctx context.Context) error {
+	d.conn.prober.close(ctx)
 	d.conn.pool.unregister()
 
 	if err := d.conn.client.Close(); err != nil {
@@ -36,7 +37,20 @@ func (d dependency) Close(ctx context.Context) error {
 	return nil
 }
 
-// CheckHealth reports whether the integration can reach the ClickHouse database.
+// CheckHealth reports whether the integration can reach the ClickHouse database,
+// and records it for the clickhouse.reachable gauge.
+//
+// An optional connection (Config.Optional) is reported healthy at once, without
+// a ping: what it reaches does not gate the Service's readiness, and a ping to a
+// server that hangs would hold a readiness probe for as long as a dial may last.
+// Its prober keeps the gauge current instead.
 func (d dependency) CheckHealth(ctx context.Context) error {
-	return integration.Unhealthy(d.conn.client.Ping(ctx))
+	if d.conn.optional {
+		return nil
+	}
+
+	err := d.conn.client.Ping(ctx)
+	d.conn.reachable.Store(err == nil)
+
+	return integration.Unhealthy(err)
 }

@@ -2,10 +2,17 @@ package clickhouse
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"net"
+	"strings"
+	"sync/atomic"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/integration"
 	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountayaapp/helix.go/telemetry/log"
 	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -64,9 +71,14 @@ type ClickHouse interface {
 	// database ("analytics.events"). Any other table name is refused before
 	// anything is sent, since it is spliced into the statement.
 	//
+	// With no option, the batch inserts every column of the table, in its order.
+	// WithColumns and WithColumnsOf name the columns it inserts instead, the
+	// others taking their DEFAULT.
+	//
 	// The Batch outlives ctx: it can be begun in one request and sent after that
-	// request has ended. ctx bounds the begin itself. See Batch.
-	NewBatchInsert(ctx context.Context, table string) (Batch, error)
+	// request has ended. ctx bounds the begin itself, once a connection is
+	// established: dialing one is bounded by Config.DialTimeout only. See Batch.
+	NewBatchInsert(ctx context.Context, table string, opts ...BatchOption) (Batch, error)
 
 	// AsyncInsertStruct inserts a single struct row into the given table using
 	// ClickHouse's native async_insert mechanism. The server buffers incoming
@@ -102,15 +114,30 @@ type connection struct {
 	// pool observes the connection pool. It is held so that Close can unregister
 	// the callback before the connection it reads from goes away.
 	pool *poolMetrics
+
+	// optional is Config.Optional: a failed ping does not fail Connect, and the
+	// connection is reported healthy without a ping.
+	optional bool
+
+	// reachable is whether the last ping succeeded: Connect's, the prober's, or
+	// a health check's. It is what the clickhouse.reachable gauge reports.
+	reachable atomic.Bool
+
+	// prober pings the server on its own schedule, so reachable follows it.
+	prober *prober
 }
 
 // Connect connects to the ClickHouse database given the Config, and attaches the
 // connection to the Service, which owns its lifecycle from then on.
 //
-// The server is pinged before Connect returns, within ctx, so that an
-// unreachable server or a rejected login fails here rather than on the first
-// statement. Returns a validation error if Config is not valid, before anything
-// is dialed, and a SERVICE_UNAVAILABLE error if the server could not be reached.
+// The server is pinged before Connect returns, so that an unreachable server or a
+// rejected login fails here rather than on the first statement. ctx bounds the
+// ping once a connection is established; dialing it and the handshake are bounded
+// by Config.DialTimeout alone, which the driver applies whatever ctx says.
+// Returns a validation error if Config is not valid, before anything is dialed,
+// and a SERVICE_UNAVAILABLE error if the server could not be reached, unless
+// Config.Optional is set and nothing refused the connection (tolerated): it is
+// then attached anyway, and a warning is logged.
 func Connect(ctx context.Context, svc *service.Service, cfg Config) (ClickHouse, error) {
 
 	// No need to continue if Config is not valid.
@@ -148,31 +175,45 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (ClickHouse,
 		)
 	}
 
-	return attach(ctx, svc, cfg.name(), inst, client)
+	// A nil *connection in the interface would compare unequal to nil.
+	conn, err := attach(ctx, svc, cfg.name(), inst, client, cfg.Optional)
+	if err != nil {
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 // attach pings the server through client, hands the connection to the Service
 // and starts observing its pool — in that order, closing client on any failure,
 // so that a Connect that fails leaves neither a connection nor a metric behind.
 //
+// An optional connection whose server could not be reached is attached anyway,
+// reported unreachable, and a warning is logged; one refused is not (tolerated).
+// Once attached, the connection's prober keeps reachable current.
+//
 // The pool is observed only once attached. Observed before, a connection that
 // Attach refuses for a duplicate name would report its pool under the name of the
 // connection already attached, and go on reporting it.
-func attach(ctx context.Context, svc *service.Service, name string, inst *integration.Instrument, client driver.Conn) (*connection, error) {
-	if err := client.Ping(ctx); err != nil {
+func attach(ctx context.Context, svc *service.Service, name string, inst *integration.Instrument, client driver.Conn, optional bool) (*connection, error) {
+	pingErr := client.Ping(ctx)
+	if pingErr != nil && !tolerated(pingErr, optional) {
 		_ = client.Close()
 
-		return nil, errorstack.Wrap(err, "Failed to connect",
+		return nil, errorstack.Wrap(pingErr, "Failed to connect",
 			errorstack.WithCode(errorstack.CodeServiceUnavailable),
-			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
+			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(pingErr)),
 		)
 	}
 
 	conn := &connection{
-		inst:   inst,
-		client: client,
-		pool:   &poolMetrics{},
+		inst:     inst,
+		client:   client,
+		pool:     &poolMetrics{},
+		optional: optional,
 	}
+	conn.reachable.Store(pingErr == nil)
+	conn.prober = newProber(conn)
 
 	// Hand the connection to the Service, which owns its lifecycle from here.
 	if err := service.Attach(svc, name, dependency{conn: conn}); err != nil {
@@ -180,9 +221,75 @@ func attach(ctx context.Context, svc *service.Service, name string, inst *integr
 		return nil, err
 	}
 
-	conn.pool.register(inst, client)
+	conn.pool.register(inst, client, &conn.reachable)
+	conn.prober.start()
+
+	if pingErr != nil {
+		log.Warn(service.Context(ctx, svc), "ClickHouse is unreachable; the optional connection is attached and dials it again on use",
+			log.String("name", name),
+			log.String("reason", integration.NormalizeErrorMessage(pingErr)),
+		)
+	}
 
 	return conn, nil
+}
+
+// tolerated reports whether a failed ping leaves the connection attached: only
+// when it is optional, and only when nothing refused the connection, which no
+// reconnect fixes:
+//
+//   - a server that answered with an exception (a rejected login, a database
+//     that does not exist);
+//   - a TLS handshake that failed: a certificate the configuration does not
+//     trust or that names another host, a server that does not speak TLS where
+//     the configuration expects it, or an alert either end raised, such as a
+//     server that requires a client certificate the configuration does not
+//     present (tlsAlert).
+//
+// A server that cannot be reached, or does not answer, is an outage to wait out,
+// and so is a name that does not resolve, since a DNS record can come back with
+// the server it names.
+func tolerated(pingErr error, optional bool) bool {
+	if !optional {
+		return false
+	}
+
+	var (
+		exception    *clickhouse.Exception
+		verification *tls.CertificateVerificationError
+		alert        tls.AlertError
+		record       tls.RecordHeaderError
+		authority    x509.UnknownAuthorityError
+		hostname     x509.HostnameError
+		invalid      x509.CertificateInvalidError
+	)
+
+	switch {
+	case errors.As(pingErr, &exception),
+		errors.As(pingErr, &verification),
+		errors.As(pingErr, &alert),
+		errors.As(pingErr, &record),
+		errors.As(pingErr, &authority),
+		errors.As(pingErr, &hostname),
+		errors.As(pingErr, &invalid),
+		tlsAlert(pingErr):
+		return false
+	}
+
+	return true
+}
+
+// tlsAlert reports whether err is a TLS alert over TCP: one the server sent, which
+// crypto/tls reports as a *net.OpError whose Op is "remote error", or one this end
+// raised, "local error", each wrapping the alert, a "tls: " error of an
+// unexported type. tls.AlertError is what QUIC reports instead.
+func tlsAlert(err error) bool {
+	var op *net.OpError
+	if !errors.As(err, &op) || (op.Op != "remote error" && op.Op != "local error") || op.Err == nil {
+		return false
+	}
+
+	return strings.HasPrefix(op.Err.Error(), "tls: ")
 }
 
 // Exec implements ClickHouse.
@@ -255,7 +362,7 @@ func (conn *connection) Select(ctx context.Context, dest any, query string, args
 // span rather than an Operation, because its duration includes however long the
 // caller took to append and measures nothing about ClickHouse. "Batch / Begin" is
 // the round trip that starts the INSERT, and ends with it.
-func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch, error) {
+func (conn *connection) NewBatchInsert(ctx context.Context, table string, opts ...BatchOption) (Batch, error) {
 	batchCtx, span := conn.inst.Start(ctx, trace.SpanKindInternal, "Batch")
 	span.SetAttributes(attrKeyTable.String(table))
 
@@ -279,6 +386,15 @@ func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch
 		return fail(err)
 	}
 
+	options := &batchOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	if options.err != nil {
+		return fail(options.err)
+	}
+
 	// The driver keeps the context PrepareBatch is given for the life of the
 	// batch, and works under it again on Send. Handed ctx, a batch begun in a
 	// request and sent after that request ended would fail on Send, so the driver
@@ -293,7 +409,7 @@ func (conn *connection) NewBatchInsert(ctx context.Context, table string) (Batch
 		cancel(context.Cause(ctx))
 	})
 
-	client, err := conn.client.PrepareBatch(driverCtx, "INSERT INTO "+quoted)
+	client, err := conn.client.PrepareBatch(driverCtx, options.insertStatement(quoted))
 
 	// ctx ended while the batch was being begun, or just as it was: the driver's
 	// context is cancelled either way, and a batch begun under it would only fail

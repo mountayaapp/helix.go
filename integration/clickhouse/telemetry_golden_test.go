@@ -117,6 +117,7 @@ func TestTelemetryGolden(t *testing.T) {
 		"clickhouse.operation.duration",
 		"clickhouse.pool.connections",
 		"clickhouse.pool.connections.max",
+		"clickhouse.reachable",
 	}, names)
 
 	// Every operation is measured under its span's operation name; the Batch span
@@ -162,4 +163,8 @@ func TestTelemetryGolden(t *testing.T) {
 
 	assert.Equal(t, map[string]int64{"": 4},
 		gaugeValues(t, metrics, "clickhouse.pool.connections.max", "golden", attrKeyPoolState))
+
+	// The server answered every ping.
+	assert.Equal(t, map[string]int64{"": 1},
+		gaugeValues(t, metrics, "clickhouse.reachable", "golden", attrKeyPoolState))
 }

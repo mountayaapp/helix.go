@@ -31,9 +31,12 @@ $ go get github.com/mountayaapp/helix.go/integration/clickhouse
 - `TLS` (`integration.ConfigTLS`) — TLS settings. The server's certificate is
   verified against the host of `Address` unless `TLS.ServerName` says otherwise.
 - `DialTimeout` (`time.Duration`) — How long opening a connection, and waiting
-  for one to come free in the pool, may take. Default: `30s`.
-- `ReadTimeout` (`time.Duration`) — How long a single read from the server may
-  block. A context deadline on a call takes precedence. Default: `5m`.
+  for one to come free in the pool, may take. It alone bounds a dial and its
+  handshake, whatever the call's `ctx` says (see [Timeouts](#timeouts)).
+  Default: `30s`.
+- `ReadTimeout` (`time.Duration`) — How long a statement whose `ctx` has no
+  deadline may wait on the server's answer, from the first read to the last. A
+  context deadline on a call takes precedence. Default: `5m`.
 - `MaxOpenConns` (`int`) — Connections the pool holds open at once, idle and
   acquired together. Default: `MaxIdleConns + 5`.
 - `MaxIdleConns` (`int`) — Connections the pool keeps open while unused.
@@ -44,6 +47,20 @@ $ go get github.com/mountayaapp/helix.go/integration/clickhouse
   `"zstd"`. Default: `"none"`.
 - `Settings` (`map[string]any`) — ClickHouse settings applied to every statement,
   such as `{"max_execution_time": 60}`.
+- `Optional` (`bool`) — Marks the database as one the Service can run without,
+  for a while: `Connect` does not fail when the server cannot be reached, and the
+  connection's health does not gate the Service's readiness (see
+  [Optional connections](#optional-connections)). Default: `false`.
+
+### Timeouts
+
+The `ctx` of a call bounds the call once it holds a connection: a statement, a
+batch's begin and its send end with `ctx`. Dialing a connection, and its
+handshake, are not bounded by `ctx`: the driver runs them under `DialTimeout`
+alone, so a call to a server that accepts connections and never answers, or that
+cannot be reached at all, waits out `DialTimeout` whatever its `ctx` says. That
+includes `Connect`'s ping. Set `DialTimeout` to what a caller can afford to wait
+on a hung server, for instance below what a shutdown leaves to close.
 
 Every pool and timeout field left at its zero value takes the driver's default,
 listed above. A negative one, or an unknown compression, is a validation error.
@@ -52,12 +69,15 @@ listed above. A negative one, or an unknown compression, is a validation error.
 
 ### Connecting
 
-`Connect` validates the `Config`, then pings the server within `ctx` before
-returning, so an unreachable server or a rejected login fails at startup rather
-than on the first statement. A `Config` that is not valid fails with
-`VALIDATION_FAILED` before anything is dialed; a server that cannot be reached
-fails with `SERVICE_UNAVAILABLE`, the driver's own message in the entry's
-`reason` extension.
+`Connect` validates the `Config`, then pings the server before returning, so an
+unreachable server or a rejected login fails at startup rather than on the first
+statement. `ctx` bounds the ping once a connection is established; the dial and
+handshake are bounded by `DialTimeout` ([Timeouts](#timeouts)). A `Config` that is
+not valid fails with `VALIDATION_FAILED` before anything is dialed; a server that
+cannot be reached fails with `SERVICE_UNAVAILABLE`, the driver's own message in
+the entry's `reason` extension, unless the connection is `Optional`
+([Optional connections](#optional-connections)). A `Connect` that fails returns a
+nil `ClickHouse`.
 
 ```go
 import (
@@ -211,8 +231,22 @@ with `errors.Is`: a row is never dropped without the caller being told. After a 
 
 A batch does not depend on the context it was begun with: it can be begun in one
 request and sent after that request ended. The `ctx` given to each call bounds
-that call: `NewBatchInsert`'s bounds the begin, and `Send`'s the send. A batch is
-not safe for concurrent use.
+that call: `NewBatchInsert`'s bounds the begin, and `Send`'s the send, once a
+connection is held ([Timeouts](#timeouts)). A batch is not safe for concurrent
+use.
+
+With no option, a batch inserts every column of the table, in the table's order,
+so each row must carry them all. `WithColumns` names the columns it inserts
+instead, and `WithColumnsOf` names those a struct's `ch` tags name, in their
+order. The statement becomes `INSERT INTO events (date, name, user_id)`:
+`AppendStruct` fills the named columns from the fields whose tags name them,
+ignores any other field, and every column of the table left unnamed takes its
+`DEFAULT`. A writer that names its columns keeps working while the table gains a
+column with a `DEFAULT` under it.
+
+```go
+batch, err := db.NewBatchInsert(ctx, "events", clickhouse.WithColumnsOf(Event{}))
+```
 
 ### Async inserts
 
@@ -260,6 +294,44 @@ not valid UTF-8 or holds a control character is refused.
 The Service checks this dependency by pinging the server. A server integration's
 readiness probe (`GET /ready`) reports a failure as a generic `503` that names
 nothing internal; the driver's reason goes to the logs and the span only.
+
+Every connection also pings its server in the background, every 15 seconds, each
+ping bounded by 5 seconds once a connection is established, and stopped by
+`Close`. Every ping, `Connect`'s, the background one's and each health check's,
+sets the `clickhouse.reachable` gauge, so it follows the server whether or not
+anything probes the Service.
+
+### Optional connections
+
+A service whose work does not all need the database, and that handles a failed
+statement itself (keeping what it could not write, answering a read with its own
+error), sets `Optional`. Then:
+
+- `Connect` attaches the connection even when the server cannot be reached, and
+  logs a warning. The pool dials the server again on the next statement; until it
+  answers, statements fail as they do against any server that is down.
+- What refuses the connection still fails `Connect`, as it does without the
+  option: a server that answers with an exception (a rejected login, a missing
+  database) and a TLS handshake that fails (a certificate that is not trusted or
+  names another host, a server that does not speak TLS, or a TLS alert from
+  either end, such as a server that requires a client certificate the
+  configuration does not present). That is a
+  configuration to fix, not an outage to wait out. A server that cannot be
+  reached or does not answer is waited out, and so is a name that does not
+  resolve, since its DNS record can come back.
+- The health check answers at once, healthy, without pinging the server: a ping
+  to a server that hangs would hold a readiness probe for as long as a dial may
+  last. A database outage therefore leaves every replica ready rather than taking
+  the service out of its load balancer. Watch `clickhouse.reachable`, which the
+  background ping keeps current, instead.
+
+```go
+db, err := clickhouse.Connect(ctx, svc, clickhouse.Config{
+  Name:     "analytics",
+  Address:  "endpoint.clickhouse.cloud:9440",
+  Optional: true,
+})
+```
 
 ## Telemetry
 
@@ -320,3 +392,7 @@ clickhouse.selected.rows: 1024
 - `clickhouse.pool.connections.max` (gauge, `{connection}`) — the most connections
   the pool may hold open, by `clickhouse.name`. `acquired` against it is the
   headroom left before a statement waits for a connection.
+- `clickhouse.reachable` (gauge, `1`) — whether the server answered the last ping,
+  at `Connect`, in the background every 15 seconds, or at a health check, by
+  `clickhouse.name`: `1` when it did, `0` when it did not. It is how an optional
+  connection's outage shows.

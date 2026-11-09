@@ -52,15 +52,19 @@ type Config struct {
 	TLS integration.ConfigTLS `json:"tls"`
 
 	// DialTimeout bounds how long opening a connection, and waiting for one to
-	// come free in the pool, may take.
+	// come free in the pool, may take. It is the only bound on a dial and its
+	// handshake: the driver runs them whatever the context of the call says, so a
+	// call whose context ends sooner still waits out the dial to a server that
+	// does not answer. Set it to what a caller can afford to wait on a hung server.
 	//
 	// Default:
 	//
 	//   30 * time.Second
 	DialTimeout time.Duration `json:"dial_timeout"`
 
-	// ReadTimeout bounds how long a single read from the server may block. A
-	// context deadline on a call takes precedence.
+	// ReadTimeout bounds how long a statement whose context has no deadline may
+	// wait on the server's answer, from the first read to the last. A context
+	// deadline on a call takes precedence.
 	//
 	// Default:
 	//
@@ -102,6 +106,30 @@ type Config struct {
 	// runs, such as {"max_execution_time": 60}. A statement can still override
 	// them through clickhouse.Context and clickhouse.WithSettings.
 	Settings map[string]any `json:"settings"`
+
+	// Optional marks the database as one the Service can run without, for a
+	// while. It changes two things:
+	//
+	//   - Connect does not fail when the server cannot be reached. The connection
+	//     is attached all the same, and the pool dials the server again on the
+	//     next statement; until it answers, every statement fails as one to a
+	//     server that is down does. A server that answers and refuses the login,
+	//     or the database, still fails Connect: that is a configuration to fix,
+	//     not an outage to wait out, and so does a TLS handshake that fails. A
+	//     name that does not resolve is waited out: its record can come back.
+	//   - The connection's health does not gate the Service's readiness: its
+	//     health check answers at once, without a ping, so a server that is down
+	//     or hangs leaves every replica ready. Whether it answers is reported on
+	//     the clickhouse.reachable gauge instead, which a background ping keeps
+	//     current.
+	//
+	// Set it for a service whose work does not all need the database, and that
+	// handles a failed statement itself.
+	//
+	// Default:
+	//
+	//   false
+	Optional bool `json:"optional"`
 }
 
 // compressionMethods maps the Compression values the native protocol supports to

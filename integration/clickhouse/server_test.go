@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -94,6 +95,46 @@ func TestServer(t *testing.T) {
 
 		return db, rec
 	}
+
+	t.Run("a batch naming its columns leaves the others to their default", func(t *testing.T) {
+		db, _ := connect(t, "named")
+		require.NoError(t, db.Exec(t.Context(), "ALTER TABLE named ADD COLUMN source String DEFAULT 'web'"))
+
+		// The table gained a column the row type does not have: a batch naming
+		// every column fails to append, one naming the row's columns is written.
+		unnamed, err := db.NewBatchInsert(t.Context(), "named")
+		require.NoError(t, err)
+		require.Error(t, unnamed.AppendStruct(t.Context(), &serverRow{ID: 1, Name: "one"}))
+		require.NoError(t, unnamed.Abort(t.Context()))
+
+		of, err := db.NewBatchInsert(t.Context(), "named", WithColumnsOf(serverRow{}))
+		require.NoError(t, err)
+		require.NoError(t, of.AppendStruct(t.Context(), &serverRow{ID: 1, Name: "one"}))
+		require.NoError(t, of.Send(t.Context()))
+
+		// An explicit list: the field outside it is ignored, the column it leaves
+		// out takes its default.
+		listed, err := db.NewBatchInsert(t.Context(), "named", WithColumns("id"))
+		require.NoError(t, err)
+		require.NoError(t, listed.AppendStruct(t.Context(), &serverRow{ID: 2, Name: "ignored"}))
+		require.NoError(t, listed.Send(t.Context()))
+
+		rows, err := db.Query(t.Context(), "SELECT id, name, source FROM named ORDER BY id")
+		require.NoError(t, err)
+		defer rows.Close()
+
+		var got []string
+		for rows.Next() {
+			var (
+				id           uint32
+				name, source string
+			)
+			require.NoError(t, rows.Scan(&id, &name, &source))
+			got = append(got, fmt.Sprintf("%d %q %q", id, name, source))
+		}
+		require.NoError(t, rows.Err())
+		assert.Equal(t, []string{`1 "one" "web"`, `2 "" "web"`}, got)
+	})
 
 	t.Run("batch is sent once", func(t *testing.T) {
 		db, _ := connect(t, "sent_once")

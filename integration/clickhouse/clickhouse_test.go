@@ -2,7 +2,14 @@ package clickhouse
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +18,7 @@ import (
 	"github.com/mountayaapp/helix.go/service"
 	"github.com/mountayaapp/helix.go/service/servicetest"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,13 +32,39 @@ import (
 type fakeConn struct {
 	driver.Conn
 
+	mu      sync.Mutex
 	pingErr error
+	pings   int
 	stats   driver.Stats
 	closed  int
 }
 
-func (c *fakeConn) Ping(context.Context) error { return c.pingErr }
-func (c *fakeConn) Stats() driver.Stats        { return c.stats }
+func (c *fakeConn) Ping(context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pings++
+
+	return c.pingErr
+}
+
+func (c *fakeConn) Stats() driver.Stats { return c.stats }
+
+// failPings sets what every later ping answers.
+func (c *fakeConn) failPings(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pingErr = err
+}
+
+// pinged returns how many pings were sent.
+func (c *fakeConn) pinged() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.pings
+}
 
 func (c *fakeConn) Close() error {
 	c.closed++
@@ -170,7 +204,7 @@ func TestAttach_PingFailureClosesTheConnection(t *testing.T) {
 	svc, rec := servicetest.New(t)
 	client := &fakeConn{pingErr: errors.New("dial tcp: connection refused")}
 
-	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client)
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, false)
 	require.Error(t, err)
 	assert.Nil(t, conn)
 	assert.Equal(t, 1, client.closed)
@@ -196,7 +230,7 @@ func TestAttach_DuplicateNameLeavesNoMetrics(t *testing.T) {
 
 	client := &fakeConn{stats: driver.Stats{Open: 1, Idle: 1, MaxOpenConns: 3}}
 
-	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client)
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, false)
 	require.Error(t, err)
 	assert.Nil(t, conn)
 	assert.Equal(t, 1, client.closed)
@@ -212,7 +246,7 @@ func TestAttach_ReportsThePoolUntilClosed(t *testing.T) {
 	svc, rec := servicetest.New(t)
 	client := &fakeConn{stats: driver.Stats{Open: 2, Idle: 3, MaxOpenConns: 10, MaxIdleConns: 5}}
 
-	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client)
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, false)
 	require.NoError(t, err)
 
 	metrics := rec.Metrics()
@@ -253,7 +287,270 @@ func TestPoolMetrics_RegisterAfterUnregister(t *testing.T) {
 
 	m := &poolMetrics{}
 	m.unregister()
-	m.register(testInstrument(t, svc, "primary"), &fakeConn{})
+	m.register(testInstrument(t, svc, "primary"), &fakeConn{}, &atomic.Bool{})
 
 	assert.Empty(t, gaugeValues(t, rec.Metrics(), "clickhouse.pool.connections", "primary", attrKeyPoolState))
+}
+
+// TestConnect_OptionalUnreachableServer pins Config.Optional end to end: a server
+// that cannot be reached neither fails Connect nor makes the Service unready, and
+// shows on the reachable gauge instead.
+func TestConnect_OptionalUnreachableServer(t *testing.T) {
+	svc, rec := servicetest.New(t)
+
+	db, err := Connect(t.Context(), svc, Config{
+		Address:     "127.0.0.1:1",
+		DialTimeout: time.Second,
+		Optional:    true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	// Readiness reports on the Service's health, which the connection no longer
+	// gates.
+	require.NoError(t, svc.CheckHealth(t.Context()))
+	assert.Equal(t, map[string]int64{"": 0},
+		gaugeValues(t, rec.Metrics(), "clickhouse.reachable", identifier, attrKeyPoolState))
+
+	// A statement fails, as one to a server that is down does.
+	require.Error(t, db.Exec(t.Context(), "SELECT 1"))
+}
+
+// TestAttach_OptionalFollowsTheServer pins an optional connection over a server
+// that comes and goes: attached while it cannot be reached, healthy throughout
+// without a ping, and followed by its prober on the reachable gauge, which no
+// health check updates.
+func TestAttach_OptionalFollowsTheServer(t *testing.T) {
+	probeEvery(t, 5*time.Millisecond)
+
+	svc, rec := servicetest.New(t)
+	client := &fakeConn{pingErr: errors.New("dial tcp: connection refused")}
+
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, true)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	assert.Zero(t, client.closed)
+	assert.Equal(t, map[string]int64{"": 0},
+		gaugeValues(t, rec.Metrics(), "clickhouse.reachable", "primary", attrKeyPoolState))
+
+	dep := dependency{conn: conn}
+	t.Cleanup(func() { _ = dep.Close(context.Background()) })
+
+	pings := client.pinged()
+	require.NoError(t, dep.CheckHealth(t.Context()))
+	assert.Equal(t, pings, client.pinged(), "the health check of an optional connection sent a ping")
+
+	client.failPings(nil)
+	assert.Eventually(t, func() bool {
+		return gaugeValues(t, rec.Metrics(), "clickhouse.reachable", "primary", attrKeyPoolState)[""] == 1
+	}, 2*time.Second, 5*time.Millisecond, "the gauge never followed the server back")
+
+	client.failPings(errors.New("connection reset by peer"))
+	assert.Eventually(t, func() bool {
+		return gaugeValues(t, rec.Metrics(), "clickhouse.reachable", "primary", attrKeyPoolState)[""] == 0
+	}, 2*time.Second, 5*time.Millisecond, "the gauge never followed the server away")
+
+	// Closed, the connection pings no more.
+	require.NoError(t, dep.Close(t.Context()))
+	pings = client.pinged()
+	time.Sleep(30 * time.Millisecond)
+	assert.Equal(t, pings, client.pinged(), "the prober pinged a closed connection")
+}
+
+// probeEvery has every connection the test attaches ping its server every
+// interval, until the test ends.
+func probeEvery(t *testing.T, interval time.Duration) {
+	t.Helper()
+
+	before := reachabilityInterval
+	reachabilityInterval = interval
+	t.Cleanup(func() { reachabilityInterval = before })
+}
+
+// TestAttach_OptionalStillRefusesARefusal pins the limit of Config.Optional: a
+// server that answered the ping with an exception refuses the configuration, and
+// Connect fails as it does without the option.
+func TestAttach_OptionalStillRefusesARefusal(t *testing.T) {
+	svc, _ := servicetest.New(t)
+	client := &fakeConn{pingErr: &clickhouse.Exception{Code: 516, Name: "DB::Exception", Message: "default: Authentication failed"}}
+
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, true)
+	require.Error(t, err)
+	assert.Nil(t, conn)
+	assert.Equal(t, 1, client.closed)
+}
+
+// TestDependency_CheckHealthIsReportedOnTheGauge pins the gauge for a connection
+// that is not optional: the health check that fails reports it unreachable, as
+// well as unhealthy.
+func TestDependency_CheckHealthIsReportedOnTheGauge(t *testing.T) {
+	svc, rec := servicetest.New(t)
+	client := &fakeConn{}
+
+	conn, err := attach(t.Context(), svc, "primary", testInstrument(t, svc, "primary"), client, false)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int64{"": 1},
+		gaugeValues(t, rec.Metrics(), "clickhouse.reachable", "primary", attrKeyPoolState))
+
+	client.pingErr = errors.New("connection reset by peer")
+	require.Error(t, dependency{conn: conn}.CheckHealth(t.Context()))
+	assert.Equal(t, map[string]int64{"": 0},
+		gaugeValues(t, rec.Metrics(), "clickhouse.reachable", "primary", attrKeyPoolState))
+}
+
+// silentServer returns the address of a server that accepts every connection and
+// never answers: a hung server, or a middlebox swallowing the traffic.
+func silentServer(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+
+	return listener.Addr().String()
+}
+
+// TestCheckHealth_OptionalAnswersAtOnceAgainstASilentServer pins the readiness of a
+// service whose optional connection's server hangs: its health check answers at
+// once, without the ping that would hold a readiness probe for as long as a dial
+// may last, and the server still shows unreachable.
+func TestCheckHealth_OptionalAnswersAtOnceAgainstASilentServer(t *testing.T) {
+	svc, rec := servicetest.New(t)
+
+	db, err := Connect(t.Context(), svc, Config{Address: silentServer(t), DialTimeout: 300 * time.Millisecond, Optional: true})
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	probe, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	started := time.Now()
+	require.NoError(t, svc.CheckHealth(probe))
+	assert.Less(t, time.Since(started), 100*time.Millisecond, "the readiness check waited on the silent server")
+
+	assert.Equal(t, map[string]int64{"": 0},
+		gaugeValues(t, rec.Metrics(), "clickhouse.reachable", identifier, attrKeyPoolState))
+}
+
+// TestConnect_TLSFailureIsARefusal pins what an optional connection does not wait
+// out: a TLS handshake that fails, against a server that does not speak TLS or one
+// whose certificate the configuration does not trust, fails Connect as it does
+// without the option, and Connect hands back no connection at all.
+func TestConnect_TLSFailureIsARefusal(t *testing.T) {
+	plain, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = plain.Close() })
+	go func() {
+		for {
+			conn, err := plain.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Write([]byte("HTTP/1.0 400 Bad Request\r\n\r\n"))
+			_ = conn.Close()
+		}
+	}()
+
+	untrusted := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(untrusted.Close)
+
+	// A server that requires a client certificate the configuration does not
+	// present: over TLS 1.3 the handshake completes on this end, and the server's
+	// alert arrives on the first read, as a *net.OpError, not a tls.AlertError.
+	clientCertificate := httptest.NewUnstartedServer(http.NotFoundHandler())
+	clientCertificate.TLS = &tls.Config{ClientAuth: tls.RequireAnyClientCert, MinVersion: tls.VersionTLS13}
+	clientCertificate.StartTLS()
+	t.Cleanup(clientCertificate.Close)
+
+	for name, tc := range map[string]struct {
+		address string
+		tls     integration.ConfigTLS
+	}{
+		"a server that does not speak TLS":            {address: plain.Addr().String(), tls: integration.ConfigTLS{Enabled: true}},
+		"a certificate nothing here trusts":           {address: untrusted.Listener.Addr().String(), tls: integration.ConfigTLS{Enabled: true}},
+		"a server that requires a client certificate": {address: clientCertificate.Listener.Addr().String(), tls: integration.ConfigTLS{Enabled: true, InsecureSkipVerify: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := servicetest.New(t)
+
+			db, err := Connect(t.Context(), svc, Config{
+				Address:     tc.address,
+				DialTimeout: 2 * time.Second,
+				Optional:    true,
+				TLS:         tc.tls,
+			})
+			require.Error(t, err)
+			assert.True(t, db == nil, "Connect handed back a connection holding nothing")
+		})
+	}
+}
+
+// TestTolerated_TLSAlertOverTCP pins how an alert received over TCP is told from an
+// outage: crypto/tls reports it as a *net.OpError wrapping the alert, which is a
+// refusal; any other operation error, a dial or a read that timed out, is not.
+func TestTolerated_TLSAlertOverTCP(t *testing.T) {
+	alert := &net.OpError{Op: "remote error", Net: "tcp", Err: errors.New("tls: certificate required")}
+	assert.False(t, tolerated(fmt.Errorf("handshake: %w", alert), true))
+	assert.False(t, tolerated(&net.OpError{Op: "local error", Err: errors.New("tls: bad record MAC")}, true))
+
+	assert.True(t, tolerated(&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("i/o timeout")}, true))
+	assert.True(t, tolerated(&net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}, true))
+	assert.True(t, tolerated(&net.OpError{Op: "remote error", Err: errors.New("connection reset by peer")}, true))
+}
+
+// TestConnect_DNSFailureIsTolerated pins the outage an optional connection does
+// wait out: a name that does not resolve, since its record can come back with the
+// server it names.
+func TestConnect_DNSFailureIsTolerated(t *testing.T) {
+	svc, _ := servicetest.New(t)
+
+	db, err := Connect(t.Context(), svc, Config{Address: "no-such-host.invalid:9000", DialTimeout: 2 * time.Second, Optional: true})
+	require.NoError(t, err)
+	assert.NotNil(t, db)
+}
+
+// TestConnect_FailureHandsBackNothing pins that a Connect that fails hands back a
+// nil ClickHouse, not an interface holding a nil connection, which compares
+// unequal to nil.
+func TestConnect_FailureHandsBackNothing(t *testing.T) {
+	svc, _ := servicetest.New(t)
+
+	db, err := Connect(t.Context(), svc, Config{Address: "127.0.0.1:1", DialTimeout: time.Second})
+	require.Error(t, err)
+	assert.True(t, db == nil, "Connect handed back %#v", db)
+}
+
+// TestBatchColumns pins what the batch options name, as NewBatchInsert reads them:
+// the columns given, or a struct's tags in their order, none by default, and a
+// validation error for a column named twice or a value that is no struct.
+func TestBatchColumns(t *testing.T) {
+	columns, err := BatchColumns()
+	require.NoError(t, err)
+	assert.Empty(t, columns)
+
+	columns, err = BatchColumns(WithColumns("id", "name"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"id", "name"}, columns)
+
+	columns, err = BatchColumns(WithColumnsOf(&serverRow{}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"id", "name"}, columns)
+
+	_, err = BatchColumns(WithColumns("id", "id"))
+	assert.Equal(t, errorstack.CodeValidationFailed, errorstack.EntriesOf(err)[0].Extensions["code"])
+
+	_, err = BatchColumns(WithColumnsOf("not a struct"))
+	assert.Equal(t, errorstack.CodeValidationFailed, errorstack.EntriesOf(err)[0].Extensions["code"])
+
+	assert.Equal(t, "INSERT INTO `t` (`id`, `na``me`)", (&batchOptions{columns: []string{"id", "na`me"}}).insertStatement("`t`"))
 }
