@@ -28,7 +28,10 @@ var requestValidationOptions = validationOptions(openapi3filter.Options{
 
 // validationOptions returns opts reporting a schema failure by its reason alone,
 // with none of the schema and value the validator would otherwise dump into a
-// message a client reads.
+// message a client reads. That reason is the message of an OpenAPI 3.0
+// description's failures; an OpenAPI 3.1 description's are reported from the JSON
+// Schema validator's own errors instead (schemaErrorEntries), since the reason
+// kin-openapi gives them is that validator's whole report.
 func validationOptions(opts openapi3filter.Options) *openapi3filter.Options {
 	opts.WithCustomSchemaErrorFunc(func(err *openapi3.SchemaError) string {
 		return err.Reason

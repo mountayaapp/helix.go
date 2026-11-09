@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/mountayaapp/helix.go/errorstack"
@@ -208,10 +209,14 @@ type responseWriter struct {
 	// once the response is skipped.
 	body *bytes.Buffer
 
+	// written counts the body bytes that reached the client, for a flush to tell
+	// a complete body from a stream (Flush).
+	written int64
+
 	// skipped reports that the response is not validated at all: it is streamed,
-	// was flushed or hijacked, switched protocols, or outgrew
-	// maxValidatedResponseBytes. A description only describes finite bodies, and a
-	// partial one would fail validation for being partial.
+	// was flushed before its body was complete, or hijacked, switched protocols, or
+	// outgrew maxValidatedResponseBytes. A description only describes finite bodies,
+	// and a partial one would fail validation for being partial.
 	skipped bool
 }
 
@@ -256,15 +261,21 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	}
 
 	n, err := rw.ResponseWriter.Write(b)
+	rw.written += int64(n)
 	rw.keep(b[:n])
 
 	return n, err
 }
 
-// Flush sends what was written so far to the client. A flushed response is a
-// stream: it is no longer kept, and not validated.
+// Flush sends what was written so far to the client. A response flushed before
+// its body is complete is a stream: it is no longer kept, and not validated. One
+// whose declared Content-Length is all written is complete, a finite body sent
+// at once rather than when the handler returns, and is validated as it would be
+// without the flush.
 func (rw *responseWriter) Flush() {
-	rw.skip()
+	if !rw.complete() {
+		rw.skip()
+	}
 
 	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
@@ -281,12 +292,23 @@ func (rw *responseWriter) ReadFrom(src io.Reader) (int64, error) {
 
 	if rw.body == nil {
 		if readerFrom, ok := rw.ResponseWriter.(io.ReaderFrom); ok {
-			return readerFrom.ReadFrom(src)
+			n, err := readerFrom.ReadFrom(src)
+			rw.written += n
+
+			return n, err
 		}
 	}
 
 	// io.Copy would find this method and recurse into it; writeOnly hides it.
 	return io.Copy(writeOnly{rw}, src)
+}
+
+// complete reports whether the response declared its length and all of its body
+// has been written.
+func (rw *responseWriter) complete() bool {
+	declared, err := strconv.ParseInt(rw.Header().Get("Content-Length"), 10, 64)
+
+	return err == nil && rw.written == declared
 }
 
 // begin records the response's status, and decides from it and from the headers

@@ -1,0 +1,46 @@
+openapi: 3.0.3
+info:
+  title: Events
+  version: 1.0.0
+paths:
+  /events/{page}:
+    parameters:
+      - name: page
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+    post:
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, tags]
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                tags:
+                  type: array
+                  items:
+                    type: string
+                    pattern: "^[a-z]+$"
+                count:
+                  type: integer
+                  minimum: 0
+      responses:
+        "200":
+          description: The event.

@@ -1,0 +1,68 @@
+openapi: 3.1.0
+info:
+  title: Shapes
+  version: 1.0.0
+paths:
+  /shapes:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Shape"
+      responses:
+        "200":
+          description: The shape.
+components:
+  schemas:
+    Point:
+      type: object
+      additionalProperties: false
+      required: [type, coordinates]
+      properties:
+        type:
+          const: Point
+        coordinates:
+          type: array
+          minItems: 2
+          items:
+            type: number
+    Line:
+      type: object
+      additionalProperties: false
+      required: [type, coordinates]
+      properties:
+        type:
+          const: LineString
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+    Shape:
+      type: object
+      additionalProperties: false
+      required: [name, geometry]
+      properties:
+        name:
+          type: string
+        geometry:
+          oneOf:
+            - $ref: "#/components/schemas/Point"
+            - $ref: "#/components/schemas/Line"
+        size:
+          oneOf:
+            - type: number
+            - type: integer
+        style:
+          anyOf:
+            - type: string
+            - type: integer
+        meta:
+          allOf:
+            - type: object
+              required: [label]
+            - type: object
+              required: [label]

@@ -524,10 +524,18 @@ the same component name, is refused.
   validated, then its handler runs.
 - **Requests** that do not match the description are refused with `400`, one
   `VALIDATION_FAILED` entry per non-conforming value, and never reach their
-  handler. A body over `MaxRequestBodyBytes` is refused with `413`. Security
-  schemes are not checked: authentication is the business of `Middleware` or of
-  a route's `rest.WithPreValidation` middlewares. A `HEAD` no description
-  declares is validated as the `GET` it mirrors.
+  handler. Each entry's `path` locates the value and its `message` says what is
+  wrong with it: in an OpenAPI 3.1 description, validated as JSON Schema 2020-12,
+  that is the validator's own message for the value (`minLength: got 2, want 3`),
+  never its report's header or the schema's URL. A `oneOf` or an `anyOf` that
+  matched no branch is one entry at its value (`'oneOf' failed, none matched`)
+  rather than every branch's failures, a problem reported twice at one path is
+  one entry, the names a message lists are sorted, and the entries come in the
+  order of their paths, so a request is answered the same way every time. A
+  body over `MaxRequestBodyBytes` is refused with `413`. Security schemes are
+  not checked: authentication is the business of `Middleware` or of a route's
+  `rest.WithPreValidation` middlewares. A `HEAD` no description declares is
+  validated as the `GET` it mirrors.
 - **Path parameters** are validated percent-decoded, as OpenAPI defines a
   simple-style path parameter: `/files/a%20b` holds the value `a b`, which a
   `pattern` admitting a space admits, and `a%2Fb` holds `a/b`, which one refusing
@@ -552,7 +560,10 @@ the same component name, is refused.
   handler's; a `400` from the request validation itself is not. A response to
   `HEAD` is not validated. A body is kept for validation only when the description declares a schema for its
   status and media type, and only up to 1 MiB; a larger one, a streamed one
-  (`text/event-stream`, or flushed), and a hijacked connection are not validated.
+  (`text/event-stream`, or flushed before its body is complete), and a hijacked
+  connection are not validated. A response that declared its `Content-Length` and
+  wrote all of it is complete: flushing it, to send it before work the handler
+  does on its way out, leaves it validated.
 - **Empty schemas** (`{}`) admit `null` in an OpenAPI 3.1 description, as JSON
   Schema 2020-12 defines them: an envelope declaring `data: {}`, narrowed to
   `type: 'null'` by an operation with no payload, validates `{"data":null}`.

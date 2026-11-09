@@ -1,13 +1,20 @@
 package rest
 
 import (
+	"cmp"
+	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // requestValidationStatus is the status every request-validation refusal answers
@@ -97,15 +104,214 @@ func requestErrorEntries(reqErr *openapi3filter.RequestError) []errorstack.Entry
 	if multi, ok := reqErr.Err.(openapi3.MultiError); ok { //nolint:errorlint // As collapses a MultiError.
 		entries := make([]errorstack.Entry, 0, len(multi))
 		for _, nested := range multi {
-			entries = append(entries, schemaErrorEntry(nested, prefix))
+			entries = append(entries, schemaErrorEntries(nested, prefix)...)
 		}
 		return entries
 	}
 
-	return []errorstack.Entry{schemaErrorEntry(reqErr.Err, prefix)}
+	return schemaErrorEntries(reqErr.Err, prefix)
 }
 
-// schemaErrorEntry converts one leaf validation failure into an entry, extending the
+// schemaErrorEntries converts one validation failure of a parameter or a body into
+// its entries.
+//
+// An OpenAPI 3.1 description is validated as JSON Schema 2020-12, by
+// santhosh-tekuri/jsonschema, and kin-openapi hands that validator's failure back as
+// ONE SchemaError: its reason is the validator's whole report, a header naming the
+// schema by the placeholder URL kin-openapi compiles it under, then every problem
+// under it, indented. Read as it is, that is one multi-line entry per parameter or
+// body, and a URL the description never mentions. So on that path the failure is
+// walked down to the problems it is made of (jsonSchemaFindings), and each becomes
+// an entry of its own: the value's location in the parameter or body, and a message
+// naming the problem and nothing else. The header is not used.
+//
+// The entries are sorted by location, then by message (compareFindings), since the
+// validator reports the properties of an object in no fixed order, and a request is
+// answered the same way every time. Two problems reported alike at one location are
+// one entry: the branches of an allOf, or a schema reached twice, can each report
+// the same thing.
+//
+// An OpenAPI 3.0 description is validated by kin-openapi itself, whose SchemaErrors
+// are already one per problem; they are converted as they always were
+// (schemaErrorEntry).
+func schemaErrorEntries(err error, prefix []any) []errorstack.Entry {
+	var report *jsonschema.ValidationError
+	if !errors.As(err, &report) {
+		return []errorstack.Entry{schemaErrorEntry(err, prefix)}
+	}
+
+	findings := jsonSchemaFindings(err)
+	slices.SortStableFunc(findings, compareFindings)
+	findings = slices.CompactFunc(findings, func(a, b jsonSchemaFinding) bool {
+		return compareFindings(a, b) == 0
+	})
+
+	entries := make([]errorstack.Entry, 0, len(findings))
+	for _, finding := range findings {
+		entries = append(entries, validationEntry(finding.message, joinPath(prefix, pointerSegments(finding.location))))
+	}
+
+	return entries
+}
+
+// jsonSchemaFinding is one problem of a JSON Schema 2020-12 failure: the location of
+// the value within the parameter or body, and what is wrong with it.
+type jsonSchemaFinding struct {
+	location []string
+	message  string
+}
+
+// jsonSchemaFindings returns the problems a kin-openapi failure on the JSON Schema
+// 2020-12 path carries.
+//
+// kin-openapi mirrors the validator's tree: a SchemaError per validator error, whose
+// Origin wraps a MultiError of the SchemaErrors of its causes, and whose own cause,
+// reached by unwrapping a SchemaError with no Origin, is the validator error it was
+// made from. So a problem is a SchemaError with no Origin, told by its validator
+// error (jsonSchemaMessage); one that unwraps to none is reported with the fixed
+// fallback sentence, at its location.
+//
+// A oneOf or an anyOf that matched no branch is one problem, at the value it
+// concerns, rather than every problem of every branch: those contradict each other
+// (one branch wants a value to be "Point", the next "LineString") and repeat each
+// other, and the value had only to match one of them (alternativesFailed).
+//
+// The walk uses type switches for the reason requestValidationEntries gives: an
+// errors.As on the MultiError would stop at its first error.
+func jsonSchemaFindings(err error) []jsonSchemaFinding {
+	switch typed := err.(type) { //nolint:errorlint // errors.As collapses a MultiError; see above.
+	case openapi3.MultiError:
+		var findings []jsonSchemaFinding
+		for _, nested := range typed {
+			findings = append(findings, jsonSchemaFindings(nested)...)
+		}
+		return findings
+
+	case *openapi3.SchemaError:
+		if typed.Origin == nil {
+			var leaf *jsonschema.ValidationError
+			if !errors.As(typed, &leaf) {
+				return []jsonSchemaFinding{{location: typed.JSONPointer(), message: requestValidationFallback}}
+			}
+			return []jsonSchemaFinding{{location: leaf.InstanceLocation, message: jsonSchemaMessage(leaf)}}
+		}
+
+		if message, failed := alternativesFailed(typed); failed {
+			return []jsonSchemaFinding{{location: typed.JSONPointer(), message: message}}
+		}
+		return jsonSchemaFindings(typed.Origin)
+
+	default:
+		// kin-openapi wraps the MultiError of a SchemaError's causes in a sentence of
+		// its own ("validation failed due to: ..."), which is unwrapped to reach it.
+		if inner := errors.Unwrap(err); inner != nil {
+			return jsonSchemaFindings(inner)
+		}
+		return []jsonSchemaFinding{{message: requestValidationFallback}}
+	}
+}
+
+// alternativesFailed reports whether schemaErr is a oneOf or an anyOf that matched
+// none of its branches, with the validator's own message for it ("'oneOf' failed,
+// none matched", "'anyOf' failed").
+//
+// kin-openapi names a SchemaError by the keyword its failure is about, and a
+// SchemaError that only passes one failure on (a reference, the schema itself) takes
+// the keyword of the failure it passes on, so a oneOf can be named twice in a row,
+// once by its wrapper and once by itself. Only the innermost is the alternatives'
+// own: a SchemaError whose single cause carries the same keyword passes it on. A
+// oneOf that matched more than one branch has no causes, and is reported by its own
+// message as any other problem.
+func alternativesFailed(schemaErr *openapi3.SchemaError) (string, bool) {
+	var failed jsonschema.ErrorKind
+	switch schemaErr.SchemaField {
+	case "oneOf":
+		failed = &kind.OneOf{}
+	case "anyOf":
+		failed = &kind.AnyOf{}
+	default:
+		return "", false
+	}
+
+	var causes openapi3.MultiError
+	if errors.As(schemaErr.Origin, &causes) && len(causes) == 1 {
+		if cause, ok := causes[0].(*openapi3.SchemaError); ok && cause.SchemaField == schemaErr.SchemaField { //nolint:errorlint // A node of the walk, never wrapped.
+			return "", false
+		}
+	}
+
+	return failed.LocalizedString(jsonSchemaPrinter), true
+}
+
+// compareFindings orders two findings by location (compareLocations), then by
+// message.
+func compareFindings(a, b jsonSchemaFinding) int {
+	if order := compareLocations(a.location, b.location); order != 0 {
+		return order
+	}
+
+	return cmp.Compare(a.message, b.message)
+}
+
+// compareLocations orders two locations within a value as a reader of the entries
+// would: segment by segment, an index before a greater one and a name before a later
+// one, and a location before the locations inside it.
+func compareLocations(a, b []string) int {
+	for i := range min(len(a), len(b)) {
+		if a[i] == b[i] {
+			continue
+		}
+
+		left, leftErr := strconv.Atoi(a[i])
+		right, rightErr := strconv.Atoi(b[i])
+		if leftErr == nil && rightErr == nil {
+			return cmp.Compare(left, right)
+		}
+
+		return cmp.Compare(a[i], b[i])
+	}
+
+	return cmp.Compare(len(a), len(b))
+}
+
+// jsonSchemaPrinter is the printer the validator's messages are rendered with, in
+// English, as kin-openapi renders them.
+var jsonSchemaPrinter = message.NewPrinter(language.English)
+
+// jsonSchemaMessage is a validator leaf error's own message: what is wrong with the
+// value at its location ("minLength: got 2, want 3", "missing property 'name'"),
+// without the report's header or any location.
+//
+// The validator lists the names of an object's properties in the order it met them,
+// which for the properties of the value itself is no fixed order, so the names a
+// message lists are sorted first, and a request is answered the same way every time.
+// The two kinds whose message names a schema by its URL, the schema itself and a
+// reference cycle, are never a leaf of a value's failure; were one to be, the fixed
+// fallback sentence is used instead.
+func jsonSchemaMessage(leaf *jsonschema.ValidationError) string {
+	switch failed := leaf.ErrorKind.(type) {
+	case *kind.Schema, *kind.RefCycle:
+		return requestValidationFallback
+	case *kind.AdditionalProperties:
+		return (&kind.AdditionalProperties{Properties: sortedNames(failed.Properties)}).LocalizedString(jsonSchemaPrinter)
+	case *kind.Required:
+		return (&kind.Required{Missing: sortedNames(failed.Missing)}).LocalizedString(jsonSchemaPrinter)
+	case *kind.DependentRequired:
+		return (&kind.DependentRequired{Prop: failed.Prop, Missing: sortedNames(failed.Missing)}).LocalizedString(jsonSchemaPrinter)
+	case *kind.Dependency:
+		return (&kind.Dependency{Prop: failed.Prop, Missing: sortedNames(failed.Missing)}).LocalizedString(jsonSchemaPrinter)
+	default:
+		return leaf.ErrorKind.LocalizedString(jsonSchemaPrinter)
+	}
+}
+
+// sortedNames is a sorted copy of names, leaving the validator's own list as it is.
+func sortedNames(names []string) []string {
+	return slices.Sorted(slices.Values(names))
+}
+
+// schemaErrorEntry converts one leaf validation failure of kin-openapi's own validator,
+// the one an OpenAPI 3.0 description is validated with, into an entry, extending the
 // prefix with the JSON pointer of the value inside the body or parameter when the
 // failure is a schema error and therefore knows where it happened.
 func schemaErrorEntry(err error, prefix []any) errorstack.Entry {

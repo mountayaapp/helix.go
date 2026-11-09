@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -169,6 +170,39 @@ func TestResponseWriter_Flush(t *testing.T) {
 	require.NoError(t, http.NewResponseController(w).Flush())
 }
 
+// A response that declared its length and wrote all of it is complete: flushing it
+// sends it at once, and it is still kept and validated. One flushed before its
+// declared length is written is a stream, and is not.
+func TestResponseWriter_FlushOfACompleteBody(t *testing.T) {
+	body := []byte(`{"data":{"id":"42"}}`)
+
+	t.Run("complete", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w, rw := newResponseWriter(rec, thingResponses(t))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+
+		_, _ = w.Write(body)
+		require.NoError(t, http.NewResponseController(w).Flush())
+
+		assert.True(t, rec.Flushed)
+		assert.False(t, rw.skipped, "a complete body flushed is still validated")
+		assert.Equal(t, body, rw.body.Bytes())
+	})
+
+	t.Run("partial", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w, rw := newResponseWriter(rec, thingResponses(t))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+
+		_, _ = w.Write(body[:5])
+		require.NoError(t, http.NewResponseController(w).Flush())
+
+		assert.True(t, rw.skipped, "a body flushed before its declared length is written is a stream")
+	})
+}
+
 func TestResponseWriter_ReadFrom(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w, rw := newResponseWriter(rec, thingResponses(t))
@@ -207,6 +241,39 @@ func TestResponseWriter_HijackIsConditional(t *testing.T) {
 	_, _, err := hijacker.Hijack()
 	require.NoError(t, err)
 	assert.True(t, rw.skipped, "a hijacked connection is not an HTTP response")
+}
+
+// A handler that sends its answer whole, its length declared, then flushes it, as
+// one does to have its client receive the answer before work it does on its way
+// out, keeps its answer validated: an invalid one is still recorded, a valid one
+// still passes.
+func TestValidation_AFlushedCompleteAnswerIsStillValidated(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		code codes.Code
+	}{
+		"an invalid answer": {body: `{"data":{"id":42}}`, code: codes.Error},
+		"a valid answer":    {body: `{"data":{"id":"42"}}`, code: codes.Unset},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api, rec := newValidatedREST(t)
+
+			api.GET("/things/:id", func(rw http.ResponseWriter, req *http.Request) {
+				rw.Header().Set("Content-Type", "application/json")
+				rw.Header().Set("Content-Length", strconv.Itoa(len(tc.body)))
+				rw.WriteHeader(http.StatusOK)
+				_, _ = rw.Write([]byte(tc.body))
+				_ = http.NewResponseController(rw).Flush()
+			})
+
+			rw := serve(api.Handler(), http.MethodGet, "/things/42", nil)
+
+			assert.Equal(t, http.StatusOK, rw.Code)
+			assert.True(t, rw.Flushed)
+			assert.JSONEq(t, tc.body, rw.Body.String())
+			assert.Equal(t, tc.code, spanNamed(t, rec, "REST: OpenAPI / Response Validation").Status().Code)
+		})
+	}
 }
 
 // newValidatedREST builds an API validated against the test description.
