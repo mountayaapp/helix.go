@@ -169,24 +169,6 @@ func TestRecover_PanicInEdgeMiddlewareIsNotAnswered(t *testing.T) {
 	})
 }
 
-// The writer handed on keeps what the one it wraps can do: a streaming handler
-// can still flush, and a hijackable connection is still hijackable.
-func TestRecover_WriterKeepsFlushAndHijack(t *testing.T) {
-	plain, _ := newPanicAwareWriter(httptest.NewRecorder())
-	_, flushes := plain.(http.Flusher)
-	_, hijacks := plain.(http.Hijacker)
-	assert.True(t, flushes)
-	assert.False(t, hijacks, "a writer that cannot be hijacked must not claim it can")
-
-	hijackable, state := newPanicAwareWriter(hijackableRecorder{httptest.NewRecorder()})
-	_, hijacks = hijackable.(http.Hijacker)
-	assert.True(t, hijacks)
-	assert.False(t, state.started)
-
-	require.NoError(t, http.NewResponseController(hijackable).Flush())
-	assert.True(t, state.started)
-}
-
 // A payload that cannot be marshaled is the server failing, and is answered with
 // the 500 error envelope rather than with a success-shaped body.
 func TestResponseSuccess_Write_UnmarshalablePayloadIsTheErrorEnvelope(t *testing.T) {
@@ -239,4 +221,37 @@ func TestResponseSuccess_Write_UnmarshalablePayloadWithoutARequest(t *testing.T)
 
 	assert.Equal(t, http.StatusInternalServerError, rw.Code)
 	assert.JSONEq(t, internalErrorBody, rw.Body.String())
+}
+
+// A panic is recorded on the request's span under the type it always was, this
+// package's, and its stack beside it as an event.
+func TestRecover_APanicIsRecordedUnderItsType(t *testing.T) {
+	api, rec := newTestREST(t, Config{})
+	api.GET("/panic", func(rw http.ResponseWriter, req *http.Request) {
+		panic("boom")
+	})
+
+	rw := serve(api.Handler(), http.MethodGet, "/panic", nil)
+	require.Equal(t, http.StatusInternalServerError, rw.Code)
+
+	span := spanNamed(t, rec, "REST: GET /panic")
+
+	// The panic's own exception, beside the one the 500 is recorded with.
+	var panicType, stack string
+	for _, event := range span.Events() {
+		attrs := map[string]string{}
+		for _, attr := range event.Attributes {
+			attrs[string(attr.Key)] = attr.Value.AsString()
+		}
+
+		switch {
+		case event.Name == "exception" && attrs["exception.message"] == "panic: boom":
+			panicType = attrs["exception.type"]
+		case event.Name == "panic":
+			stack = attrs["exception.stacktrace"]
+		}
+	}
+
+	assert.Equal(t, "github.com/mountayaapp/helix.go/integration/rest.panicError", panicType)
+	assert.Contains(t, stack, "recover_test.go")
 }

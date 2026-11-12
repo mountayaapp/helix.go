@@ -91,6 +91,60 @@ func TestConfigWorker_Sanitize(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "concurrency limits are preserved",
+			before: ConfigWorker{
+				TaskQueue:                    "queue",
+				MaxConcurrentActivities:      1,
+				MaxConcurrentLocalActivities: 8,
+				MaxConcurrentWorkflowTasks:   2,
+			},
+			after: ConfigWorker{
+				Client:                       defaultClient,
+				TaskQueue:                    "queue",
+				MaxConcurrentActivities:      1,
+				MaxConcurrentLocalActivities: 8,
+				MaxConcurrentWorkflowTasks:   2,
+				StopTimeout:                  25 * time.Second,
+			},
+			err: nil,
+		},
+		{
+			name: "negative concurrency limits return errors",
+			before: ConfigWorker{
+				TaskQueue:                    "queue",
+				MaxConcurrentActivities:      -1,
+				MaxConcurrentLocalActivities: -1,
+				MaxConcurrentWorkflowTasks:   -1,
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be greater than or equal to 0",
+					Path:    []any{"config", "max_concurrent_activities"},
+				},
+				errorstack.Entry{
+					Message: "Must be greater than or equal to 0",
+					Path:    []any{"config", "max_concurrent_local_activities"},
+				},
+				errorstack.Entry{
+					Message: "Must be 0 or greater than or equal to 2",
+					Path:    []any{"config", "max_concurrent_workflow_tasks"},
+				},
+			),
+		},
+		{
+			name: "one workflow task at a time, which the SDK panics on, returns an error",
+			before: ConfigWorker{
+				TaskQueue:                  "queue",
+				MaxConcurrentWorkflowTasks: 1,
+			},
+			err: errorstack.NewValidation(
+				errorstack.Entry{
+					Message: "Must be 0 or greater than or equal to 2",
+					Path:    []any{"config", "max_concurrent_workflow_tasks"},
+				},
+			),
+		},
+		{
 			name: "negative, infinite and NaN rate limits and a negative stop timeout return errors",
 			before: ConfigWorker{
 				TaskQueue:                    "queue",

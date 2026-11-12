@@ -11,6 +11,7 @@ import (
 //   - the entry span, so that a response either middleware writes itself — a 401,
 //     a 429, a CORS preflight — is traced and measured like any other;
 //   - Config.EdgeMiddleware, which every request crosses;
+//   - the answer to a panic in anything further in (recoverPanics);
 //   - Config.Middleware, which the health probes and the protected resource
 //     metadata bypass;
 //   - event stamping, innermost, so that it runs after the application's
@@ -32,6 +33,7 @@ func (m *mcp) buildHandler() http.Handler {
 		})
 	}
 
+	h = recoverPanics(h)
 	if m.config.EdgeMiddleware != nil {
 		h = m.config.EdgeMiddleware(h)
 	}

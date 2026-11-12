@@ -536,6 +536,29 @@ the same component name, is refused.
   not checked: authentication is the business of `Middleware` or of a route's
   `rest.WithPreValidation` middlewares. A `HEAD` no description declares is
   validated as the `GET` it mirrors.
+- **A refusal is bounded**, whatever the request holds, so its size is set by
+  these limits and never by the client, and the limits sit above what an ordinary
+  refusal holds, so one reads exactly as it always did. A name or a value the
+  request supplied (a member, a part, a query parameter, a value that does not
+  parse, the string a `pattern` refuses, a `Content-Type`, a part's own media
+  type) is quoted whole up to 4 KiB: a browser's multipart `Content-Type` is 68 to
+  90 bytes and RFC 2046 allows 100, and a URL is kept under 2 KiB, a description
+  commonly bounding one at 2,048 bytes. A message is at most 8 KiB, a path at
+  most 32 segments, the first ones, and one message lists at most 16 names. The
+  entries together weigh at most 64 KiB, weighed as the envelope writes them: the
+  first ones are listed, in order, and one more entry, with no path, says how many
+  are not (`465 more problems are not listed`), so a client mapping entries to
+  fields finds every listed entry where it always was and that one under no field.
+  A first entry heavier than that on its own is still listed, cut until it fits:
+  its path to its first segments, its message to its beginning. What is cut shows
+  it: a quoted value or a message cut on a character ends with `…`, a path cut
+  ends with a `…` segment, and a list of names ends with `and 3 more`. Every string is valid UTF-8: bytes that are not are written as
+  U+FFFD, so a name spelled in other bytes is refused with `400` like any other.
+  A body that cannot be read or decoded (JSON that does not parse, a malformed
+  multipart part, an escape that does not decode) is one entry at
+  `["request", "body"]` saying `Cannot be decoded as its content type`: the
+  parser's own error, which quotes the bytes it stopped on, is recorded on the
+  `REST: OpenAPI / Request Validation` span and not sent.
 - **Path parameters** are validated percent-decoded, as OpenAPI defines a
   simple-style path parameter: `/files/a%20b` holds the value `a b`, which a
   `pattern` admitting a space admits, and `a%2Fb` holds `a/b`, which one refusing

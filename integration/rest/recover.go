@@ -1,21 +1,14 @@
 package rest
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"runtime/debug"
 
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
-
-	oteltrace "go.opentelemetry.io/otel/trace"
+	"github.com/mountayaapp/helix.go/integration"
 )
 
-// panicError is a recovered panic, as an error.
+// panicError is a recovered panic, as an error: the type a request's span has
+// always recorded a handler's panic under.
 type panicError struct {
 	value any
 }
@@ -58,137 +51,11 @@ func (e panicError) Unwrap() error {
 // http.ErrAbortHandler, which net/http closes the connection on without logging
 // it a second time. http.ErrAbortHandler itself, a handler's deliberate abort, goes
 // on unchanged.
-func recoverPanics(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		headers := rw.Header().Clone()
-		answer, state := newPanicAwareWriter(rw)
-
-		defer func() {
-			v := recover()
-			if v == nil {
-				return
-			}
-
-			if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
-				panic(v)
-			}
-
-			err := panicError{value: v}
-			log.Error(req.Context(), "Recovered from a panic while serving a REST request",
-				log.Err(err),
-				log.String("stack", string(debug.Stack())),
-			)
-			trace.NewSpan(oteltrace.SpanFromContext(req.Context())).RecordError("failed to serve request", err)
-
-			if state.started {
-				panic(http.ErrAbortHandler)
-			}
-
-			restoreHeaders(rw.Header(), headers)
-			NewResponseError[NoMetadata](req).
-				SetStatus(http.StatusInternalServerError).
-				Write(rw)
-		}()
-
-		next.ServeHTTP(answer, req)
-	})
-}
-
-// restoreHeaders makes header hold exactly what before held.
-func restoreHeaders(header http.Header, before http.Header) {
-	for key := range header {
-		if _, ok := before[key]; !ok {
-			delete(header, key)
-		}
-	}
-
-	for key, values := range before {
-		header[key] = values
-	}
-}
-
-// panicAwareWriter records whether any of the response has been sent, which
-// decides whether a panic can still be answered.
 //
-// It implements Unwrap so that http.ResponseController reaches the real writer,
-// and Flush and ReadFrom so that a handler streaming a response is not degraded
-// by being wrapped.
-type panicAwareWriter struct {
-	http.ResponseWriter
-
-	// started reports that a final status, a body byte, a flush or a hijack has
-	// reached the writer underneath. An informational 1xx has not started the
-	// response: the final one can still follow it.
-	started bool
-}
-
-// newPanicAwareWriter wraps rw, and returns the writer to hand on along with the
-// state to read once it returns. The writer can be hijacked exactly when rw can.
-func newPanicAwareWriter(rw http.ResponseWriter) (http.ResponseWriter, *panicAwareWriter) {
-	wrapped := &panicAwareWriter{ResponseWriter: rw}
-	if hijacker, ok := rw.(http.Hijacker); ok {
-		return &hijackablePanicAwareWriter{panicAwareWriter: wrapped, Hijacker: hijacker}, wrapped
-	}
-
-	return wrapped, wrapped
-}
-
-// Unwrap returns the writer underneath, which is what http.ResponseController
-// follows to find what this writer does not implement itself.
-func (rw *panicAwareWriter) Unwrap() http.ResponseWriter {
-	return rw.ResponseWriter
-}
-
-// WriteHeader sends the status, and records a final one as the start of the
-// response.
-func (rw *panicAwareWriter) WriteHeader(status int) {
-	if status >= http.StatusOK || status == http.StatusSwitchingProtocols {
-		rw.started = true
-	}
-
-	rw.ResponseWriter.WriteHeader(status)
-}
-
-// Write writes body bytes, which starts the response.
-func (rw *panicAwareWriter) Write(b []byte) (int, error) {
-	rw.started = true
-
-	return rw.ResponseWriter.Write(b)
-}
-
-// Flush sends what was written so far, which starts the response even when
-// nothing was: the status and headers go with the first flush.
-func (rw *panicAwareWriter) Flush() {
-	rw.started = true
-
-	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-// ReadFrom copies src into the response, keeping the underlying writer's own
-// ReadFrom when it has one.
-func (rw *panicAwareWriter) ReadFrom(src io.Reader) (int64, error) {
-	rw.started = true
-
-	if readerFrom, ok := rw.ResponseWriter.(io.ReaderFrom); ok {
-		return readerFrom.ReadFrom(src)
-	}
-
-	// io.Copy would find this method and recurse into it; writeOnly hides it.
-	return io.Copy(writeOnly{rw.ResponseWriter}, src)
-}
-
-// hijackablePanicAwareWriter is a panicAwareWriter over a writer that can be
-// hijacked, for the reason hijackableResponseWriter gives.
-type hijackablePanicAwareWriter struct {
-	*panicAwareWriter
-	http.Hijacker
-}
-
-// Hijack hands the connection over. Nothing can be answered on it afterwards.
-func (rw *hijackablePanicAwareWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	rw.started = true
-
-	return rw.Hijacker.Hijack()
+// The recovery itself is the one every HTTP server integration shares
+// (integration.RecoverPanics).
+func recoverPanics(next http.Handler) http.Handler {
+	return integration.RecoverPanics(next, "Recovered from a panic while serving a REST request", func(v any) error {
+		return panicError{value: v}
+	})
 }

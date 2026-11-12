@@ -137,6 +137,9 @@ var errUndecodablePath = errors.New("path parameters that do not percent-decode"
 // was asked (a path parameter that does not decode, a query parameter the
 // operation does not declare), then one per non-conforming value err reports, in
 // that order. err is nil when refused holds the request's only failures.
+//
+// The entries are held to the limits of a refusal on their way out (boundEntries),
+// so the answer is bounded and valid UTF-8 whatever the request held.
 func refuseRequest(rw http.ResponseWriter, req *http.Request, err error, refused []errorstack.Entry) {
 	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		NewResponseError[NoMetadata](req).
@@ -150,7 +153,7 @@ func refuseRequest(rw http.ResponseWriter, req *http.Request, err error, refused
 	// The seeded fallback entry from SetStatus stands when nothing could be
 	// extracted, so a refusal always carries a readable envelope even for an error
 	// shape the flattening does not recognise.
-	entries := append(slices.Clone(refused), requestValidationEntries(err)...)
+	entries := boundEntries(append(slices.Clone(refused), requestValidationEntries(err)...))
 	if len(entries) > 0 {
 		res.SetValidations(entries...)
 	}

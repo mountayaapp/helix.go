@@ -50,12 +50,15 @@ func Bool(key string, val bool) Field {
 }
 
 // Err constructs a Field that lazily stores the error's message under the key
-// "error".
+// "error". The error goes through the function registered with
+// telemetry/trace.SetErrorSanitizer before it is written.
 func Err(err error) Field {
 	return zap.Error(err)
 }
 
-// Any constructs a Field with the given key and an arbitrary value.
+// Any constructs a Field with the given key and an arbitrary value. A value that
+// is an error is written as Err writes one, through the function registered with
+// telemetry/trace.SetErrorSanitizer; any other is written as it is.
 func Any(key string, val any) Field {
 	return zap.Any(key, val)
 }

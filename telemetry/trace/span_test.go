@@ -7,7 +7,9 @@ import (
 	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	otelTrace "go.opentelemetry.io/otel/trace"
@@ -180,5 +182,59 @@ func TestSpan_IsRecording(t *testing.T) {
 
 		span.End()
 		assert.False(t, span.IsRecording())
+	})
+}
+
+func TestSpanFromContext(t *testing.T) {
+	t.Run("returns the span the context carries", func(t *testing.T) {
+		recorder := tracetest.NewSpanRecorder()
+		provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+		ctx := internaltrace.NewContext(t.Context(), internaltrace.NewTracerWithProvider(provider))
+
+		ctx, started := Start(ctx, SpanKindServer, "GET /reports")
+
+		SpanFromContext(ctx).RecordError("failed to render the report", errors.New("template not found"))
+		started.End()
+
+		ended := recorder.Ended()
+		require.Len(t, ended, 1)
+		assert.Equal(t, codes.Error, ended[0].Status().Code)
+		assert.Equal(t, "failed to render the report", ended[0].Status().Description)
+
+		require.Len(t, ended[0].Events(), 1)
+		assert.Equal(t, "exception", ended[0].Events()[0].Name)
+		assert.Contains(t, ended[0].Events()[0].Attributes, attribute.String("exception.message", "template not found"))
+	})
+
+	t.Run("returns the innermost span", func(t *testing.T) {
+		recorder := tracetest.NewSpanRecorder()
+		provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+		ctx := internaltrace.NewContext(t.Context(), internaltrace.NewTracerWithProvider(provider))
+
+		ctx, parent := Start(ctx, SpanKindServer, "GET /reports")
+		ctx, child := Start(ctx, SpanKindInternal, "render")
+
+		SpanFromContext(ctx).AddEvent("rendered")
+		child.End()
+		parent.End()
+
+		ended := recorder.Ended()
+		require.Len(t, ended, 2)
+		assert.Equal(t, "render", ended[0].Name())
+		require.Len(t, ended[0].Events(), 1)
+		assert.Equal(t, "rendered", ended[0].Events()[0].Name)
+		assert.Empty(t, ended[1].Events())
+	})
+
+	t.Run("a context without a span yields one that records nothing", func(t *testing.T) {
+		span := SpanFromContext(t.Context())
+
+		require.NotNil(t, span)
+		assert.False(t, span.IsRecording())
+		assert.NotPanics(t, func() {
+			span.SetAttributes(attribute.String("key", "value"))
+			span.AddEvent("ignored")
+			span.RecordError("ignored", errors.New("ignored"))
+		})
 	})
 }

@@ -38,6 +38,37 @@ type ConfigWorker struct {
 	// Required.
 	TaskQueue string `json:"task_queue"`
 
+	// MaxConcurrentActivities is how many activities the worker runs at once. An
+	// activity task is polled only while one of that many slots is free, so the
+	// limit is also what bounds the memory, the connections and the upstream
+	// calls the activities of one worker hold together. The SDK's default suits
+	// activities that hold next to nothing: size it from what one activity holds
+	// and for how long.
+	//
+	// Default:
+	//
+	//   1 000
+	MaxConcurrentActivities int `json:"max_concurrent_activities,omitzero"`
+
+	// MaxConcurrentLocalActivities is how many local activities the worker runs at
+	// once. They run in the worker that runs their workflow, outside the limit
+	// MaxConcurrentActivities sets.
+	//
+	// Default:
+	//
+	//   1 000
+	MaxConcurrentLocalActivities int `json:"max_concurrent_local_activities,omitzero"`
+
+	// MaxConcurrentWorkflowTasks is how many workflow tasks the worker runs at
+	// once: the steps of workflow code between two waits, each short. It must be 0
+	// or at least 2: at 1 the worker would only poll its sticky queue and never
+	// the task queue itself, which the SDK refuses by panicking.
+	//
+	// Default:
+	//
+	//   1 000
+	MaxConcurrentWorkflowTasks int `json:"max_concurrent_workflow_tasks,omitzero"`
+
 	// WorkerActivitiesPerSecond sets the rate limiting on number of activities that
 	// can be executed per second per worker. This can be used to limit resources
 	// used by the worker.
@@ -74,6 +105,20 @@ type ConfigWorker struct {
 	//
 	//   false
 	EnableSessionWorker bool `json:"enable_session_worker"`
+
+	// DisableWorkflowWorker makes the worker serve the activities of its task queue
+	// and nothing else: it polls no workflow task, on the task queue or on a sticky
+	// queue of its own. Without it a worker polls for workflow tasks whether or not a
+	// workflow is registered, so a worker meant for activities alone keeps long
+	// polls open for work it is never given. It is how a group of activities gets
+	// slots of its own beside another worker's in the same process: schedule them on
+	// a task queue such a worker serves. Registering a workflow on it panics, as the
+	// SDK does, and MaxConcurrentWorkflowTasks does not apply.
+	//
+	// Default:
+	//
+	//   false
+	DisableWorkflowWorker bool `json:"disable_workflow_worker"`
 
 	// StopTimeout is how long the worker waits, once told to stop, for the
 	// activities it is running to finish. Activities still running after it are
@@ -112,6 +157,29 @@ func (cfg *ConfigWorker) sanitize() error {
 		entries = append(entries, errorstack.Entry{
 			Message: "Must be set",
 			Path:    []any{"config", "task_queue"},
+		})
+	}
+
+	if cfg.MaxConcurrentActivities < 0 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be greater than or equal to 0",
+			Path:    []any{"config", "max_concurrent_activities"},
+		})
+	}
+
+	if cfg.MaxConcurrentLocalActivities < 0 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be greater than or equal to 0",
+			Path:    []any{"config", "max_concurrent_local_activities"},
+		})
+	}
+
+	// The SDK panics on 1: a worker limited to one workflow task at a time would
+	// only ever poll its sticky queue.
+	if cfg.MaxConcurrentWorkflowTasks < 0 || cfg.MaxConcurrentWorkflowTasks == 1 {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be 0 or greater than or equal to 2",
+			Path:    []any{"config", "max_concurrent_workflow_tasks"},
 		})
 	}
 

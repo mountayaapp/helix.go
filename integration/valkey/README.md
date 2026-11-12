@@ -336,6 +336,46 @@ the Service closes the connection at shutdown. Messages are only delivered to th
 subscribers connected when they are published, so a caller that must not miss one
 subscribes again and reads what it missed from a durable source, such as a stream.
 
+#### Waiting for the server to hold a subscription
+
+`Subscribe` is called before the server holds the subscription, and the server
+confirms it later: a command sent meanwhile on another of the client's
+connections, the read of a stream's history among them, can reach the server
+first. A caller that reads a durable copy of the channel and relies on the channel
+for whatever comes after it must wait for the confirmation before reading, or a
+message published in between is in neither. The `Valkey` `Connect` returns is a
+`valkey.ConfirmedSubscriber`, whose `SubscribeConfirmed` is `Subscribe` calling
+back once the server has confirmed the subscription (at once when the channel's
+server subscription is already held). From then on, a message published after any
+command the caller sends is delivered:
+
+```go
+subscriber, ok := store.(valkey.ConfirmedSubscriber)
+if !ok {
+  return errors.New("cannot tell when a subscription is held")
+}
+
+confirmed := make(chan struct{})
+ended := make(chan error, 1)
+go func() {
+  ended <- subscriber.SubscribeConfirmed(ctx, "events", func() { close(confirmed) }, handle)
+}()
+
+select {
+case <-confirmed:
+  // Read the stream's history now: every later message reaches handle.
+case err := <-ended:
+  // Never subscribed. err is nil when ctx ended first, and otherwise what ended
+  // the subscription: the connection lost or refused, or the server refusing it.
+}
+```
+
+The callback runs once at most, on `SubscribeConfirmed`'s goroutine and before the
+first message is handed over, so it returns promptly. It is not called when the
+subscription ends unconfirmed, and waiting for it is waiting for the call's return
+beside it. It is a separate interface, not a method of `Valkey`, so that an
+implementation of `Valkey` written elsewhere, a test's among them, need not change.
+
 ### Streams
 
 ```go
@@ -369,6 +409,36 @@ fields, err := store.Do(ctx, store.B().Hgetall().Key("user:123").Build()).AsStrM
 error. A command must not be reused after `Do`, and in a cluster, building a
 command whose keys fall in different hash slots panics. The connection itself, and
 with it closing it, stays with the Service.
+
+### Lua scripts
+
+A script is built once with `valkey.NewScript`, from a name and its Lua source, and
+run with keys and arguments as often as needed:
+
+```go
+var reserve = valkey.NewScript("reserve_seat", `
+if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then
+  return 0
+end
+return redis.call('SADD', KEYS[1], ARGV[1])
+`)
+
+added, err := reserve.Run(ctx, store, []string{"seats:42"}, []string{"7B"}).AsInt64()
+```
+
+On the `Valkey` `Connect` returns, a run is sent with `EVALSHA`, the script's
+SHA-1 alone, and whole with `EVAL` only when the server answers `NOSCRIPT`: on its
+first run on a server, and after a restart, a `SCRIPT FLUSH` or a failover to a
+server that never ran it. What a run answers is what `EVAL` would: the script's
+reply, an error it raises, a command it runs refused, such as a write on a
+read-only replica refused with `READONLY`, all as `Do` returns them. Nothing of the
+source is computed before the first run, since a process in FIPS 140-only mode
+panics on SHA-1, so a script can be a package-level variable.
+
+`Run` asks the `Valkey` it is given for `valkey.ScriptRunner`, which the one
+`Connect` returns is. Any other `Valkey`, a test's in-memory one or a wrapper of
+your own, is sent the script whole with `EVAL` through its `Do`, the command you
+would build by hand, so it need not change.
 
 ### Automatic persisted queries
 
@@ -419,6 +489,8 @@ Every method but `B` opens one span, named after itself:
   `Valkey: Scan`, `Valkey: MGet`, `Valkey: Delete`, `Valkey: SAdd`,
   `Valkey: SRem`, `Valkey: SMembers`, `Valkey: SScan`, `Valkey: SCard`,
   `Valkey: XAdd`, `Valkey: XRange`, `Valkey: Do` — `client` spans.
+- `Valkey: Script` — a `client` span per run of a script, `EVALSHA` and its
+  fallback to `EVAL` included.
 - `Valkey: Publish` — a `producer` span.
 - `Valkey: Subscribe` — a `client` span covering the subscription's setup, from
   sending `SUBSCRIBE` to the server confirming it.
@@ -431,11 +503,13 @@ Every span carries:
 - `valkey.address`
 - `valkey.database`
 
-`Valkey: Do` also carries `valkey.command`, the command's name, such as `HGETALL`.
+`Valkey: Do` also carries `valkey.command`, the command's name, such as `HGETALL`,
+and `Valkey: Script` carries `valkey.script`, the name the script was built with.
+Neither its source nor its arguments are recorded.
 
 With `Config.RecordKeys`, what a command is given is recorded as well:
 - `valkey.key` — the key, or the stream of `XAdd` and `XRange`
-- `valkey.keys` — the keys of `MGet` and `Delete`
+- `valkey.keys` — the keys of `MGet`, `Delete` and a script's run
 - `valkey.pattern` — the pattern of `Scan`, and the `Match` of `SScan`
 - `valkey.channel` — the channel of `Publish`, `Subscribe` and `Receive`
 
@@ -444,7 +518,10 @@ user identifiers and email addresses, which do not belong in a tracing backend.
 Values and payloads are never recorded.
 
 A failure is recorded on the span as an error. A missing key is not, unless
-`OptionsGet.ErrorRecordOnNotFound` says so; neither is a nil reply to `Do`.
+`OptionsGet.ErrorRecordOnNotFound` says so; neither is a nil reply to `Do`. The
+error is the server's or the client's, and a server refusing a command repeats its
+first arguments: register a function with `trace.SetErrorSanitizer` to decide what
+of an error's text a span records.
 
 Example:
 ```

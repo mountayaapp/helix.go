@@ -354,6 +354,12 @@ ended by `Send` or `Abort`, and parents the batch's other spans whatever context
 each call is given. An `AppendStruct` failure is recorded on it. `Query` ends when
 its rows are closed or exhausted, and `QueryRow` when its row is scanned.
 
+A failure is recorded on its span with the error the driver returned. The driver
+writes the values bound to a statement into its text before sending it, and a
+server's exception repeats the statement it was running, so that error can hold
+every value of the query: register a function with `trace.SetErrorSanitizer` to
+decide what of an error's text a span records.
+
 Each statement also ships its span's identifiers to the server, which records them
 in `system.opentelemetry_span_log`, so a slow query can be followed from the trace
 into ClickHouse's own view of it.

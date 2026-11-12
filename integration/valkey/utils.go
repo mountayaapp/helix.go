@@ -1,7 +1,6 @@
 package valkey
 
 import (
-	"sync"
 	"time"
 
 	"github.com/mountayaapp/helix.go/integration"
@@ -20,6 +19,7 @@ var (
 	attrKeyPattern = integration.Key(identifier, "pattern")
 	attrKeyChannel = integration.Key(identifier, "channel")
 	attrKeyCommand = integration.Key(identifier, "command")
+	attrKeyScript  = integration.Key(identifier, "script")
 )
 
 // defaultScanCount is the COUNT a scan sends when OptionsScan leaves it unset. The
@@ -37,13 +37,10 @@ const defaultSScanCount = 100
 // and returns 1; it returns 0 and leaves the key alone when it holds anything
 // else. A missing key reads as false, which equals no string.
 //
-// The scripts are built on first use: the driver computes a script's SHA-1, for
-// EVALSHA, as it builds it, and a process running in FIPS 140-only mode panics on
-// SHA-1. Built when the package is loaded, they would stop every such process
-// importing it, whether it compares anything or not. The driver sends EVALSHA,
-// and EVAL when the server does not know the script yet.
-var compareAndSetScript = sync.OnceValue(func() *valkey.Lua {
-	return valkey.NewLuaScript(`
+// It is a Script, so its SHA-1 is computed on its first run and never when the
+// package is loaded (see NewScript), and it is sent with EVALSHA, and with EVAL
+// when the server does not know it yet. CompareAndSet runs it under its own span.
+var compareAndSetScript = NewScript("compare_and_set", `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then
   return 0
 end
@@ -54,19 +51,16 @@ else
 end
 return 1
 `)
-})
 
 // compareAndDeleteScript deletes KEYS[1] when it holds ARGV[1] and returns 1; it
 // returns 0 and leaves the key alone when it holds anything else or is missing.
-// It is built on first use, like compareAndSetScript.
-var compareAndDeleteScript = sync.OnceValue(func() *valkey.Lua {
-	return valkey.NewLuaScript(`
+// It is a Script, like compareAndSetScript.
+var compareAndDeleteScript = NewScript("compare_and_delete", `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then
   return 0
 end
 return redis.call('DEL', KEYS[1])
 `)
-})
 
 // milliseconds returns ttl in whole milliseconds, rounded up: truncating would turn
 // a positive TTL below a millisecond into PX 0, which the server rejects.

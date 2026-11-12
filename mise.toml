@@ -7,7 +7,7 @@ min_version = "2026.9.15"
 
 [tools]
 # go.mod's `go` line names the oldest Go every module builds with; this is the one used here.
-go = "1.27.3"
+go = "1.27.4"
 jq = "1.8.2"
 # Built from source with the Go above (mise's go backend): golangci-lint refuses a module
 # whose `go` line is newer than the Go it was built with, which a prebuilt binary can be.

@@ -8,6 +8,7 @@ import (
 	"github.com/mountayaapp/helix.go/errorstack"
 	"github.com/mountayaapp/helix.go/internal/locales"
 	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
@@ -127,7 +128,7 @@ func (p HTTPProbes) HandleReadiness(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := p.CheckHealth(req.Context()); err != nil {
-		oteltrace.SpanFromContext(req.Context()).RecordError(err)
+		recordException(req.Context(), err)
 		log.Warn(req.Context(), "Service is not ready", log.Err(err))
 
 		WriteError(rw, req, http.StatusServiceUnavailable)
@@ -135,4 +136,14 @@ func (p HTTPProbes) HandleReadiness(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	WriteSuccess(rw, http.StatusOK)
+}
+
+// recordException records err as an exception on the span ctx carries, without
+// touching the span's status: the status is the business of whatever answers the
+// request. The error goes through the sanitizer an application may have
+// registered (trace.SetErrorSanitizer), as every error a span records does.
+func recordException(ctx context.Context, err error) {
+	if err = trace.SanitizeError(err); err != nil {
+		oteltrace.SpanFromContext(ctx).RecordError(err)
+	}
 }

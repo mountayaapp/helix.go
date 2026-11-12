@@ -227,7 +227,7 @@ func attach(ctx context.Context, svc *service.Service, name string, inst *integr
 	if pingErr != nil {
 		log.Warn(service.Context(ctx, svc), "ClickHouse is unreachable; the optional connection is attached and dials it again on use",
 			log.String("name", name),
-			log.String("reason", integration.NormalizeErrorMessage(pingErr)),
+			log.Any("reason", pingErr),
 		)
 	}
 

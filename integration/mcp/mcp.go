@@ -173,10 +173,15 @@ func (m *mcp) buildServer() (server *mcpsdk.Server, err error) {
 
 	m.config.Register(server)
 
+	// Answer a method whose handling panicked, on the goroutine the SDK handles it
+	// on, rather than letting the panic end the process. Added after Register, it
+	// covers any receiving middleware the consumer added.
+	server.AddReceivingMiddleware(m.middlewareRecover())
+
 	// Trace the MCP methods themselves, not just the POST that carried them. Every
 	// call arrives at the same path, so the HTTP span is the one span that cannot
-	// say which tool ran. Added after Register, it is the outermost receiving
-	// middleware, so it also covers any the consumer added.
+	// say which tool ran. Added last, it is the outermost receiving middleware, so
+	// it also covers any the consumer added, and the recovery's answer.
 	server.AddReceivingMiddleware(m.middlewareTelemetry())
 
 	return server, nil

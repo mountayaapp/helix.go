@@ -192,6 +192,27 @@ followed without any of the request's headers except `Accept`,
 credentials in `Headers` never reach a host they were not meant for. A redirect
 from `https` to `http` is never followed.
 
+### Errors
+
+The error of a request that failed names the URL asked without its query string,
+its fragment or the password of its credentials, so an API key passed as a query
+parameter does not travel with it to a span or a log. The standard library also
+quotes what an endpoint answered, which can repeat the request's query (re-encoded
+or not), a signature an earlier redirect added, or a key in a path segment, which
+nothing tells from a path, and none of it is kept:
+
+- the `Location` header of a redirect that does not parse is left out whole: the
+  error reads `failed to parse Location header: <the parser's reason>`, a string
+  the reason quotes kept only when it is a character or an escape;
+- a response net/http refuses to read, its status line, a header line, a
+  `Content-Length` or `Transfer-Encoding` value or, over HTTP/2, a header's name
+  malformed, is cut where the quote begins, and reads as the sentence naming what
+  was refused (`… malformed MIME header line`, `… bad Content-Length`).
+
+The URL of the request itself keeps its path, which is the caller's. The error
+stays a `*url.Error`, and `errors.Is` and `errors.As` still tell what the failure
+was.
+
 ### Calling an API outside your services
 
 By default the client propagates the Service's trace context **and baggage**. The

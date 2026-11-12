@@ -394,7 +394,10 @@ When applicable, these are carried as well:
 - `postgres.table` and `postgres.columns` — the target of a copy
 
 A failure is recorded on the span as an error. In a batch, each statement that
-failed is recorded on the batch's span.
+failed is recorded on the batch's span. The error is the driver's, and
+PostgreSQL's message can quote the input it refused (`invalid input syntax for
+type uuid: "…"`): register a function with `trace.SetErrorSanitizer` to decide
+what of an error's text a span records.
 
 Example:
 ```

@@ -3,9 +3,11 @@ package rest
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
@@ -33,6 +35,14 @@ const requestValidationStatus = http.StatusBadRequest
 // readable reason of its own. It should not be reachable; it exists so a refusal is
 // never an empty sentence.
 const requestValidationFallback = "Request does not match the OpenAPI description"
+
+// undecodableBodyMessage is the message of the entry refusing a body the
+// validator could not read or decode: JSON that does not parse, a form with a
+// malformed part, an escape that does not decode. It is the whole of what the
+// client is told. The parser's own error stays on the request's trace: it quotes
+// the bytes it stopped on, sometimes several times over, and they are the
+// request's.
+const undecodableBodyMessage = "Cannot be decoded as its content type"
 
 // requestValidationEntries flattens a kin-openapi request-validation failure into one
 // errorstack entry per non-conforming value.
@@ -94,11 +104,17 @@ func requestValidationEntries(err error) []errorstack.Entry {
 // A RequestError's own Err is frequently a MultiError of schema errors — one per
 // field of a body that did not conform — which is where the per-field paths come
 // from. When it carries none, the RequestError's Reason is the whole story.
+//
+// A value that could not be parsed, before any schema was asked, is reported with
+// what the request supplied cut (parseFailureMessage). A body that could not be
+// read or decoded at all is one entry at the body, with a fixed message
+// (undecodableBodyMessage) and nothing of the error behind it.
 func requestErrorEntries(reqErr *openapi3filter.RequestError) []errorstack.Entry {
 	prefix := requestErrorPrefix(reqErr)
 
+	// The one reason that stands alone quotes the Content-Type the request sent.
 	if reqErr.Err == nil {
-		return []errorstack.Entry{validationEntry(reqErr.Reason, prefix)}
+		return []errorstack.Entry{validationEntry(boundQuoted(reqErr.Reason, unexpectedContentType, ""), prefix)}
 	}
 
 	if multi, ok := reqErr.Err.(openapi3.MultiError); ok { //nolint:errorlint // As collapses a MultiError.
@@ -109,7 +125,33 @@ func requestErrorEntries(reqErr *openapi3filter.RequestError) []errorstack.Entry
 		return entries
 	}
 
+	if parseErr, ok := reqErr.Err.(*openapi3filter.ParseError); ok { //nolint:errorlint // Handed over as it is, never wrapped.
+		message, ok := parseFailureMessage(parseErr)
+		if !ok && reqErr.Parameter == nil {
+			message = undecodableBodyMessage
+		}
+
+		return []errorstack.Entry{validationEntry(message, prefix)}
+	}
+
+	if undecodableBody(reqErr) {
+		return []errorstack.Entry{validationEntry(undecodableBodyMessage, prefix)}
+	}
+
 	return schemaErrorEntries(reqErr.Err, prefix)
+}
+
+// undecodableBody reports whether reqErr is about a body the validator could not
+// read or decode, rather than one it decoded and held to its schema: a body's
+// failure that is neither a schema's nor the absence of a required body. What is
+// left is the error of whatever read the body, whose text is not passed on.
+func undecodableBody(reqErr *openapi3filter.RequestError) bool {
+	if reqErr.Parameter != nil || errors.Is(reqErr.Err, openapi3filter.ErrInvalidRequired) {
+		return false
+	}
+
+	var schemaErr *openapi3.SchemaError
+	return !errors.As(reqErr.Err, &schemaErr)
 }
 
 // schemaErrorEntries converts one validation failure of a parameter or a body into
@@ -288,12 +330,40 @@ var jsonSchemaPrinter = message.NewPrinter(language.English)
 // The two kinds whose message names a schema by its URL, the schema itself and a
 // reference cycle, are never a leaf of a value's failure; were one to be, the fixed
 // fallback sentence is used instead.
+//
+// Four kinds quote the request rather than the description: the names of the
+// properties an object may not have, the name of a property that is not a valid
+// one, the string a pattern refuses and the value a format refuses. Each is cut
+// first (boundName), and no more than maxRefusalNames names are listed
+// (boundNames), the message saying how many more there were, so it does not grow
+// with what the client sent.
 func jsonSchemaMessage(leaf *jsonschema.ValidationError) string {
 	switch failed := leaf.ErrorKind.(type) {
 	case *kind.Schema, *kind.RefCycle:
 		return requestValidationFallback
 	case *kind.AdditionalProperties:
-		return (&kind.AdditionalProperties{Properties: sortedNames(failed.Properties)}).LocalizedString(jsonSchemaPrinter)
+		names, more := boundNames(failed.Properties)
+		listed := (&kind.AdditionalProperties{Properties: names}).LocalizedString(jsonSchemaPrinter)
+		if more == 0 {
+			return listed
+		}
+
+		if head, found := strings.CutSuffix(listed, " not allowed"); found {
+			return fmt.Sprintf("%s and %d more not allowed", head, more)
+		}
+
+		return listed
+	case *kind.PropertyNames:
+		return (&kind.PropertyNames{Property: boundName(failed.Property)}).LocalizedString(jsonSchemaPrinter)
+	case *kind.Pattern:
+		return (&kind.Pattern{Got: boundName(failed.Got), Want: failed.Want}).LocalizedString(jsonSchemaPrinter)
+	case *kind.Format:
+		got := failed.Got
+		if text, ok := got.(string); ok {
+			got = boundName(text)
+		}
+
+		return (&kind.Format{Got: got, Want: failed.Want, Err: failed.Err}).LocalizedString(jsonSchemaPrinter)
 	case *kind.Required:
 		return (&kind.Required{Missing: sortedNames(failed.Missing)}).LocalizedString(jsonSchemaPrinter)
 	case *kind.DependentRequired:
@@ -320,10 +390,7 @@ func schemaErrorEntry(err error, prefix []any) errorstack.Entry {
 		return validationEntry(err.Error(), prefix)
 	}
 
-	// Error rather than Reason: the middleware installs a custom schema-error func
-	// that already reduces Error to the reason alone, and Error still says something
-	// when Reason is empty.
-	return validationEntry(schemaErr.Error(), joinPath(prefix, pointerSegments(schemaErr.JSONPointer())))
+	return validationEntry(schemaErrorMessage(schemaErr), joinPath(prefix, pointerSegments(schemaErr.JSONPointer())))
 }
 
 // requestErrorPrefix returns the wire path of whatever the RequestError concerns.

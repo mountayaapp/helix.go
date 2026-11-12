@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -271,7 +272,7 @@ func TestWorkerClientOutlivesTheWorker(t *testing.T) {
 	t.Cleanup(c.Close)
 
 	conn := newServerConnection()
-	conn.worker = worker.New(c, cfg.TaskQueue, workerOptions(&cfg, conn))
+	conn.worker = worker.New(c, cfg.TaskQueue, workerOptions(&cfg, conn, nil))
 	conn.worker.RegisterWorkflowWithOptions(func(workflow.Context, string) (string, error) {
 		return "", nil
 	}, workflow.RegisterOptions{Name: goldenWorkflow.Name()})
@@ -291,18 +292,141 @@ func TestWorkerClientOutlivesTheWorker(t *testing.T) {
 func TestWorkerOptions(t *testing.T) {
 	cfg := ConfigWorker{
 		TaskQueue:                    "orders",
+		MaxConcurrentActivities:      4,
+		MaxConcurrentLocalActivities: 6,
+		MaxConcurrentWorkflowTasks:   8,
 		WorkerActivitiesPerSecond:    10,
 		TaskQueueActivitiesPerSecond: 20,
 		EnableSessionWorker:          true,
+		DisableWorkflowWorker:        true,
 	}
 	require.NoError(t, cfg.sanitize())
 
-	opts := workerOptions(&cfg, newServerConnection())
+	opts := workerOptions(&cfg, newServerConnection(), nil)
 
 	assert.Equal(t, 25*time.Second, opts.WorkerStopTimeout, "the SDK's default of zero cancels running activities on Stop")
+	assert.Equal(t, 4, opts.MaxConcurrentActivityExecutionSize)
+	assert.Equal(t, 6, opts.MaxConcurrentLocalActivityExecutionSize)
+	assert.Equal(t, 8, opts.MaxConcurrentWorkflowTaskExecutionSize)
 	assert.Equal(t, 10.0, opts.WorkerActivitiesPerSecond)
 	assert.Equal(t, 20.0, opts.TaskQueueActivitiesPerSecond)
 	assert.True(t, opts.EnableSessionWorker)
+	assert.True(t, opts.DisableWorkflowWorker)
 	assert.NotNil(t, opts.OnFatalError)
 	assert.Nil(t, opts.SysInfoProvider, "system information is opt-in")
+
+	require.Len(t, opts.Interceptors, 1)
+	assert.IsType(t, &recoverInterceptor{}, opts.Interceptors[0], "an activity that panics is recovered")
+}
+
+// A concurrency limit left unset is handed to the SDK as zero, which it reads as
+// its own default.
+func TestWorkerOptions_UnsetConcurrencyLimitsKeepTheSDKDefaults(t *testing.T) {
+	cfg := ConfigWorker{TaskQueue: "orders"}
+	require.NoError(t, cfg.sanitize())
+
+	opts := workerOptions(&cfg, newServerConnection(), nil)
+
+	assert.Zero(t, opts.MaxConcurrentActivityExecutionSize)
+	assert.Zero(t, opts.MaxConcurrentLocalActivityExecutionSize)
+	assert.Zero(t, opts.MaxConcurrentWorkflowTaskExecutionSize)
+	assert.False(t, opts.DisableWorkflowWorker, "a worker polls workflow tasks unless told not to")
+}
+
+// TestWorkerRunsNoMoreActivitiesAtOnceThanItsLimit pins that
+// ConfigWorker.MaxConcurrentActivities is the number of activities a worker runs
+// at once: with eight scheduled together and a limit of three, three are running
+// before any is let go, and never a fourth beside them.
+func TestWorkerRunsNoMoreActivitiesAtOnceThanItsLimit(t *testing.T) {
+	const (
+		limit     = 3
+		scheduled = 8
+	)
+
+	address := startTemporal(t)
+	svc, _ := servicetest.New(t)
+
+	// The least workflow tasks a worker may run at once beside it: the workflow
+	// below still runs to its end.
+	c, w, err := New(t.Context(), svc, ConfigWorker{
+		Client:                     ConfigClient{Address: address},
+		TaskQueue:                  "bounded",
+		MaxConcurrentActivities:    limit,
+		MaxConcurrentWorkflowTasks: 2,
+	})
+	require.NoError(t, err)
+
+	held := NewActivity[int, int]("held-activity", workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var (
+		running atomic.Int32
+		peak    atomic.Int32
+		release = make(chan struct{})
+	)
+
+	// Whatever ends the test lets the activities go, so that a failure does not
+	// leave the worker waiting for them when it stops.
+	releaseAll := sync.OnceFunc(func() { close(release) })
+
+	w.RegisterActivity(held, func(ctx context.Context, input int) (int, error) {
+		now := running.Add(1)
+		defer running.Add(-1)
+
+		for {
+			seen := peak.Load()
+			if now <= seen || peak.CompareAndSwap(seen, now) {
+				break
+			}
+		}
+
+		select {
+		case <-release:
+			return input, nil
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	})
+
+	fanOut := NewWorkflow[int, int]("fan-out-workflow")
+	w.RegisterWorkflow(fanOut, func(ctx workflow.Context, count int) (int, error) {
+		runs := make([]*ActivityRun[int], 0, count)
+		for i := range count {
+			runs = append(runs, held.Execute(ctx, i))
+		}
+
+		var done int
+		for _, run := range runs {
+			if _, err := run.Await(ctx); err != nil {
+				return done, err
+			}
+
+			done++
+		}
+
+		return done, nil
+	})
+
+	require.NoError(t, svc.Start(t.Context()))
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+	t.Cleanup(releaseAll)
+
+	run, err := c.ExecuteWorkflow(t.Context(), fanOut, client.StartWorkflowOptions{ID: "bounded", TaskQueue: "bounded"}, scheduled)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return running.Load() == limit },
+		30*time.Second, 10*time.Millisecond, "the worker never ran as many activities as its limit allows")
+
+	// Five more are scheduled and waiting: time for a worker that ignored its
+	// limit to start one.
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int32(limit), running.Load(), "an activity started beside the ones the limit allows")
+
+	releaseAll()
+
+	done, err := run.Await(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, scheduled, done)
+	assert.Equal(t, int32(limit), peak.Load(), "the most activities that ran at once")
 }

@@ -723,6 +723,27 @@ func TestDo_ErrorsCarryNoQueryString(t *testing.T) {
 	assert.Contains(t, err.Error(), url+"/things")
 }
 
+// TestDo_MalformedLocationCarriesNoQueryValue pins the redaction on the one error
+// of net/http that quotes the request outside its URL: an endpoint redirecting
+// with the query it was asked with, to a Location that does not parse, is
+// reported with that header verbatim. The error named the API key that way even
+// with the URL it names redacted.
+func TestDo_MalformedLocationCarriesNoQueryValue(t *testing.T) {
+	url, _ := newServer(t, func(rw http.ResponseWriter, req *http.Request) {
+		rw.Header().Set("Location", "/moved/%zz?"+req.URL.RawQuery)
+		rw.WriteHeader(http.StatusFound)
+	})
+	conn := newConn(t, []string{url})
+
+	resp, err := conn.Get(t.Context(), "/things?api_key="+apiToken)
+	defer drainClose(resp)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), apiToken)
+	assert.Contains(t, err.Error(), "failed to parse Location header: ")
+	assert.Contains(t, err.Error(), url+"/things")
+}
+
 func TestDo_RedirectOnTheSameHostIsFollowed(t *testing.T) {
 	url, _ := newServer(t, func(rw http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/old" {

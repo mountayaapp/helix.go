@@ -112,8 +112,14 @@ func (l *customLogger) Warn(msg string, keyvals ...any) {
 	l.logger.Warn(lineContext(sc), msg, fields...)
 }
 
-// Error logs a message at the error level.
+// Error logs a message at the error level, but for the SDK's line for an activity
+// that returned the failure the worker's interceptor returned for a panic, which
+// was logged already as the panic it is (reportsRecoveredFailure).
 func (l *customLogger) Error(msg string, keyvals ...any) {
+	if reportsRecoveredFailure(msg, keyvals) {
+		return
+	}
+
 	sc, fields := l.parse(keyvals)
 	l.logger.Error(lineContext(sc), msg, fields...)
 }

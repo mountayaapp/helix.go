@@ -455,9 +455,10 @@ same wire shape used by the REST and GraphQL integrations:
 
 They are: `404` for an unknown path, `405` for a method the MCP path does not
 route (anything but `GET`, `POST`, `DELETE`), `403` for a `Host` not in
-`AllowedHosts`, and the readiness probe's `503`. The localized message is
-selected via the `Accept-Language` header (see `mcp.AddOrEditLanguage`) and the
-canonical machine code comes from `errorstack.HTTPStatusToCode`.
+`AllowedHosts`, the readiness probe's `503`, and the `500` a panic is answered
+with (see [Panics](#panics)). The localized message is selected via the
+`Accept-Language` header (see `mcp.AddOrEditLanguage`) and the canonical machine
+code comes from `errorstack.HTTPStatusToCode`.
 
 Responses written by the Go MCP SDK and by net/http are **plain text**, not the
 envelope:
@@ -476,6 +477,34 @@ envelope:
 Errors raised *inside* a tool handler are returned through the MCP tool result
 (`IsError: true`) by the SDK, as the protocol requires, and JSON-RPC errors in the
 JSON-RPC response; neither is reshaped by this integration.
+
+### Panics
+
+A panic on the goroutine serving the HTTP request (in `Middleware`, in a token
+validator, in a probe, in the transport's own handling of the request) is
+answered with a `500` error envelope, `INTERNAL_ERROR`, rather than a dropped
+connection and a stack on the process's standard error. The answer is written
+just inside `EdgeMiddleware`, so it carries the headers `EdgeMiddleware` set
+before handing the request on, and none of the ones set further in for the answer
+that never completed. It says nothing of the panic, which is logged with its
+stack against the request's context and recorded on its span.
+
+A panic once the response has started, as on a stream already flushed, cannot be
+answered any more: it is logged and recorded the same way, and the response is
+aborted with `http.ErrAbortHandler`. A handler that panics with
+`http.ErrAbortHandler` itself aborts as it always did.
+
+The SDK handles each MCP method on a goroutine of its own, outside the HTTP
+chain, and recovers nothing there. A panic in a tool's, a prompt's or a
+resource's handler, or in a receiving middleware, is recovered on that goroutine
+rather than ending the process. A tool call is answered with a tool error
+(`IsError`, one text: `Internal server error`), as a handler returning an error
+is, so the model reads that the tool failed; any other method with the JSON-RPC
+internal error (`-32603`, message `Internal server error`). Neither carries
+anything of the panic, whose value and stack are logged and recorded on the
+method's span, and the session goes on serving its other calls. A handler that
+wants its own answer to a panic, in the shape of its other errors, recovers for
+itself: this one then never sees it.
 
 ## Telemetry
 

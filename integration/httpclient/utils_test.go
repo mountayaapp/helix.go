@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +186,168 @@ func TestRedact(t *testing.T) {
 	plain := errors.New("plain")
 	assert.Equal(t, plain, redact(plain))
 	assert.NoError(t, redact(nil))
+}
+
+// apiToken is the credential the requests below carry.
+const apiToken = "SECRETVALUE0123456789"
+
+// TestRedact_MalformedLocation pins the one text of net/http that quotes what an
+// endpoint answered: a redirect whose Location header does not parse is reported
+// with the header as the endpoint wrote it. The header is left out whole, however
+// the endpoint repeated the request in it, and the error still names the URL
+// asked, without its query, and the parser's reason. Each case is a real redirect
+// net/http followed.
+func TestRedact_MalformedLocation(t *testing.T) {
+	mux := http.NewServeMux()
+
+	// Each handler answers a redirect whose Location does not parse and repeats
+	// what the request held as its case says.
+	redirect := func(path string, location func(req *http.Request) string) {
+		mux.HandleFunc(path, func(rw http.ResponseWriter, req *http.Request) {
+			rw.Header()["Location"] = []string{location(req)}
+			rw.WriteHeader(http.StatusFound)
+		})
+	}
+
+	redirect("/echo", func(req *http.Request) string { return "http://bad host/%zz?" + req.URL.RawQuery })
+	redirect("/lower", func(req *http.Request) string { return "http://bad host/%zz?" + strings.ToLower(req.URL.RawQuery) })
+	redirect("/plus", func(req *http.Request) string {
+		return "http://bad host/%zz?" + strings.ReplaceAll(req.URL.RawQuery, "%20", "+")
+	})
+	redirect("/reencoded", func(req *http.Request) string { return "http://bad host/%zz?" + req.URL.Query().Encode() })
+	redirect("/hop1", func(*http.Request) string { return "/hop2?X-Signature=SIGNEDSECRET0123456789abcdef" })
+	redirect("/hop2", func(req *http.Request) string { return "http://bad host/%zz?" + req.URL.RawQuery })
+	redirect("/bot/", func(req *http.Request) string { return "http://bad host/%zz" + req.URL.Path })
+	redirect("/port", func(req *http.Request) string { return "http://api.tld:" + req.URL.Query().Get("api_key") + "/next" })
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	testcases := []struct {
+		name   string
+		target string
+		secret string
+	}{
+		{name: "a key of the query, repeated as written", target: "/echo?api_key=" + apiToken, secret: apiToken},
+		{name: "a key shorter than eight bytes", target: "/echo?key=s3cr3t7", secret: "s3cr3t7"},
+		{name: "an encoded key, repeated in lower-case escapes", target: "/lower?api_key=secret%2BTOKEN%2F0123", secret: "secret%2btoken%2f0123"},
+		{name: "a key with spaces, repeated with plus signs", target: "/plus?api_key=secret%20token%20value", secret: "secret+token+value"},
+		{name: "a key the endpoint re-encodes", target: "/reencoded?api_key=secret/token+0123~x", secret: "secret"},
+		{name: "a key in a path segment", target: "/bot/" + apiToken + "/send", secret: apiToken},
+		{name: "a signature an earlier redirect added, repeated by the next", target: "/hop1?api_key=" + apiToken, secret: "SIGNEDSECRET0123456789abcdef"},
+		{name: "a key the parser quotes in its reason", target: "/port?api_key=" + apiToken, secret: apiToken},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, server.URL+tc.target, nil)
+			require.NoError(t, err)
+
+			resp, err := (&http.Client{}).Do(req)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.secret, "the endpoint did not repeat the secret: the case proves nothing")
+
+			redacted := redact(err).Error()
+
+			// The request's own path, the caller's, is kept: what follows it is the
+			// endpoint's answer, of which nothing is.
+			_, answered, found := strings.Cut(redacted, `": `)
+			require.True(t, found, redacted)
+
+			assert.NotContains(t, answered, tc.secret)
+			assert.NotContains(t, redacted, "?", "a query is left in %s", redacted)
+			assert.True(t, strings.HasPrefix(answered, "failed to parse Location header: "), redacted)
+		})
+	}
+
+	t.Run("a value that is a word of the text leaves the text as it was", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodGet, server.URL+"/echo?q=Location&why=unexpected", nil)
+		require.NoError(t, err)
+
+		resp, err := (&http.Client{}).Do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		require.Error(t, err)
+
+		assert.Equal(t, `Get "`+server.URL+`/echo": failed to parse Location header: invalid character " " in host name`, redact(err).Error())
+	})
+}
+
+// TestWithoutLocation pins how the text net/http gives a malformed Location is
+// read: the header left out, the reason kept with what it quotes left out, and a
+// text that does not read as expected reduced to the sentence alone.
+func TestWithoutLocation(t *testing.T) {
+	testcases := []struct {
+		name   string
+		text   string
+		want   string
+		isText bool
+	}{
+		{
+			name:   "as net/http writes it",
+			text:   `failed to parse Location header "/moved/%zz?api_key=x": parse "/moved/%zz?api_key=x": invalid URL escape "%zz"`,
+			want:   `failed to parse Location header: invalid URL escape "%zz"`,
+			isText: true,
+		},
+		{
+			name:   "a reason quoting nothing",
+			text:   `failed to parse Location header "http://a b/?k=v": parse "http://a b/?k=v": net/url: invalid control character in URL`,
+			want:   "failed to parse Location header: net/url: invalid control character in URL",
+			isText: true,
+		},
+		{
+			name:   "a reason quoting a part of the header",
+			text:   `failed to parse Location header "http://api.tld:SECRETVALUE/x": parse "http://api.tld:SECRETVALUE/x": invalid port ":SECRETVALUE" after host`,
+			want:   `failed to parse Location header: invalid port "…" after host`,
+			isText: true,
+		},
+		{
+			name:   "a text that does not read as expected",
+			text:   `failed to parse Location header "unterminated`,
+			want:   "failed to parse Location header",
+			isText: true,
+		},
+		{name: "another text", text: "stopped after 10 redirects"},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := withoutLocation(tc.text)
+
+			assert.Equal(t, tc.isText, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// Any other failure is left as net/http told it, and the failure a redacted one
+// reports is still told the way it was: whether the request was sent, whether it
+// timed out.
+func TestRedact_KeepsWhatTheFailureWas(t *testing.T) {
+	address := "https://api.tld/search?q=connection+refused"
+
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")}
+	err := redact(&url.Error{Op: "Get", URL: address, Err: refused})
+
+	assert.Equal(t, `Get "https://api.tld/search": dial tcp: connect: connection refused`, err.Error())
+	assert.True(t, unsent(err))
+
+	var opErr *net.OpError
+	require.ErrorAs(t, err, &opErr)
+	assert.Same(t, refused, opErr)
+
+	malformed := redact(&url.Error{Op: "Get", URL: address, Err: fmt.Errorf("failed to parse Location header %q: %w", "/x?k=v", context.DeadlineExceeded)})
+	assert.Equal(t, `Get "https://api.tld/search": failed to parse Location header`, malformed.Error())
+	assert.ErrorIs(t, malformed, context.DeadlineExceeded)
+
+	var urlErr *url.Error
+	require.ErrorAs(t, malformed, &urlErr)
+	assert.NoError(t, errors.Unwrap(urlErr.Err), "the text left out is reachable through the chain")
+	assert.False(t, urlErr.Timeout(), "a wrapped deadline was never a timeout to *url.Error")
 }
 
 func TestStatusError(t *testing.T) {

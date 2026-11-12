@@ -732,7 +732,7 @@ func (svc *Service) shutdownProviders(ctx context.Context) []providerError {
 
 	warn := func(signal string, err error) {
 		if err != nil && svc.logger != nil {
-			svc.logger.Warn(ctx, fmt.Sprintf("Failed to deliver the final %s export: %v", signal, err))
+			svc.logger.Warn(ctx, fmt.Sprintf("Failed to deliver the final %s export", signal), helixlog.Err(err))
 		}
 	}
 

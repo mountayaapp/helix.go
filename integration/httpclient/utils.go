@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mountayaapp/helix.go/errorstack"
@@ -107,31 +108,226 @@ func unsent(err error) bool {
 	return errors.As(err, &dnsErr)
 }
 
-// redact strips the query string and the fragment from the URL a *url.Error
-// names, and the password from its credentials, so that an API key passed as a
-// query parameter does not reach the span or the log the error ends up in. The
-// error is modified in place: it is the one net/http just returned, and nothing
-// else holds it.
+// malformedLocation starts the text net/http gives a redirect whose Location
+// header does not parse: the header quoted as the endpoint wrote it, then the
+// parser's error, which quotes it again.
+const malformedLocation = "failed to parse Location header "
+
+// redact returns err, the failure of a request, with nothing of the request's
+// query in its text, so that an API key passed as a query parameter does not
+// reach the span or the log the error ends up in. An error that is no *url.Error
+// names no URL, and is returned as it is.
 //
-// A URL that cannot be parsed back is dropped rather than kept verbatim, since
-// what makes it unparsable could be anywhere in it.
+// net/http reports a failed request as a *url.Error quoting the URL asked, the
+// redirect's when one was followed. The query string and the fragment are
+// stripped from it, and the password from its credentials. The error is modified
+// in place: it is the one net/http just returned, and nothing else holds it. A URL
+// that cannot be parsed back is dropped rather than kept verbatim, since what
+// makes it unparsable could be anywhere in it.
+//
+// Some texts quote what the endpoint answered. A redirect whose Location header
+// does not parse is reported with the header as the endpoint wrote it, which can
+// repeat the request's query, re-encoded or not, a signature an earlier redirect
+// added, or a key the endpoint put in a path segment, which nothing tells from a
+// path: the header is left out of that text whole, and the parser's reason kept
+// (withoutLocation). A response net/http refuses to read, its status line or a
+// header line malformed, is reported with the line or the value it refused, which
+// can hold the same: the text is cut where the quote begins, and the sentence
+// naming what was refused kept (withoutAnswer).
 func redact(err error) error {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) {
 		return err
 	}
 
-	u, parseErr := url.Parse(urlErr.URL)
-	if parseErr != nil {
-		urlErr.URL = ""
+	urlErr.URL = withoutQuery(urlErr.URL)
+
+	if urlErr.Err == nil {
 		return err
+	}
+
+	text := urlErr.Err.Error()
+	if redacted, ok := withoutLocation(text); ok {
+		urlErr.Err = &redactedError{text: redacted, err: urlErr.Err}
+	} else if redacted, ok := withoutAnswer(text); ok {
+		urlErr.Err = &redactedError{text: redacted, err: urlErr.Err}
+	}
+
+	return err
+}
+
+// answerQuotes are the sentences after which the standard library quotes what an
+// endpoint answered and it refused to read, each with what is kept of it:
+// net/textproto's for a header line, net/http's for a status line and the values
+// of the headers that frame a body, and the HTTP/2 transport's for a header's
+// name. What follows the sentence is the endpoint's, quoted as it wrote it.
+var answerQuotes = []struct {
+	quotes string
+	kept   string
+}{
+	{quotes: "malformed MIME header initial line: ", kept: "malformed MIME header initial line"},
+	{quotes: "malformed MIME header line: ", kept: "malformed MIME header line"},
+	{quotes: "malformed MIME header: missing colon: ", kept: "malformed MIME header: missing colon"},
+	{quotes: "malformed HTTP response ", kept: "malformed HTTP response"},
+	{quotes: "malformed HTTP status code ", kept: "malformed HTTP status code"},
+	{quotes: "malformed HTTP version ", kept: "malformed HTTP version"},
+	{quotes: "bad trailer key ", kept: "bad trailer key"},
+	{quotes: "bad Content-Length ", kept: "bad Content-Length"},
+	{quotes: "invalid empty Content-Length ", kept: "invalid empty Content-Length"},
+	{quotes: "message cannot contain multiple Content-Length headers; got ", kept: "message cannot contain multiple Content-Length headers"},
+	{quotes: "too many transfer encodings: ", kept: "too many transfer encodings"},
+	{quotes: "unsupported transfer encoding: ", kept: "unsupported transfer encoding"},
+	{quotes: "invalid header field name ", kept: "invalid header field name"},
+	{quotes: "invalid header field value for ", kept: "invalid header field value"},
+	{quotes: "invalid pseudo-header ", kept: "invalid pseudo-header"},
+	{quotes: "duplicate pseudo-header ", kept: "duplicate pseudo-header"},
+}
+
+// withoutAnswer returns text cut where it first quotes what an endpoint answered
+// (answerQuotes), the sentence naming what was refused kept and nothing after it,
+// and false when text quotes no answer.
+func withoutAnswer(text string) (string, bool) {
+	cut, kept := -1, ""
+	for _, answer := range answerQuotes {
+		if i := strings.Index(text, answer.quotes); i >= 0 && (cut < 0 || i < cut) {
+			cut, kept = i, answer.kept
+		}
+	}
+
+	if cut < 0 {
+		return "", false
+	}
+
+	return text[:cut] + kept, true
+}
+
+// withoutQuery returns address without its query string, its fragment and the
+// password of its credentials, and the empty string when it cannot be parsed.
+func withoutQuery(address string) string {
+	u, err := url.Parse(address)
+	if err != nil {
+		return ""
 	}
 
 	u.RawQuery, u.ForceQuery = "", false
 	u.Fragment, u.RawFragment = "", ""
-	urlErr.URL = u.Redacted()
 
-	return err
+	return u.Redacted()
+}
+
+// withoutLocation returns the text net/http gives a malformed Location header,
+// `failed to parse Location header "<header>": parse "<header>": <reason>`, as
+// "failed to parse Location header: <reason>", every string the reason quotes
+// left out too, and false for any other text. A text that does not read as
+// expected is that sentence without a reason.
+func withoutLocation(text string) (string, bool) {
+	rest, found := strings.CutPrefix(text, malformedLocation)
+	if !found {
+		return "", false
+	}
+
+	const withoutHeader = "failed to parse Location header"
+
+	header, err := strconv.QuotedPrefix(rest)
+	if err != nil {
+		return withoutHeader, true
+	}
+
+	// What follows is the parser's *url.Error: `parse "<header>": <reason>`.
+	parsed, found := strings.CutPrefix(rest[len(header):], ": parse ")
+	if !found {
+		return withoutHeader, true
+	}
+
+	again, err := strconv.QuotedPrefix(parsed)
+	if err != nil {
+		return withoutHeader, true
+	}
+
+	reason, found := strings.CutPrefix(parsed[len(again):], ": ")
+	if !found || reason == "" {
+		return withoutHeader, true
+	}
+
+	return withoutHeader + ": " + withoutQuoted(reason), true
+}
+
+// maxQuotedReason is how long a string the parser's reason quotes is kept at
+// most: the character it stopped on, or an escape (`invalid URL escape "%zz"`).
+// A longer one is a part of the header (`invalid port ":8443" after host`).
+const maxQuotedReason = 4
+
+// withoutQuoted returns text with every string it quotes, `"..."` as strconv
+// quotes one, written as `"…"` when it is longer than maxQuotedReason: the parser
+// quotes the part of the header it stopped on.
+func withoutQuoted(text string) string {
+	var b strings.Builder
+	for {
+		i := strings.IndexByte(text, '"')
+		if i < 0 {
+			b.WriteString(text)
+			return b.String()
+		}
+
+		b.WriteString(text[:i])
+
+		quoted, err := strconv.QuotedPrefix(text[i:])
+		if err != nil {
+			b.WriteString(text[i:])
+			return b.String()
+		}
+
+		if value, err := strconv.Unquote(quoted); err == nil && len(value) <= maxQuotedReason {
+			b.WriteString(quoted)
+		} else {
+			b.WriteString(`"…"`)
+		}
+
+		text = text[i+len(quoted):]
+	}
+}
+
+// redactedError stands for an error whose text quoted what the endpoint answered:
+// it reads as that text with what it quoted left out.
+//
+// The error it stands for is kept for errors.Is and errors.As alone, so that what
+// the failure was is still told the way it was (a deadline, a connection that
+// could not be established, which decides whether the request fails over). It
+// declares no Unwrap: the text of the error it stands for is the one thing it
+// exists to keep out of a span or a log, and whatever prints a chain would reach
+// it there.
+type redactedError struct {
+	text string
+	err  error
+}
+
+// Error returns the redacted text.
+func (e *redactedError) Error() string {
+	return e.text
+}
+
+// Is reports whether the error this one stands for is target.
+func (e *redactedError) Is(target error) bool {
+	return errors.Is(e.err, target)
+}
+
+// As finds target in the chain of the error this one stands for.
+func (e *redactedError) As(target any) bool {
+	return errors.As(e.err, target)
+}
+
+// Timeout reports whether the error this one stands for is a timeout, which is
+// how a *url.Error asks the error it carries.
+func (e *redactedError) Timeout() bool {
+	timeout, ok := e.err.(interface{ Timeout() bool }) //nolint:errorlint // As *url.Error asks: the error itself, not its chain.
+	return ok && timeout.Timeout()
+}
+
+// Temporary reports whether the error this one stands for is temporary, which
+// is how a *url.Error asks the error it carries.
+func (e *redactedError) Temporary() bool {
+	temporary, ok := e.err.(interface{ Temporary() bool }) //nolint:errorlint // As *url.Error asks: the error itself, not its chain.
+	return ok && temporary.Temporary()
 }
 
 // errInvalidPath returns the error a request is refused with when its URL is not

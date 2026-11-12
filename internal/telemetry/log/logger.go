@@ -3,8 +3,10 @@ package log
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/mountayaapp/helix.go/internal/telemetry/sanitize"
 	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
 
 	"go.opentelemetry.io/contrib/bridges/otelzap"
@@ -27,30 +29,73 @@ type Logger struct {
 // Debug logs a message at the debug level with optional structured fields. The
 // record is correlated with the span carried by ctx, if any.
 func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Debug(msg, withContext(ctx, fields)...)
+	l.zap.Debug(msg, withContext(ctx, sanitizeErrors(fields))...)
 }
 
 // Info logs a message at the info level with optional structured fields. The
 // record is correlated with the span carried by ctx, if any.
 func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Info(msg, withContext(ctx, fields)...)
+	l.zap.Info(msg, withContext(ctx, sanitizeErrors(fields))...)
 }
 
 // Warn logs a message at the warn level with optional structured fields. The
 // record is correlated with the span carried by ctx, if any.
 func (l *Logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Warn(msg, withContext(ctx, fields)...)
+	l.zap.Warn(msg, withContext(ctx, sanitizeErrors(fields))...)
 }
 
 // Error logs a message at the error level with optional structured fields. The
 // record is correlated with the span carried by ctx, if any.
 func (l *Logger) Error(ctx context.Context, msg string, fields ...zap.Field) {
-	l.zap.Error(msg, withContext(ctx, fields)...)
+	l.zap.Error(msg, withContext(ctx, sanitizeErrors(fields))...)
 }
 
 // With returns a child Logger that always includes the given fields.
 func (l *Logger) With(fields ...zap.Field) *Logger {
-	return &Logger{zap: l.zap.With(fields...), provider: l.provider}
+	return &Logger{zap: l.zap.With(sanitizeErrors(fields)...), provider: l.provider}
+}
+
+// sanitizeErrors returns fields with every error among them, a field built by
+// zap.Error or zap.Any from an error, made what the function registered with
+// telemetry/trace.SetErrorSanitizer makes of it (sanitize.Error), under the same
+// key. An error it turns into nil is not written at all.
+//
+// Every record goes through it on its way to both cores, standard error and the
+// export alike, so no call site can write an error unrestated by forgetting to.
+// Only an error is handed over: a value that is no error, a string holding an
+// error's text included, is written as it is.
+//
+// With nothing registered, or no error among them, fields is returned as it is,
+// so the record is the one it always was. Otherwise the result never shares a
+// backing array with fields, which belongs to the caller.
+func sanitizeErrors(fields []zap.Field) []zap.Field {
+	if !sanitize.Registered() {
+		return fields
+	}
+
+	var sanitized []zap.Field
+	for i, field := range fields {
+		if field.Type != zapcore.ErrorType {
+			continue
+		}
+
+		err, ok := field.Interface.(error)
+		if !ok || err == nil {
+			continue
+		}
+
+		if sanitized == nil {
+			sanitized = slices.Clone(fields)
+		}
+
+		sanitized[i] = zap.NamedError(field.Key, sanitize.Error(err))
+	}
+
+	if sanitized == nil {
+		return fields
+	}
+
+	return sanitized
 }
 
 // Sync flushes any buffered log entries.

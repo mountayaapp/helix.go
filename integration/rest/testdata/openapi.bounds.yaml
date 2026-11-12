@@ -1,0 +1,68 @@
+openapi: 3.1.0
+info:
+  title: Uploads
+  version: 1.0.0
+paths:
+  /uploads:
+    post:
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [kind, file]
+              additionalProperties: false
+              properties:
+                kind:
+                  type: string
+                  enum: [report, picture]
+                copies:
+                  type: integer
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: The upload.
+  /subscriptions:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [topic]
+              properties:
+                topic:
+                  type: string
+                  minLength: 3
+                weekly:
+                  type: boolean
+      responses:
+        "200":
+          description: The subscription.
+  /folders:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Folder"
+      responses:
+        "200":
+          description: The folder.
+components:
+  schemas:
+    Folder:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        folders:
+          type: array
+          items:
+            $ref: "#/components/schemas/Folder"

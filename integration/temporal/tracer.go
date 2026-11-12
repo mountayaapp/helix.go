@@ -9,6 +9,7 @@ import (
 	"github.com/mountayaapp/helix.go/integration"
 	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
 	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/contrib/opentelemetry"
@@ -114,7 +115,11 @@ func buildTracer(inst *integration.Instrument, svc *service.Service) (intercepto
 			// out, and dropping them would flatten the trace.
 			_, span := tracer.Start(ctx, name, append(opts, constant)...)
 
-			return span
+			// The interceptor finishes the span by its own hand, recording the
+			// operation's error on it and setting the status to the error's text, so
+			// both go through the sanitizer the application registered, as on every
+			// other integration's span (trace.SetErrorSanitizer).
+			return trace.SanitizingSpan(span)
 		},
 	})
 	if err != nil {

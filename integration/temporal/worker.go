@@ -44,7 +44,7 @@ func New(ctx context.Context, svc *service.Service, cfg ConfigWorker) (*Client, 
 	}
 
 	server := newServerConnection()
-	server.worker = worker.New(c, cfg.TaskQueue, workerOptions(&cfg, server))
+	server.worker = worker.New(c, cfg.TaskQueue, workerOptions(&cfg, server, svc))
 
 	// The client is attached before the worker is served, so that every path out of
 	// here leaves it with exactly one owner: this function until Attach succeeds,
@@ -61,16 +61,22 @@ func New(ctx context.Context, svc *service.Service, cfg ConfigWorker) (*Client, 
 	return newClient(c, &cfg.Client), &Worker{worker: server.worker}, nil
 }
 
-// workerOptions returns the SDK options of a worker configured by cfg and run by
-// server.
-func workerOptions(cfg *ConfigWorker, server *serverConnection) worker.Options {
+// workerOptions returns the SDK options of a worker configured by cfg, run by
+// server and served by svc. A concurrency limit left at zero is handed on as zero,
+// which the SDK reads as its own default.
+func workerOptions(cfg *ConfigWorker, server *serverConnection, svc *service.Service) worker.Options {
 	return worker.Options{
-		WorkerActivitiesPerSecond:    cfg.WorkerActivitiesPerSecond,
-		TaskQueueActivitiesPerSecond: cfg.TaskQueueActivitiesPerSecond,
-		EnableSessionWorker:          cfg.EnableSessionWorker,
-		WorkerStopTimeout:            cfg.StopTimeout,
-		SysInfoProvider:              cfg.SysInfoProvider,
-		OnFatalError:                 server.fail,
+		MaxConcurrentActivityExecutionSize:      cfg.MaxConcurrentActivities,
+		MaxConcurrentLocalActivityExecutionSize: cfg.MaxConcurrentLocalActivities,
+		MaxConcurrentWorkflowTaskExecutionSize:  cfg.MaxConcurrentWorkflowTasks,
+		WorkerActivitiesPerSecond:               cfg.WorkerActivitiesPerSecond,
+		TaskQueueActivitiesPerSecond:            cfg.TaskQueueActivitiesPerSecond,
+		EnableSessionWorker:                     cfg.EnableSessionWorker,
+		DisableWorkflowWorker:                   cfg.DisableWorkflowWorker,
+		WorkerStopTimeout:                       cfg.StopTimeout,
+		SysInfoProvider:                         cfg.SysInfoProvider,
+		Interceptors:                            workerInterceptors(svc),
+		OnFatalError:                            server.fail,
 	}
 }
 

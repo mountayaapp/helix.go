@@ -65,11 +65,28 @@ Used by `temporal.New()`.
   telemetry (`temporal.name`). The worker is registered as a server under it, and
   its client as a dependency under it too. Default: `TaskQueue`.
 - `TaskQueue` (`string`) — Task queue the worker polls. **Required**.
+- `MaxConcurrentActivities` (`int`) — How many activities the worker runs at once.
+  An activity task is polled only while a slot is free, so this is what bounds the
+  memory, the connections and the upstream calls the activities of one worker hold
+  together: size it from what one activity holds, and for how long. Default:
+  `1000`.
+- `MaxConcurrentLocalActivities` (`int`) — How many local activities the worker
+  runs at once, outside the limit above. Default: `1000`.
+- `MaxConcurrentWorkflowTasks` (`int`) — How many workflow tasks the worker runs at
+  once. `1` is a validation error: the SDK refuses it, since such a worker would
+  only ever poll its sticky queue. Default: `1000`.
 - `WorkerActivitiesPerSecond` (`float64`) — Max activities per second per worker.
   Default: `100000`.
 - `TaskQueueActivitiesPerSecond` (`float64`) — Max activities per second for the
   entire task queue (server-managed). Default: `100000`.
 - `EnableSessionWorker` (`bool`) — Enable Temporal session worker. Default: `false`.
+- `DisableWorkflowWorker` (`bool`) — Serve the task queue's activities and nothing
+  else: no workflow task is polled, on the task queue or a sticky queue. A worker
+  polls for workflow tasks whether or not a workflow is registered, so this is what a
+  worker meant for activities alone sets. Give a group of activities slots of their
+  own beside another worker's by scheduling them on such a worker's task queue (their
+  `ActivityOptions.TaskQueue`). Registering a workflow on it panics, and
+  `MaxConcurrentWorkflowTasks` does not apply. Default: `false`.
 - `StopTimeout` (`time.Duration`) — How long the worker waits, once told to stop,
   for the activities it is running to finish. See [Shutdown](#shutdown). Default:
   `25 * time.Second`.
@@ -79,8 +96,8 @@ Used by `temporal.New()`.
   into every binary; pass `sysinfo.SysInfoProvider()` to opt in. Experimental in the
   SDK. Default: `nil`, and heartbeats report zero.
 
-A rate limit or `StopTimeout` left at zero keeps the default; a negative one is a
-validation error. In JSON, `StopTimeout` is integer nanoseconds.
+A rate limit, a concurrency limit or `StopTimeout` left at zero keeps the default; a
+negative one is a validation error. In JSON, `StopTimeout` is integer nanoseconds.
 
 Validation errors point at the field to fix, following the JSON shape of the
 configuration: `config.address` for `Connect`, `config.client.address` and
@@ -393,6 +410,42 @@ Register every workflow and activity before the Service starts. The implementati
 signature is checked against the handle's declared types at compile time, so a
 mismatched `func` will not build.
 
+#### An activity that panics
+
+An activity that panics fails with a fixed message, `activity panicked`, and no
+stack trace. Left to the SDK, the failure would carry the value the code panicked
+with, printed, and the stack of its goroutine, both stored in the history of the
+workflow that scheduled the activity and handed to its code as the error's text;
+a panic's value is whatever the failing code held, a query or a key included.
+
+What a workflow and a retry policy act on is unchanged: the failure has the type
+the SDK gives a panic, `PanicError`, so the workflow still receives a
+`*temporal.PanicError` and a policy listing `PanicError` in
+`NonRetryableErrorTypes` still stops on it, and it is retryable, so the activity
+is retried as its policy says. The panic and its stack are recorded on the
+activity's span, and what the SDK records of a panic is recorded as it always
+was: the line `Activity panic.` (`LocalActivity panic.` for a local activity),
+with `WorkflowID`, `RunID`, `ActivityType` and `Attempt`, through the Service's
+logger, the panic written as an error field that the function registered with
+`trace.SetErrorSanitizer` is applied to, and the counters
+`temporal_activity_task_error` and `temporal_local_activity_error`, under the
+tags the SDK gives them, so an alert on either goes on firing. A panic is one
+line, as under a plain worker: the SDK logs `Activity error.` for an activity
+that returns an error, which the recovered panic is, and the Service's logger
+leaves that line out for the failure the interceptor returned. A worker whose
+client logs through another logger than helix's (an SDK worker handed
+`WorkerInterceptors()` on a client of its own) writes both, `Activity panic.`
+and then `Activity error.` with `activity panicked`, which are one event. A panic
+in a workflow's own code is the SDK's to handle, and is not covered.
+
+A test running activities in the SDK's test environment gets the same behaviour
+by handing it the worker's interceptors:
+
+```go
+env := suite.NewTestActivityEnvironment()
+env.SetWorkerOptions(worker.Options{Interceptors: temporal.WorkerInterceptors()})
+```
+
 #### Activity options
 
 The `workflow.ActivityOptions` an activity is declared with are its defaults.
@@ -649,7 +702,11 @@ the attributes of the Event the work arrived with (`event.id`, `event.name`, …
 only what the client's header held. See [Event propagation](#event-propagation).
 
 A failure is recorded on the span, and sets its status to error unless it is an
-application error the workflow or activity marked as benign.
+application error the workflow or activity marked as benign. The SDK records the
+error and writes its text as the status's description, and both go through the
+function registered with `trace.SetErrorSanitizer`, as on the span of every other
+integration: an activity's error is whatever the code under it returned, a
+driver's text quoting the values it was handed included.
 
 Example:
 ```
@@ -713,3 +770,7 @@ other line helix logs. `workflow.GetLogger` stays quiet while the workflow repla
   from personal data or secrets you would not hand to the caller.
 - Errors returned by the client are the SDK's own, and may name the server, the
   namespace or the workflow. Do not send them to a client as they are.
+- An activity that panics stores neither the value it panicked with nor a stack in
+  workflow history. See [An activity that panics](#an-activity-that-panics). An
+  error an activity returns is stored with its text, as the SDK stores it: do not
+  put in it what the history should not hold.

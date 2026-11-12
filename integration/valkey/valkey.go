@@ -254,6 +254,65 @@ type Valkey interface {
 	Do(ctx context.Context, cmd valkey.Completed) valkey.ValkeyResult
 }
 
+// ConfirmedSubscriber is implemented by the Valkey Connect returns. Its
+// SubscribeConfirmed is Subscribe, telling the caller when the server holds the
+// subscription.
+//
+// Subscribe is asked for on the connection the subscriptions share, and the
+// server confirms it some time after the call: a command the caller sends
+// meanwhile, on another of the client's connections, can reach the server first.
+// A caller that reads a durable copy of a channel's messages, the history of a
+// stream, and relies on the channel for whatever comes after it must not read
+// before the server holds the subscription, or a message published in between is
+// in neither:
+//
+//	subscriber, ok := v.(valkey.ConfirmedSubscriber)
+//	if !ok {
+//	  return errors.New("cannot tell when a subscription is held")
+//	}
+//
+//	confirmed := make(chan struct{})
+//	ended := make(chan error, 1)
+//	go func() {
+//	  ended <- subscriber.SubscribeConfirmed(ctx, "orders", func() { close(confirmed) }, handle)
+//	}()
+//
+//	select {
+//	case <-confirmed:
+//	  // Read the history: every message published from now on reaches handle.
+//	case err := <-ended:
+//	  // Never subscribed: err says why, nil when ctx ended first.
+//	}
+//
+// It is an interface of its own rather than a method of Valkey, so that an
+// implementation of Valkey written elsewhere, a test's in-memory one among them,
+// does not have to change: a caller asserts it, and decides what to do with a
+// Valkey that cannot say.
+type ConfirmedSubscriber interface {
+
+	// SubscribeConfirmed subscribes to channel and calls handler for every message
+	// until ctx is done, exactly as Subscribe does, and calls confirmed once the
+	// server has confirmed the subscription. A Subscribe joining a channel whose
+	// server subscription is already confirmed is confirmed at once.
+	//
+	// From the moment confirmed is called, a message published on the channel
+	// after any command the caller sends is delivered to handler, unless the
+	// subscription ends first, for the reasons and with the errors Subscribe
+	// gives. confirmed is called at most once, on the goroutine running
+	// SubscribeConfirmed and before handler is first called, so it must return
+	// promptly: no message is handed over while it runs.
+	//
+	// confirmed is not called when the subscription ends before the server
+	// confirms it. SubscribeConfirmed then returns nil when ctx ended first, and
+	// otherwise the error that ended it: the connection lost or refused, or the
+	// server refusing the command. A caller waiting for the confirmation waits for
+	// the call's return beside it, and for nothing else.
+	SubscribeConfirmed(ctx context.Context, channel string, confirmed func(), handler func(ctx context.Context, msg PubSubMessage)) error
+}
+
+// The connection Connect returns says when its subscriptions are held.
+var _ ConfirmedSubscriber = (*connection)(nil)
+
 // connection is what Connect hands back: the Valkey implementation. Its
 // lifecycle is not reachable from it; see dependency.
 type connection struct {
@@ -593,7 +652,7 @@ func (conn *connection) CompareAndSet(ctx context.Context, key string, expected,
 
 	// Copied for the reason buildSet copies a value.
 	args := []string{string(expected), string(value), strconv.FormatInt(ms, 10)}
-	set, err := compareAndSetScript().Exec(ctx, conn.client, []string{key}, args).AsInt64()
+	set, err := compareAndSetScript.lua().Exec(ctx, conn.client, []string{key}, args).AsInt64()
 	if err != nil {
 		op.RecordError("failed to compare and set key", err)
 		return false, err
@@ -611,7 +670,7 @@ func (conn *connection) CompareAndDelete(ctx context.Context, key string, expect
 
 	// Copied for the reason buildSet copies a value.
 	args := []string{string(expected)}
-	deleted, err := compareAndDeleteScript().Exec(ctx, conn.client, []string{key}, args).AsInt64()
+	deleted, err := compareAndDeleteScript.lua().Exec(ctx, conn.client, []string{key}, args).AsInt64()
 	if err != nil {
 		op.RecordError("failed to compare and delete key", err)
 		return false, err
@@ -945,6 +1004,19 @@ func (conn *connection) Publish(ctx context.Context, channel string, message []b
 //
 // It automatically handles tracing and error recording.
 func (conn *connection) Subscribe(ctx context.Context, channel string, handler func(ctx context.Context, msg PubSubMessage)) error {
+	return conn.subscribe(ctx, channel, nil, handler)
+}
+
+// SubscribeConfirmed is Subscribe, calling confirmed once the server holds the
+// subscription. See ConfirmedSubscriber.
+func (conn *connection) SubscribeConfirmed(ctx context.Context, channel string, confirmed func(), handler func(ctx context.Context, msg PubSubMessage)) error {
+	return conn.subscribe(ctx, channel, confirmed, handler)
+}
+
+// subscribe subscribes to channel and calls handler for every message until ctx
+// is done, and calls confirmed, when it is not nil, once the server has confirmed
+// the subscription and before handler is first called.
+func (conn *connection) subscribe(ctx context.Context, channel string, confirmed func(), handler func(ctx context.Context, msg PubSubMessage)) error {
 	setupCtx, op := conn.inst.StartOperation(ctx, trace.SpanKindClient, "Subscribe")
 	conn.recordChannel(op.Span, channel)
 
@@ -975,6 +1047,13 @@ func (conn *connection) Subscribe(ctx context.Context, channel string, handler f
 	select {
 	case <-cs.confirmed:
 		endSetup(nil)
+
+		// The server holds the subscription and sub is one of its members: a
+		// message published after any command the caller sends from here on is
+		// queued for sub.
+		if confirmed != nil {
+			confirmed()
+		}
 	case <-sub.ended:
 		endSetup(sub.err)
 		return sub.err

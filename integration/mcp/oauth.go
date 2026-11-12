@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountayaapp/helix.go/telemetry/trace"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -334,7 +335,7 @@ func (a *OAuthResourceServer) verify(ctx context.Context, token string, _ *http.
 	info, err := a.ValidateToken(ctx, token)
 	switch {
 	case errors.Is(err, mcpauth.ErrOAuth):
-		oteltrace.SpanFromContext(ctx).RecordError(err)
+		recordException(ctx, err)
 		return nil, err
 	case errors.Is(err, ErrTooManyRequests) && !errors.Is(err, mcpauth.ErrInvalidToken):
 		answer, ok := ctx.Value(gateAnswerKey{}).(*gateAnswer)
@@ -343,7 +344,7 @@ func (a *OAuthResourceServer) verify(ctx context.Context, token string, _ *http.
 		}
 
 		// Routine, like a rejected token: the span records it, and nothing is logged.
-		oteltrace.SpanFromContext(ctx).RecordError(err)
+		recordException(ctx, err)
 		answer.answerLater(http.StatusTooManyRequests, err)
 
 		return nil, mcpauth.ErrInvalidToken
@@ -382,7 +383,7 @@ func (a *OAuthResourceServer) verify(ctx context.Context, token string, _ *http.
 // ErrServiceUnavailable, and is worth an operator's attention, so it is logged
 // too.
 func rejectToken(ctx context.Context, err error) error {
-	oteltrace.SpanFromContext(ctx).RecordError(err)
+	recordException(ctx, err)
 	if !errors.Is(err, mcpauth.ErrInvalidToken) {
 		log.Warn(ctx, "Failed to validate bearer token", log.Err(err))
 	}
@@ -399,4 +400,14 @@ func (a *OAuthResourceServer) metadataHandler() http.Handler {
 		AuthorizationServers: a.AuthorizationServers,
 		ScopesSupported:      a.Scopes,
 	})
+}
+
+// recordException records err as an exception on the span ctx carries, without
+// touching the span's status: a refused token is a 4xx, which leaves it unset.
+// The error goes through the sanitizer an application may have registered
+// (trace.SetErrorSanitizer), as every error a span records does.
+func recordException(ctx context.Context, err error) {
+	if err = trace.SanitizeError(err); err != nil {
+		oteltrace.SpanFromContext(ctx).RecordError(err)
+	}
 }

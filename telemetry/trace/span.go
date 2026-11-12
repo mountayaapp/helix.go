@@ -1,6 +1,8 @@
 package trace
 
 import (
+	"context"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -33,6 +35,20 @@ func NewSpan(span oteltrace.Span) *Span {
 	return &Span{span: span}
 }
 
+// SpanFromContext returns the Span the context carries: the innermost one started
+// on it, which under a server integration is the span of the work in progress, or
+// a child of it. It serves code that records on a span it did not start, such as
+// the error behind a failed request.
+//
+//	trace.SpanFromContext(ctx).RecordError("failed to render the report", err)
+//
+// A context that carries no span yields a Span that records nothing, so the
+// result is always safe to call methods on. The caller does not own the Span and
+// must not End it.
+func SpanFromContext(ctx context.Context) *Span {
+	return NewSpan(oteltrace.SpanFromContext(ctx))
+}
+
 // SetAttributes sets one or more OTEL attributes on the span.
 func (s *Span) SetAttributes(attrs ...attribute.KeyValue) {
 	if s.span == nil {
@@ -59,12 +75,19 @@ func (s *Span) IsRecording() bool {
 
 // RecordError records the error as an exception span event and sets the span
 // status to error.
+//
+// The error recorded is the one the function registered with SetErrorSanitizer
+// makes of err, when one is registered. An error it turns into nil is recorded as
+// no exception, and the status is still set.
 func (s *Span) RecordError(msg string, err error) {
 	if s.span == nil || err == nil {
 		return
 	}
 
-	s.span.RecordError(err)
+	if err = SanitizeError(err); err != nil {
+		recordException(s.span, err)
+	}
+
 	s.span.SetStatus(codes.Error, msg)
 }
 

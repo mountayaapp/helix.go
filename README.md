@@ -661,6 +661,13 @@ authorization decision.
 
   Available field types: `log.String`, `log.Int`, `log.Int64`, `log.Float64`,
   `log.Bool`, `log.Err`, `log.Any`, `log.Duration`.
+
+  An error handed to the logger as an error, with `log.Err` or with `log.Any`, goes
+  through the function registered with `trace.SetErrorSanitizer` before it is
+  written to standard error and exported, whoever logs it: your code, an
+  integration, or a library an integration logs for, such as the Temporal SDK.
+  Pass an error as a field rather than formatting it into the message or a
+  string: a string is written as it is.
 </details>
 
 <details>
@@ -703,6 +710,56 @@ authorization decision.
 
   Available span kinds: `trace.SpanKindInternal`, `trace.SpanKindServer`,
   `trace.SpanKindClient`, `trace.SpanKindProducer`, `trace.SpanKindConsumer`.
+
+  To record on a span you did not start, such as the request's own, read it from
+  the context. A context carrying no span yields one that records nothing, and
+  the span is not yours to end.
+
+  ```go
+  // Deep in the code serving the request, with no span of its own.
+  if err := renderReport(ctx); err != nil {
+    trace.SpanFromContext(ctx).RecordError("failed to render the report", err)
+  }
+  ```
+
+  An error's text is written by whatever failed, and a driver's or a client's
+  often quotes what it was handed: a statement with the values bound to it, the
+  input a type refused, the query of a URL. Every integration records the error
+  of a failed operation on its span, so register, once at start and before any
+  integration connects, the function every error goes through before a span
+  records it. Only the application knows which texts may leave it:
+
+  ```go
+  // The error of a request that failed keeps the URL it names without its query
+  // string. Every other error is recorded as it is.
+  trace.SetErrorSanitizer(func(err error) error {
+    var urlErr *url.Error
+    if !errors.As(err, &urlErr) {
+      return err
+    }
+
+    u, parseErr := url.Parse(urlErr.URL)
+    if parseErr != nil {
+      return errors.New("request failed")
+    }
+
+    u.RawQuery = ""
+    return fmt.Errorf("%s %s: request failed", urlErr.Op, u)
+  })
+  ```
+
+  The function is handed the error with its chain, and returns the error to
+  record in its place, or `nil` to record no exception: the span's status is set
+  to error either way. It applies to every span of the process, the integrations'
+  and your own, and to every error the Service's logger writes as an error field
+  (see structured logging above). With none registered an error is written as it
+  is. One that panics is recovered, and a fixed error written in its place.
+
+  Instrumentation that records an error on an OpenTelemetry span by its own hand,
+  rather than through a `trace.Span`, is held to the same function by handing it
+  the span `trace.SanitizingSpan` returns: its exceptions, and a status
+  description repeating the error's text, are what the function makes of the
+  error. `trace.SanitizeError` applies the function to one error.
 </details>
 
 <details>
