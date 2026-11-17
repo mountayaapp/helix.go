@@ -1,32 +1,39 @@
 package bucket
 
 import (
-	"net/url"
+	"context"
 	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
-	_ "gocloud.dev/blob/s3blob"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/ratelimit"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"gocloud.dev/blob"
+	"gocloud.dev/blob/s3blob"
 )
 
 // DriverAWS uses Amazon S3, or any S3-compatible service reached through
 // Config.Endpoint: MinIO, Cloudflare R2, LocalStack, Ceph.
 //
-// Credentials come from the AWS SDK's default chain, in its order: the
-// AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables, the shared
-// configuration and credentials files (AWS_PROFILE), web identity federation
-// (IAM Roles for Service Accounts on EKS), and the ECS or EC2 instance role.
-// Nothing is required in the environment beyond what that chain needs.
-//
-// The region is Config.Region, and when it is empty, the SDK's own resolution:
-// AWS_REGION, then AWS_DEFAULT_REGION, then the shared configuration profile.
+// The client is built from the Config alone: the static key pair in
+// Config.AccessKeyID and Config.SecretAccessKey, the region in Config.Region,
+// and the service in Config.Endpoint when it is set. Nothing is read from the
+// environment, the shared configuration and credentials files, web identity
+// federation or an instance role: an AWS_* variable set beside the service
+// changes neither the credentials, the region nor the endpoint the requests go
+// to. The key pair and the region are required.
 //
 // Config example:
 //
 //	bucket.Config{
-//	  Driver: bucket.DriverAWS,
-//	  Bucket: "my-bucket",
-//	  Region: "eu-west-1",
+//	  Driver:          bucket.DriverAWS,
+//	  Bucket:          "my-bucket",
+//	  Region:          "eu-west-1",
+//	  AccessKeyID:     os.Getenv("MY_ACCESS_KEY_ID"),
+//	  SecretAccessKey: os.Getenv("MY_SECRET_ACCESS_KEY"),
 //	}
 const DriverAWS Driver = "aws"
 
@@ -39,11 +46,14 @@ var awsBucketName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{1,253}[a-zA-Z
 // driverAWS is the behaviour behind DriverAWS.
 type driverAWS struct{}
 
-// validate ensures the bucket name is one S3 accepts and that Endpoint, when
-// set, is a URL the SDK can send requests to.
+// validate ensures the bucket name is one S3 accepts, that the region and the
+// key pair are set, and that Endpoint, when set, is a URL the SDK can send
+// requests to.
 func (driverAWS) validate(cfg *Config) []errorstack.Entry {
 	entries := validateName(cfg.Bucket, awsBucketName,
 		"Must be 3 to 255 letters, digits, '.', '-' or '_', starting and ending with a letter or digit")
+
+	entries = append(entries, required("region", cfg.Region)...)
 
 	if cfg.Endpoint != "" {
 		if _, ok := parseEndpoint(cfg.Endpoint); !ok {
@@ -54,28 +64,47 @@ func (driverAWS) validate(cfg *Config) []errorstack.Entry {
 		}
 	}
 
+	entries = append(entries, required("access_key_id", cfg.AccessKeyID)...)
+	entries = append(entries, required("secret_access_key", cfg.SecretAccessKey)...)
+
 	return entries
 }
 
-// url returns the s3blob URL of the bucket.
+// open opens the bucket through an S3 client built from cfg alone (newS3Client).
+func (driverAWS) open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	return s3blob.OpenBucket(ctx, newS3Client(cfg), cfg.Bucket, nil)
+}
+
+// newS3Client returns the S3 client cfg describes, built from cfg and from
+// nothing else. The aws.Config is assembled here rather than loaded, so that it
+// carries no configuration source: the SDK resolves an endpoint, a region or a
+// credential from those sources alone, and with none it finds nothing in the
+// environment or the shared files to resolve them from.
 //
 // A custom endpoint is addressed path-style — the bucket in the URL path rather
 // than in the host name — because that is the one form every S3-compatible
 // service accepts, and the only one MinIO accepts without extra configuration.
-func (driverAWS) url(cfg *Config) (*url.URL, error) {
-	query := url.Values{}
-	if cfg.Region != "" {
-		query.Set("region", cfg.Region)
+//
+// Retries are the SDK's standard ones without its client-side retry quota, as
+// Go Cloud configures the clients it loads itself: a burst of failed requests
+// would otherwise exhaust the quota and fail every request after it without
+// retrying, long after the service has recovered.
+func newS3Client(cfg *Config) *s3.Client {
+	awsCfg := aws.Config{
+		Region:      cfg.Region,
+		Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+		Retryer: func() aws.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				o.RateLimiter = ratelimit.None
+			})
+		},
 	}
 
 	if cfg.Endpoint != "" {
-		query.Set("endpoint", cfg.Endpoint)
-		query.Set("use_path_style", "true")
+		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
 	}
 
-	return &url.URL{
-		Scheme:   "s3",
-		Host:     cfg.Bucket,
-		RawQuery: query.Encode(),
-	}, nil
+	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.UsePathStyle = cfg.Endpoint != ""
+	})
 }

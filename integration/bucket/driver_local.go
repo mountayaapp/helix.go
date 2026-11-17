@@ -1,12 +1,14 @@
 package bucket
 
 import (
+	"context"
 	"net/url"
 	"path/filepath"
 	"strings"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
+	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/fileblob"
 )
 
@@ -14,7 +16,8 @@ import (
 // directory, which must exist; a relative one is resolved against the working
 // directory when Connect is called.
 //
-// Neither Config.Region nor Config.Endpoint applies.
+// None of Config.Region, Config.Endpoint, Config.AccessKeyID or
+// Config.SecretAccessKey applies.
 //
 // Config example:
 //
@@ -32,8 +35,15 @@ type driverLocal struct{}
 func (driverLocal) validate(cfg *Config) []errorstack.Entry {
 	entries := unsupported(DriverLocal, "region", cfg.Region)
 	entries = append(entries, unsupported(DriverLocal, "endpoint", cfg.Endpoint)...)
+	entries = append(entries, unsupported(DriverLocal, "access_key_id", cfg.AccessKeyID)...)
+	entries = append(entries, unsupported(DriverLocal, "secret_access_key", cfg.SecretAccessKey)...)
 
 	return entries
+}
+
+// open opens the directory from its URL.
+func (d driverLocal) open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	return openURL(ctx, d, cfg)
 }
 
 // url returns the fileblob URL of the directory.

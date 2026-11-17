@@ -1,11 +1,13 @@
 package bucket
 
 import (
+	"context"
 	"net/url"
 	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
+	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/gcsblob"
 )
 
@@ -17,8 +19,10 @@ import (
 // service account on Compute Engine and Cloud Run are picked up. Nothing is
 // required in the environment beyond what that chain needs.
 //
-// Neither Config.Region nor Config.Endpoint applies: a bucket name is global,
-// and the Cloud Storage client reaches an emulator through STORAGE_EMULATOR_HOST.
+// None of Config.Region, Config.Endpoint, Config.AccessKeyID or
+// Config.SecretAccessKey applies: a bucket name is global, the Cloud Storage
+// client reaches an emulator through STORAGE_EMULATOR_HOST, and the credentials
+// are the ones above.
 //
 // Config example:
 //
@@ -44,8 +48,15 @@ func (driverGoogleCloud) validate(cfg *Config) []errorstack.Entry {
 
 	entries = append(entries, unsupported(DriverGoogleCloud, "region", cfg.Region)...)
 	entries = append(entries, unsupported(DriverGoogleCloud, "endpoint", cfg.Endpoint)...)
+	entries = append(entries, unsupported(DriverGoogleCloud, "access_key_id", cfg.AccessKeyID)...)
+	entries = append(entries, unsupported(DriverGoogleCloud, "secret_access_key", cfg.SecretAccessKey)...)
 
 	return entries
+}
+
+// open opens the bucket from its URL.
+func (d driverGoogleCloud) open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	return openURL(ctx, d, cfg)
 }
 
 // url returns the gcsblob URL of the bucket.

@@ -1,11 +1,13 @@
 package bucket
 
 import (
+	"context"
 	"net/url"
 	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
+	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/azureblob"
 )
 
@@ -22,7 +24,7 @@ import (
 // Config.Endpoint is the scheme and domain of the Blob service, for a sovereign
 // cloud ("https://blob.core.usgovcloudapi.net") or the Azurite emulator
 // ("http://127.0.0.1:10000"); the account name is still the one above.
-// Config.Region does not apply.
+// Config.Region, Config.AccessKeyID and Config.SecretAccessKey do not apply.
 //
 // Config example:
 //
@@ -50,7 +52,8 @@ var azureReservedContainers = map[string]bool{
 type driverAzure struct{}
 
 // validate ensures the container name is one Blob Storage accepts, that Endpoint
-// names a service and nothing more, and that Region is not set.
+// names a service and nothing more, and that neither Region nor a key pair is
+// set.
 func (driverAzure) validate(cfg *Config) []errorstack.Entry {
 	var entries []errorstack.Entry
 
@@ -76,8 +79,15 @@ func (driverAzure) validate(cfg *Config) []errorstack.Entry {
 	}
 
 	entries = append(entries, unsupported(DriverAzure, "region", cfg.Region)...)
+	entries = append(entries, unsupported(DriverAzure, "access_key_id", cfg.AccessKeyID)...)
+	entries = append(entries, unsupported(DriverAzure, "secret_access_key", cfg.SecretAccessKey)...)
 
 	return entries
+}
+
+// open opens the container from its URL.
+func (d driverAzure) open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	return openURL(ctx, d, cfg)
 }
 
 // url returns the azureblob URL of the container. The driver builds the service

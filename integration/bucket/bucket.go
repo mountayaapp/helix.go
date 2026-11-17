@@ -65,10 +65,12 @@ type Bucket interface {
 	Delete(ctx context.Context, key string) error
 }
 
-// openBucket opens the bucket a URL names through the drivers registered with Go
-// Cloud. It is a variable so that a test can observe the bucket a failed Connect
-// opened, which nothing else hands back.
-var openBucket = blob.DefaultURLMux().OpenBucketURL
+// openBucket opens the bucket a valid Config names through its driver. It is a
+// variable so that a test can observe the bucket a failed Connect opened, which
+// nothing else hands back.
+var openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	return cfg.Driver.impl().open(ctx, cfg)
+}
 
 // connection is the Bucket handed to the caller. Its lifecycle is reachable only
 // through dependency, which is what the Service holds.
@@ -150,12 +152,7 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (Bucket, err
 // open opens the bucket through the driver cfg names, inside Subfolder when it
 // is set.
 func open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
-	u, err := cfg.Driver.impl().url(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := openBucket(ctx, u)
+	client, err := openBucket(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

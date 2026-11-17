@@ -40,10 +40,9 @@ $ go get github.com/mountayaapp/helix.go/integration/bucket
   normalized: a leading `/` is dropped and a single trailing `/` is added, so
   `"my/subfolder"`, `"/my/subfolder"` and `"my/subfolder/"` are the same folder.
   Default: `""`, the bucket root (`"/"` is the root too).
-- `Region` (`string`) — Region of the bucket, for `DriverAWS` only. When empty,
-  the AWS SDK resolves it: `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the shared
-  configuration profile. An S3-compatible service names its own — `"us-east-1"`
-  for MinIO, `"auto"` for Cloudflare R2.
+- `Region` (`string`) — Region of the bucket, which every request is signed for,
+  for `DriverAWS` only. An S3-compatible service names its own — `"us-east-1"` for
+  MinIO, `"auto"` for Cloudflare R2. **Required** for `DriverAWS`.
 - `Endpoint` (`string`) — URL of the storage service, when it is not the
   provider's public one.
   - `DriverAWS`: the service requests are sent to — an S3-compatible service or a
@@ -54,20 +53,25 @@ $ go get github.com/mountayaapp/helix.go/integration/bucket
     (`"http://127.0.0.1:10000"`), with no path.
   - `DriverGoogleCloud` and `DriverLocal` refuse it. The Cloud Storage client
     reaches an emulator through `STORAGE_EMULATOR_HOST`.
+- `AccessKeyID` (`string`) — Access key of the static key pair the requests are
+  signed with, for `DriverAWS` only. Never encoded to JSON. **Required** for
+  `DriverAWS`.
+- `SecretAccessKey` (`string`) — Secret key of that key pair, for `DriverAWS`
+  only. Never encoded to JSON. **Required** for `DriverAWS`.
 
-A field a driver has no use for is refused rather than ignored: a `Region` or an
-`Endpoint` set for the Google Cloud or local driver is a validation error.
+A field a driver has no use for is refused rather than ignored: a `Region`, an
+`Endpoint` or a key pair set for the Google Cloud or local driver is a validation
+error, and so is a `Region` or a key pair for the Azure driver. A validation error
+names the field, never its value.
 
 ### Credentials
 
-No credential is ever set in `Config`, and none is required in the environment:
-each driver uses its SDK's default credential chain, so workload identities work
-without a static key.
-
-- **AWS** — the AWS SDK's default chain: `AWS_ACCESS_KEY_ID` and
-  `AWS_SECRET_ACCESS_KEY`, the shared configuration and credentials files
-  (`AWS_PROFILE`), web identity (IAM Roles for Service Accounts on EKS), and the
-  ECS or EC2 instance role.
+- **AWS** — the key pair in `Config`, and nothing else. The client is built from
+  the `Config` alone: no `AWS_*` variable, shared configuration or credentials
+  file, web identity or instance role is read, so neither the credentials, the
+  region nor the endpoint can change behind the caller's back. Where the key pair
+  comes from — the environment, a secret store — is the caller's to decide, under
+  names of its own.
 - **Google Cloud** — Application Default Credentials: the file named by
   `GOOGLE_APPLICATION_CREDENTIALS`, the gcloud CLI's credentials, or the metadata
   server (GKE Workload Identity, the attached service account on Compute Engine
@@ -77,6 +81,10 @@ without a static key.
   `AZURE_STORAGE_SAS_TOKEN`, `AZURE_STORAGE_CONNECTION_STRING`, and otherwise
   `DefaultAzureCredential` (environment service principal, workload identity,
   managed identity, Azure CLI).
+
+The Google Cloud and Azure drivers take no credential in `Config` and none is
+required in the environment beyond what their chains need, so workload identities
+work without a static key.
 
 The identity needs permission to **list** the bucket (`s3:ListBucket`,
 `storage.objects.list`, or listing blobs on Azure) as well as to read and write
@@ -107,11 +115,13 @@ func run() error {
   }
 
   b, err := bucket.Connect(ctx, svc, bucket.Config{
-    Name:      "uploads",
-    Driver:    bucket.DriverAWS,
-    Bucket:    "my-bucket",
-    Region:    "eu-west-1",
-    Subfolder: "path/to/subfolder/",
+    Name:            "uploads",
+    Driver:          bucket.DriverAWS,
+    Bucket:          "my-bucket",
+    Region:          "eu-west-1",
+    Subfolder:       "path/to/subfolder/",
+    AccessKeyID:     os.Getenv("UPLOADS_ACCESS_KEY_ID"),
+    SecretAccessKey: os.Getenv("UPLOADS_SECRET_ACCESS_KEY"),
   })
   if err != nil {
     return err
@@ -130,10 +140,12 @@ An S3-compatible service is the AWS driver with an `Endpoint`:
 
 ```go
 b, err := bucket.Connect(ctx, svc, bucket.Config{
-  Driver:   bucket.DriverAWS,
-  Bucket:   "my-bucket",
-  Region:   "us-east-1",
-  Endpoint: "http://localhost:9000",
+  Driver:          bucket.DriverAWS,
+  Bucket:          "my-bucket",
+  Region:          "us-east-1",
+  Endpoint:        "http://localhost:9000",
+  AccessKeyID:     os.Getenv("STORAGE_ACCESS_KEY_ID"),
+  SecretAccessKey: os.Getenv("STORAGE_SECRET_ACCESS_KEY"),
 })
 ```
 
@@ -289,9 +301,13 @@ and `gocloud.dev/blob/bytes_written` through the global meter provider.
 
 ## Security
 
-- The bucket name is checked against the provider's naming rules, and every
-  driver URL is built field by field: a `Bucket` or `Region` value can never add a
-  parameter of its own, such as another endpoint or anonymous access.
+- The bucket name is checked against the provider's naming rules. The AWS client
+  is built field by field from the `Config`, and every other driver's URL too: a
+  `Bucket` or `Region` value can never add a parameter of its own, such as another
+  endpoint or anonymous access.
+- The AWS driver's key pair is never encoded to JSON, stamped on a span or quoted
+  in a validation error, and nothing in the environment can stand in for it or
+  redirect its requests.
 - An `Endpoint` with credentials, a query or a fragment is refused. An `http://`
   endpoint is plaintext: keep it to a local emulator.
 - A relative directory for the local driver is resolved against the working

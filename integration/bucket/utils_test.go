@@ -42,12 +42,14 @@ func TestInstrumentAttributes(t *testing.T) {
 			},
 		},
 		{
-			name: "a region and an endpoint add one attribute each",
+			name: "a region and an endpoint add one attribute each, the key pair none",
 			cfg: Config{
-				Driver:   DriverAWS,
-				Bucket:   "my-bucket",
-				Region:   "us-east-1",
-				Endpoint: "http://localhost:9000",
+				Driver:          DriverAWS,
+				Bucket:          "my-bucket",
+				Region:          "us-east-1",
+				Endpoint:        "http://localhost:9000",
+				AccessKeyID:     "access-key",
+				SecretAccessKey: "secret-key",
 			},
 			attrs: []attribute.KeyValue{
 				attribute.String("bucket.driver", "aws"),

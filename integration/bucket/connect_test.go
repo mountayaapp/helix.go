@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,28 +87,59 @@ func (s3 *fakeS3) requests() ([]string, []string) {
 	return append([]string(nil), s3.paths...), append([]string(nil), s3.authKeys...)
 }
 
-// isolateAWS clears every source the AWS SDK reads credentials and a region from,
-// so that the developer's own configuration cannot leak into a test, and returns
-// the directory the shared configuration files are read from.
-func isolateAWS(t *testing.T) string {
+// setHostileAWSEnv sets every source the AWS SDK's default chain reads
+// credentials, a region and an endpoint from — the AWS_* variables, a profile,
+// and the shared configuration and credentials files — to values of their own,
+// which no Config of a test names. The endpoint they name is a decoy failing the
+// test on any request it receives: DriverAWS must follow none of them.
+func setHostileAWSEnv(t *testing.T) {
 	t.Helper()
 
-	for _, key := range []string{
-		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-		"AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE",
-		"AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE",
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-		"AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3",
-	} {
-		t.Setenv(key, "")
-	}
+	decoy := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		t.Errorf("a request reached the endpoint the environment names: %s %s", req.Method, req.URL.Path)
+		rw.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(decoy.Close)
 
 	dir := t.TempDir()
-	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
-	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	config := filepath.Join(dir, "config")
+	credentials := filepath.Join(dir, "credentials")
 
-	return dir
+	require.NoError(t, os.WriteFile(config, []byte(
+		"[default]\nregion = ap-south-1\nendpoint_url = "+decoy.URL+"\n"+
+			"[profile hostile]\nregion = ap-south-1\nendpoint_url = "+decoy.URL+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(credentials, []byte(
+		"[default]\naws_access_key_id = from-file\naws_secret_access_key = from-file\n"+
+			"[hostile]\naws_access_key_id = from-file\naws_secret_access_key = from-file\n"), 0o600))
+
+	for key, value := range map[string]string{
+		"AWS_ACCESS_KEY_ID":           "from-env",
+		"AWS_SECRET_ACCESS_KEY":       "from-env",
+		"AWS_SESSION_TOKEN":           "from-env",
+		"AWS_REGION":                  "us-west-2",
+		"AWS_DEFAULT_REGION":          "us-west-2",
+		"AWS_PROFILE":                 "hostile",
+		"AWS_ENDPOINT_URL":            decoy.URL,
+		"AWS_ENDPOINT_URL_S3":         decoy.URL,
+		"AWS_CONFIG_FILE":             config,
+		"AWS_SHARED_CREDENTIALS_FILE": credentials,
+		"AWS_EC2_METADATA_DISABLED":   "true",
+	} {
+		t.Setenv(key, value)
+	}
+}
+
+// awsConfig returns a valid DriverAWS Config of the bucket "my-bucket" behind
+// endpoint, signed for eu-west-3 with the key pair "config-key".
+func awsConfig(endpoint string) Config {
+	return Config{
+		Driver:          DriverAWS,
+		Bucket:          "my-bucket",
+		Region:          "eu-west-3",
+		Endpoint:        endpoint,
+		AccessKeyID:     "config-key",
+		SecretAccessKey: "config-secret",
+	}
 }
 
 // captureOpened makes Connect hand every bucket it opens to the returned slice,
@@ -119,8 +149,8 @@ func captureOpened(t *testing.T) *[]*blob.Bucket {
 
 	var opened []*blob.Bucket
 	original := openBucket
-	openBucket = func(ctx context.Context, u *url.URL) (*blob.Bucket, error) {
-		b, err := original(ctx, u)
+	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+		b, err := original(ctx, cfg)
 		if err == nil {
 			opened = append(opened, b)
 		}
@@ -153,25 +183,60 @@ func assertServiceUnavailable(t *testing.T, err error, message string) {
 	assert.NotEmpty(t, entries[0].Extensions["reason"])
 }
 
+// TestConnect_InvalidConfigOpensNothing pins that a Config that is not valid
+// opens nothing, and that DriverAWS takes no region or key pair the environment
+// offers in place of the ones its Config lacks.
 func TestConnect_InvalidConfigOpensNothing(t *testing.T) {
-	svc, _ := servicetest.New(t)
+	setHostileAWSEnv(t)
 
 	original := openBucket
-	openBucket = func(ctx context.Context, u *url.URL) (*blob.Bucket, error) {
-		t.Errorf("Connect opened %q although its Config is not valid", u)
+	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+		t.Errorf("Connect opened %q although its Config is not valid", cfg.Bucket)
 		return nil, errors.New("unexpected")
 	}
 	t.Cleanup(func() { openBucket = original })
 
-	_, err := Connect(t.Context(), svc, Config{
-		Driver: DriverAWS,
-		Bucket: "x?endpoint=https://elsewhere.example",
-	})
+	testcases := []struct {
+		name  string
+		cfg   Config
+		paths [][]any
+	}{
+		{
+			name: "injected bucket",
+			cfg: Config{
+				Driver:          DriverAWS,
+				Bucket:          "x?endpoint=https://elsewhere.example",
+				Region:          "us-east-1",
+				AccessKeyID:     "config-key",
+				SecretAccessKey: "config-secret",
+			},
+			paths: [][]any{{"config", "bucket"}},
+		},
+		{
+			name: "region and key pair left to the environment",
+			cfg:  Config{Driver: DriverAWS, Bucket: "my-bucket"},
+			paths: [][]any{
+				{"config", "region"},
+				{"config", "access_key_id"},
+				{"config", "secret_access_key"},
+			},
+		},
+	}
 
-	entries := errorstack.EntriesOf(err)
-	require.Len(t, entries, 1)
-	assert.Equal(t, []any{"config", "bucket"}, entries[0].Path)
-	assert.Equal(t, errorstack.CodeValidationFailed, entries[0].Extensions["code"])
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := servicetest.New(t)
+
+			_, err := Connect(t.Context(), svc, tc.cfg)
+
+			entries := errorstack.EntriesOf(err)
+			require.Len(t, entries, len(tc.paths))
+			for i, entry := range entries {
+				assert.Equal(t, tc.paths[i], entry.Path)
+				assert.Equal(t, errorstack.CodeValidationFailed, entry.Extensions["code"])
+			}
+		})
+	}
 }
 
 // TestConnect_LocalRelativeDirectory pins the regression end to end: a relative
@@ -218,9 +283,7 @@ func TestConnect_Unreachable(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			isolateAWS(t)
-			t.Setenv("AWS_ACCESS_KEY_ID", "key")
-			t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+			setHostileAWSEnv(t)
 
 			s3 := newFakeS3(t)
 			s3.status.Store(int32(tc.status))
@@ -228,12 +291,7 @@ func TestConnect_Unreachable(t *testing.T) {
 
 			svc, _ := servicetest.New(t)
 
-			_, err := Connect(t.Context(), svc, Config{
-				Driver:   DriverAWS,
-				Bucket:   "my-bucket",
-				Region:   "us-east-1",
-				Endpoint: s3.URL,
-			})
+			_, err := Connect(t.Context(), svc, awsConfig(s3.URL))
 
 			assertServiceUnavailable(t, err, "Failed to reach bucket")
 			require.Len(t, *opened, 1)
@@ -264,30 +322,23 @@ func TestConnect_AttachFailureClosesBucket(t *testing.T) {
 	assertClosed(t, (*opened)[0])
 }
 
-// TestConnect_AWSEndpoint pins what the DriverAWS URL turns into on the wire: the
-// endpoint is the one requested, the bucket is in the path, the region is the
-// one signed for, and the credentials come from the shared credentials file —
-// a source the driver used to refuse by requiring AWS_ACCESS_KEY_ID.
+// TestConnect_AWSEndpoint pins what a DriverAWS Config turns into on the wire:
+// the endpoint is the one configured, the bucket is in the path, the region is
+// the one signed for, and the access key is the Config's, while every AWS_*
+// variable and the shared configuration and credentials files name others.
 func TestConnect_AWSEndpoint(t *testing.T) {
-	dir := isolateAWS(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "credentials"),
-		[]byte("[default]\naws_access_key_id = from-file\naws_secret_access_key = secret\n"), 0o600))
+	setHostileAWSEnv(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	_, err := Connect(t.Context(), svc, Config{
-		Driver:   DriverAWS,
-		Bucket:   "my-bucket",
-		Region:   "eu-west-3",
-		Endpoint: s3.URL,
-	})
+	_, err := Connect(t.Context(), svc, awsConfig(s3.URL))
 	require.NoError(t, err)
 
 	paths, auths := s3.requests()
 	require.NotEmpty(t, paths)
 	assert.Equal(t, "/my-bucket", paths[0])
-	assert.True(t, strings.Contains(auths[0], "Credential=from-file/"), "Authorization=%q", auths[0])
+	assert.True(t, strings.Contains(auths[0], "Credential=config-key/"), "Authorization=%q", auths[0])
 	assert.True(t, strings.Contains(auths[0], "/eu-west-3/s3/"), "Authorization=%q", auths[0])
 }
 
@@ -295,20 +346,15 @@ func TestConnect_AWSEndpoint(t *testing.T) {
 // bucket root — on a driver where it shows: S3 keys "/key" and "key" are two
 // different objects, and the first is what "/" used to produce.
 func TestConnect_SubfolderRoot(t *testing.T) {
-	isolateAWS(t)
-	t.Setenv("AWS_ACCESS_KEY_ID", "key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	setHostileAWSEnv(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	b, err := Connect(t.Context(), svc, Config{
-		Driver:    DriverAWS,
-		Bucket:    "my-bucket",
-		Region:    "us-east-1",
-		Endpoint:  s3.URL,
-		Subfolder: "/",
-	})
+	cfg := awsConfig(s3.URL)
+	cfg.Subfolder = "/"
+
+	b, err := Connect(t.Context(), svc, cfg)
 	require.NoError(t, err)
 
 	exists, err := b.Exists(t.Context(), "key")
@@ -320,19 +366,12 @@ func TestConnect_SubfolderRoot(t *testing.T) {
 }
 
 func TestDependency_CheckHealth(t *testing.T) {
-	isolateAWS(t)
-	t.Setenv("AWS_ACCESS_KEY_ID", "key")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	setHostileAWSEnv(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	b, err := Connect(t.Context(), svc, Config{
-		Driver:   DriverAWS,
-		Bucket:   "my-bucket",
-		Region:   "us-east-1",
-		Endpoint: s3.URL,
-	})
+	b, err := Connect(t.Context(), svc, awsConfig(s3.URL))
 	require.NoError(t, err)
 
 	dep := dependency{conn: b.(*connection)}

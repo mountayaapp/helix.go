@@ -52,12 +52,12 @@ type Config struct {
 	//   "my/subfolder/"
 	Subfolder string `json:"subfolder,omitempty"`
 
-	// Region is the region the bucket lives in. DriverAWS only.
-	//
-	// Defaults to the AWS SDK's own resolution when left empty: AWS_REGION, then
-	// AWS_DEFAULT_REGION, then the shared configuration profile. An
+	// Region is the region the bucket lives in, which every request is signed
+	// for. DriverAWS only. It is never read from the environment. An
 	// S3-compatible service names its own: "us-east-1" for MinIO, "auto" for
 	// Cloudflare R2.
+	//
+	// Required for DriverAWS.
 	//
 	// Example:
 	//
@@ -76,6 +76,20 @@ type Config struct {
 	//   "https://<account-id>.r2.cloudflarestorage.com"
 	//   "http://127.0.0.1:10000"
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// AccessKeyID is the access key of the static key pair the requests are
+	// signed with. DriverAWS only, which reads no credential from anywhere else.
+	// It is never encoded to JSON, nor quoted in a validation error.
+	//
+	// Required for DriverAWS.
+	AccessKeyID string `json:"-"`
+
+	// SecretAccessKey is the secret key of the static key pair the requests are
+	// signed with. DriverAWS only. It is never encoded to JSON, nor quoted in a
+	// validation error.
+	//
+	// Required for DriverAWS.
+	SecretAccessKey string `json:"-"`
 }
 
 // sanitize sets default values - when applicable - and validates the configuration.
