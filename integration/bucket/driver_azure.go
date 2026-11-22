@@ -2,37 +2,71 @@ package bucket
 
 import (
 	"context"
+	"encoding/base64"
+	"io"
 	"net/url"
 	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	"go.opentelemetry.io/otel/attribute"
 	"gocloud.dev/blob"
-	_ "gocloud.dev/blob/azureblob"
+	"gocloud.dev/blob/azureblob"
 )
 
 // DriverAzure uses Azure Blob Storage. Config.Bucket is the container.
 //
-// The storage account is named by AZURE_STORAGE_ACCOUNT, or by the connection
-// string. Credentials are, in this order: a shared key (AZURE_STORAGE_KEY), a SAS
-// token (AZURE_STORAGE_SAS_TOKEN), a connection string
-// (AZURE_STORAGE_CONNECTION_STRING), and otherwise the Azure SDK's
-// DefaultAzureCredential — environment service principal, workload identity,
-// managed identity, then the Azure CLI. Nothing is required in the environment
-// beyond the account name and what that chain needs.
-//
-// Config.Endpoint is the scheme and domain of the Blob service, for a sovereign
-// cloud ("https://blob.core.usgovcloudapi.net") or the Azurite emulator
-// ("http://127.0.0.1:10000"); the account name is still the one above.
-// Config.Region, Config.AccessKeyID and Config.SecretAccessKey do not apply.
+// The requests are signed with the storage account's shared key, AccountName and
+// AccountKey, and go to Endpoint, or to the account's public Blob service when it
+// is empty. The client is built from these fields alone. Nothing is read from the
+// environment: no AZURE_STORAGE_* variable, connection string,
+// DefaultAzureCredential, or managed or workload identity, so neither the
+// credentials nor the service the requests go to can change behind the caller's
+// back.
 //
 // Config example:
 //
 //	bucket.Config{
-//	  Driver: bucket.DriverAzure,
 //	  Bucket: "my-container",
+//	  Driver: bucket.DriverAzure{
+//	    AccountName: "mystorageaccount",
+//	    AccountKey:  os.Getenv("MY_ACCOUNT_KEY"),
+//	  },
 //	}
-const DriverAzure Driver = "azure"
+type DriverAzure struct {
+
+	// AccountName is the name of the storage account the shared key belongs to. It
+	// is never encoded to JSON, nor quoted in a validation error.
+	//
+	// Required.
+	//
+	// Example:
+	//
+	//   "mystorageaccount"
+	AccountName string `json:"-"`
+
+	// AccountKey is one of the storage account's access keys, base64-encoded as
+	// Azure issues it. It is never encoded to JSON, nor quoted in a validation
+	// error.
+	//
+	// Required.
+	AccountKey string `json:"-"`
+
+	// Endpoint is the URL of the account's Blob service, used as given, when it is
+	// not the public one: a sovereign cloud, a custom domain, or the Azurite
+	// emulator, whose URL carries the account in its path.
+	//
+	// Default:
+	//
+	//   "https://<AccountName>.blob.core.windows.net"
+	//
+	// Examples:
+	//
+	//   "https://mystorageaccount.blob.core.usgovcloudapi.net"
+	//   "http://127.0.0.1:10000/devstoreaccount1"
+	Endpoint string `json:"endpoint,omitempty"`
+}
 
 // azureContainerName is the Blob Storage naming rule for a container: lowercase
 // letters and digits, with hyphens that are never leading, trailing or doubled.
@@ -48,66 +82,97 @@ var azureReservedContainers = map[string]bool{
 	"$logs": true,
 }
 
-// driverAzure is the behaviour behind DriverAzure.
-type driverAzure struct{}
+// azureAccountName is the Storage naming rule for an account: 3 to 24 lowercase
+// letters and digits. It also keeps the account name a single host label of the
+// default service URL.
+var azureAccountName = regexp.MustCompile(`^[a-z0-9]{3,24}$`)
 
-// validate ensures the container name is one Blob Storage accepts, that Endpoint
-// names a service and nothing more, and that neither Region nor a key pair is
-// set.
-func (driverAzure) validate(cfg *Config) []errorstack.Entry {
+// name returns "azure".
+func (DriverAzure) name() string {
+	return "azure"
+}
+
+// validate ensures the container name is one Blob Storage accepts, that the
+// account name and key are set and well-formed, and that Endpoint, when set, is a
+// URL requests can be sent to.
+func (d DriverAzure) validate(bucket string) []errorstack.Entry {
 	var entries []errorstack.Entry
 
-	name := cfg.Bucket
-	valid := azureReservedContainers[name] ||
-		(len(name) >= 3 && len(name) <= 63 && azureContainerName.MatchString(name))
+	valid := azureReservedContainers[bucket] ||
+		(len(bucket) >= 3 && len(bucket) <= 63 && azureContainerName.MatchString(bucket))
 
-	if name != "" && !valid {
+	if bucket != "" && !valid {
 		entries = append(entries, errorstack.Entry{
 			Message: "Must be 3 to 63 lowercase letters, digits or single hyphens, starting and ending with a letter or digit",
 			Path:    []any{"config", "bucket"},
 		})
 	}
 
-	if cfg.Endpoint != "" {
-		u, ok := parseEndpoint(cfg.Endpoint)
-		if !ok || (u.Path != "" && u.Path != "/") {
+	entries = append(entries, required("account_name", d.AccountName)...)
+	if d.AccountName != "" && !azureAccountName.MatchString(d.AccountName) {
+		entries = append(entries, errorstack.Entry{
+			Message: "Must be 3 to 24 lowercase letters or digits",
+			Path:    driverPath("account_name"),
+		})
+	}
+
+	entries = append(entries, required("account_key", d.AccountKey)...)
+	if d.AccountKey != "" {
+		if _, err := base64.StdEncoding.DecodeString(d.AccountKey); err != nil {
 			entries = append(entries, errorstack.Entry{
-				Message: "Must be an http or https URL of the service domain, without path, credentials, query or fragment",
-				Path:    []any{"config", "endpoint"},
+				Message: "Must be a base64-encoded key",
+				Path:    driverPath("account_key"),
 			})
 		}
 	}
 
-	entries = append(entries, unsupported(DriverAzure, "region", cfg.Region)...)
-	entries = append(entries, unsupported(DriverAzure, "access_key_id", cfg.AccessKeyID)...)
-	entries = append(entries, unsupported(DriverAzure, "secret_access_key", cfg.SecretAccessKey)...)
-
-	return entries
+	return append(entries, validateEndpoint(d.Endpoint)...)
 }
 
-// open opens the container from its URL.
-func (d driverAzure) open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
-	return openURL(ctx, d, cfg)
+// attributes returns the endpoint, when set.
+func (d DriverAzure) attributes() []attribute.KeyValue {
+	return endpointAttributes(d.Endpoint)
 }
 
-// url returns the azureblob URL of the container. The driver builds the service
-// URL from a protocol and a domain rather than from a URL, so that is how an
-// Endpoint is handed to it.
-func (driverAzure) url(cfg *Config) (*url.URL, error) {
-	query := url.Values{}
-	if cfg.Endpoint != "" {
-		endpoint, err := url.Parse(cfg.Endpoint)
-		if err != nil {
-			return nil, err
-		}
-
-		query.Set("protocol", endpoint.Scheme)
-		query.Set("domain", endpoint.Host)
+// open opens the container through a client built from d alone
+// (newContainerClient). The client holds nothing the connection has to close.
+func (d DriverAzure) open(ctx context.Context, bucket string) (*blob.Bucket, io.Closer, error) {
+	client, err := newContainerClient(d, bucket)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return &url.URL{
-		Scheme:   "azblob",
-		Host:     cfg.Bucket,
-		RawQuery: query.Encode(),
-	}, nil
+	b, err := azureblob.OpenBucket(ctx, client, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return b, nil, nil
+}
+
+// newContainerClient returns the client of the container named name that d
+// describes, built from d and from nothing else: the shared key of the account,
+// and the container's URL under Endpoint, or under the account's public Blob
+// service. Endpoint is used as given rather than guessed from its host name, so
+// that Azurite is reached under any host, its account in the path.
+//
+// The container is joined to the service URL as a path segment, so that its name
+// cannot carry a query of its own into the URL.
+func newContainerClient(d DriverAzure, name string) (*container.Client, error) {
+	cred, err := container.NewSharedKeyCredential(d.AccountName, d.AccountKey)
+	if err != nil {
+		return nil, err
+	}
+
+	service := d.Endpoint
+	if service == "" {
+		service = (&url.URL{Scheme: "https", Host: d.AccountName + ".blob.core.windows.net"}).String()
+	}
+
+	containerURL, err := url.JoinPath(service, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return container.NewClientWithSharedKeyCredential(containerURL, cred, nil)
 }

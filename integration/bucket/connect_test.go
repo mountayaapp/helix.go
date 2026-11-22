@@ -3,13 +3,11 @@ package bucket
 import (
 	"context"
 	"errors"
-	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -19,126 +17,47 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gocloud.dev/blob"
+	"gocloud.dev/blob/fileblob"
 )
 
-// fakeS3 is an S3-compatible endpoint answering the one request Connect and
-// CheckHealth make — listing the bucket — with the status the test sets, and
-// recording what it was asked. It holds no blob.
-type fakeS3 struct {
-	*httptest.Server
-
-	// status is what the next listing answers: 200, or the error the test wants
-	// the driver to see.
-	status atomic.Int32
-
-	mu       sync.Mutex
-	paths    []string
-	authKeys []string
+// cloudCase is one cloud driver as the Connect tests exercise it: the hostile
+// environment pointing its provider elsewhere, the fake service standing for it,
+// and a valid Config reaching that fake.
+type cloudCase struct {
+	name    string
+	hostile func(t *testing.T)
+	fake    func(t *testing.T) *fakeStore
+	config  func(t *testing.T, endpoint string) Config
 }
 
-// newFakeS3 starts a fakeS3 answering 200, stopped when the test ends.
-func newFakeS3(t *testing.T) *fakeS3 {
-	t.Helper()
-
-	s3 := &fakeS3{}
-	s3.status.Store(http.StatusOK)
-	s3.Server = httptest.NewServer(http.HandlerFunc(s3.serve))
-	t.Cleanup(s3.Close)
-
-	return s3
-}
-
-// serve records the request and answers it.
-func (s3 *fakeS3) serve(rw http.ResponseWriter, req *http.Request) {
-	s3.mu.Lock()
-	s3.paths = append(s3.paths, req.URL.Path)
-	s3.authKeys = append(s3.authKeys, req.Header.Get("Authorization"))
-	s3.mu.Unlock()
-
-	// A HEAD is Exists asking for a blob, which the fake never holds.
-	if req.Method == http.MethodHead {
-		rw.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/xml")
-
-	status := int(s3.status.Load())
-	switch status {
-	case http.StatusOK:
-		fmt.Fprint(rw, `<?xml version="1.0" encoding="UTF-8"?>`+
-			`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`+
-			`<Name>my-bucket</Name><KeyCount>0</KeyCount><MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated>`+
-			`</ListBucketResult>`)
-	case http.StatusNotFound:
-		rw.WriteHeader(status)
-		fmt.Fprint(rw, `<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>`)
-	default:
-		rw.WriteHeader(status)
-		fmt.Fprint(rw, `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`)
-	}
-}
-
-// requests returns the paths requested and the Authorization headers sent.
-func (s3 *fakeS3) requests() ([]string, []string) {
-	s3.mu.Lock()
-	defer s3.mu.Unlock()
-
-	return append([]string(nil), s3.paths...), append([]string(nil), s3.authKeys...)
-}
-
-// setHostileAWSEnv sets every source the AWS SDK's default chain reads
-// credentials, a region and an endpoint from — the AWS_* variables, a profile,
-// and the shared configuration and credentials files — to values of their own,
-// which no Config of a test names. The endpoint they name is a decoy failing the
-// test on any request it receives: DriverAWS must follow none of them.
-func setHostileAWSEnv(t *testing.T) {
-	t.Helper()
-
-	decoy := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		t.Errorf("a request reached the endpoint the environment names: %s %s", req.Method, req.URL.Path)
-		rw.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(decoy.Close)
-
-	dir := t.TempDir()
-	config := filepath.Join(dir, "config")
-	credentials := filepath.Join(dir, "credentials")
-
-	require.NoError(t, os.WriteFile(config, []byte(
-		"[default]\nregion = ap-south-1\nendpoint_url = "+decoy.URL+"\n"+
-			"[profile hostile]\nregion = ap-south-1\nendpoint_url = "+decoy.URL+"\n"), 0o600))
-	require.NoError(t, os.WriteFile(credentials, []byte(
-		"[default]\naws_access_key_id = from-file\naws_secret_access_key = from-file\n"+
-			"[hostile]\naws_access_key_id = from-file\naws_secret_access_key = from-file\n"), 0o600))
-
-	for key, value := range map[string]string{
-		"AWS_ACCESS_KEY_ID":           "from-env",
-		"AWS_SECRET_ACCESS_KEY":       "from-env",
-		"AWS_SESSION_TOKEN":           "from-env",
-		"AWS_REGION":                  "us-west-2",
-		"AWS_DEFAULT_REGION":          "us-west-2",
-		"AWS_PROFILE":                 "hostile",
-		"AWS_ENDPOINT_URL":            decoy.URL,
-		"AWS_ENDPOINT_URL_S3":         decoy.URL,
-		"AWS_CONFIG_FILE":             config,
-		"AWS_SHARED_CREDENTIALS_FILE": credentials,
-		"AWS_EC2_METADATA_DISABLED":   "true",
-	} {
-		t.Setenv(key, value)
-	}
-}
-
-// awsConfig returns a valid DriverAWS Config of the bucket "my-bucket" behind
-// endpoint, signed for eu-west-3 with the key pair "config-key".
-func awsConfig(endpoint string) Config {
-	return Config{
-		Driver:          DriverAWS,
-		Bucket:          "my-bucket",
-		Region:          "eu-west-3",
-		Endpoint:        endpoint,
-		AccessKeyID:     "config-key",
-		SecretAccessKey: "config-secret",
+// cloudCases returns the three cloud drivers, so that a behaviour every one of
+// them shares is pinned for each.
+func cloudCases() []cloudCase {
+	return []cloudCase{
+		{
+			name:    "s3",
+			hostile: setHostileS3Env,
+			fake:    newFakeS3,
+			config: func(t *testing.T, endpoint string) Config {
+				return Config{Bucket: "my-bucket", Driver: s3Driver(endpoint)}
+			},
+		},
+		{
+			name:    "azure",
+			hostile: setHostileAzureEnv,
+			fake:    newFakeAzure,
+			config: func(t *testing.T, endpoint string) Config {
+				return Config{Bucket: "my-container", Driver: azureDriver(endpoint + "/configaccount")}
+			},
+		},
+		{
+			name:    "google",
+			hostile: setHostileGoogleEnv,
+			fake:    newFakeGCS,
+			config: func(t *testing.T, endpoint string) Config {
+				return Config{Bucket: "my-bucket", Driver: googleDriver(t, endpoint)}
+			},
+		},
 	}
 }
 
@@ -149,13 +68,13 @@ func captureOpened(t *testing.T) *[]*blob.Bucket {
 
 	var opened []*blob.Bucket
 	original := openBucket
-	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
-		b, err := original(ctx, cfg)
+	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, io.Closer, error) {
+		b, owned, err := original(ctx, cfg)
 		if err == nil {
 			opened = append(opened, b)
 		}
 
-		return b, err
+		return b, owned, err
 	}
 
 	t.Cleanup(func() { openBucket = original })
@@ -184,15 +103,17 @@ func assertServiceUnavailable(t *testing.T, err error, message string) {
 }
 
 // TestConnect_InvalidConfigOpensNothing pins that a Config that is not valid
-// opens nothing, and that DriverAWS takes no region or key pair the environment
-// offers in place of the ones its Config lacks.
+// opens nothing, and that no cloud driver takes a credential the environment
+// offers in place of one its Config lacks.
 func TestConnect_InvalidConfigOpensNothing(t *testing.T) {
-	setHostileAWSEnv(t)
+	setHostileS3Env(t)
+	setHostileAzureEnv(t)
+	setHostileGoogleEnv(t)
 
 	original := openBucket
-	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
+	openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, io.Closer, error) {
 		t.Errorf("Connect opened %q although its Config is not valid", cfg.Bucket)
-		return nil, errors.New("unexpected")
+		return nil, nil, errors.New("unexpected")
 	}
 	t.Cleanup(func() { openBucket = original })
 
@@ -202,24 +123,36 @@ func TestConnect_InvalidConfigOpensNothing(t *testing.T) {
 		paths [][]any
 	}{
 		{
-			name: "injected bucket",
-			cfg: Config{
-				Driver:          DriverAWS,
-				Bucket:          "x?endpoint=https://elsewhere.example",
-				Region:          "us-east-1",
-				AccessKeyID:     "config-key",
-				SecretAccessKey: "config-secret",
-			},
+			name:  "no driver",
+			cfg:   Config{Bucket: "my-bucket"},
+			paths: [][]any{{"config", "driver"}},
+		},
+		{
+			name:  "injected bucket",
+			cfg:   Config{Bucket: "x?endpoint=https://elsewhere.example", Driver: s3Driver("")},
 			paths: [][]any{{"config", "bucket"}},
 		},
 		{
-			name: "region and key pair left to the environment",
-			cfg:  Config{Driver: DriverAWS, Bucket: "my-bucket"},
+			name: "s3 region and key pair left to the environment",
+			cfg:  Config{Bucket: "my-bucket", Driver: DriverS3{}},
 			paths: [][]any{
-				{"config", "region"},
-				{"config", "access_key_id"},
-				{"config", "secret_access_key"},
+				{"config", "driver", "region"},
+				{"config", "driver", "access_key_id"},
+				{"config", "driver", "secret_access_key"},
 			},
+		},
+		{
+			name: "azure account left to the environment",
+			cfg:  Config{Bucket: "my-container", Driver: DriverAzure{}},
+			paths: [][]any{
+				{"config", "driver", "account_name"},
+				{"config", "driver", "account_key"},
+			},
+		},
+		{
+			name:  "google key left to the environment",
+			cfg:   Config{Bucket: "my-bucket", Driver: DriverGoogleCloud{}},
+			paths: [][]any{{"config", "driver", "credentials_json"}},
 		},
 	}
 
@@ -250,8 +183,8 @@ func TestConnect_LocalRelativeDirectory(t *testing.T) {
 	svc, _ := servicetest.New(t)
 
 	b, err := Connect(t.Context(), svc, Config{
-		Driver: DriverLocal,
 		Bucket: "data/uploads",
+		Driver: DriverLocal{},
 	})
 	require.NoError(t, err)
 	require.NoError(t, b.Write(t.Context(), "blob.txt", []byte("hello"), nil))
@@ -261,42 +194,60 @@ func TestConnect_LocalRelativeDirectory(t *testing.T) {
 	assert.Equal(t, "hello", string(content))
 }
 
+// TestConnect_LocalDirectoryNamedLikeAQuery pins that a directory is opened as
+// the directory it names, even when its name reads like URL parameters: nothing
+// formats it into a URL that fileblob would parse them from.
+func TestConnect_LocalDirectoryNamedLikeAQuery(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "x?base_url=/show&secret_key_path=key")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	svc, _ := servicetest.New(t)
+
+	b, err := Connect(t.Context(), svc, Config{
+		Bucket: dir,
+		Driver: DriverLocal{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.Write(t.Context(), "blob.txt", []byte("hello"), nil))
+
+	content, err := os.ReadFile(filepath.Join(dir, "blob.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(content))
+}
+
 func TestConnect_OpenFailure(t *testing.T) {
 	svc, _ := servicetest.New(t)
 
 	_, err := Connect(t.Context(), svc, Config{
-		Driver: DriverLocal,
 		Bucket: filepath.Join(t.TempDir(), "missing"),
+		Driver: DriverLocal{},
 	})
 
 	assertServiceUnavailable(t, err, "Failed to open bucket")
 }
 
+// TestConnect_Unreachable pins, for every cloud driver, that a bucket opened but
+// not reachable — missing, or refusing the credentials — fails Connect and is
+// closed rather than leaked.
 func TestConnect_Unreachable(t *testing.T) {
-	testcases := []struct {
-		name   string
-		status int
-	}{
-		{name: "missing bucket", status: http.StatusNotFound},
-		{name: "refused credentials", status: http.StatusForbidden},
-	}
+	for _, cloud := range cloudCases() {
+		for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {
+			t.Run(cloud.name+" "+http.StatusText(status), func(t *testing.T) {
+				cloud.hostile(t)
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			setHostileAWSEnv(t)
+				fake := cloud.fake(t)
+				fake.status.Store(int32(status))
+				opened := captureOpened(t)
 
-			s3 := newFakeS3(t)
-			s3.status.Store(int32(tc.status))
-			opened := captureOpened(t)
+				svc, _ := servicetest.New(t)
 
-			svc, _ := servicetest.New(t)
+				_, err := Connect(t.Context(), svc, cloud.config(t, fake.URL))
 
-			_, err := Connect(t.Context(), svc, awsConfig(s3.URL))
-
-			assertServiceUnavailable(t, err, "Failed to reach bucket")
-			require.Len(t, *opened, 1)
-			assertClosed(t, (*opened)[0])
-		})
+				assertServiceUnavailable(t, err, "Failed to reach bucket")
+				require.Len(t, *opened, 1)
+				assertClosed(t, (*opened)[0])
+			})
+		}
 	}
 }
 
@@ -304,8 +255,8 @@ func TestConnect_AttachFailureClosesBucket(t *testing.T) {
 	svc, _ := servicetest.New(t)
 	cfg := Config{
 		Name:   "uploads",
-		Driver: DriverLocal,
 		Bucket: t.TempDir(),
+		Driver: DriverLocal{},
 	}
 
 	_, err := Connect(t.Context(), svc, cfg)
@@ -322,56 +273,112 @@ func TestConnect_AttachFailureClosesBucket(t *testing.T) {
 	assertClosed(t, (*opened)[0])
 }
 
-// TestConnect_AWSEndpoint pins what a DriverAWS Config turns into on the wire:
-// the endpoint is the one configured, the bucket is in the path, the region is
-// the one signed for, and the access key is the Config's, while every AWS_*
-// variable and the shared configuration and credentials files name others.
-func TestConnect_AWSEndpoint(t *testing.T) {
-	setHostileAWSEnv(t)
+// TestConnect_S3Endpoint pins what a DriverS3 turns into on the wire: the
+// endpoint is the one configured, the bucket is in the path, the region is the
+// one signed for, and the access key is the driver's, while every AWS_* variable
+// and the shared configuration and credentials files name others.
+func TestConnect_S3Endpoint(t *testing.T) {
+	setHostileS3Env(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	_, err := Connect(t.Context(), svc, awsConfig(s3.URL))
+	_, err := Connect(t.Context(), svc, Config{Bucket: "my-bucket", Driver: s3Driver(s3.URL)})
 	require.NoError(t, err)
 
-	paths, auths := s3.requests()
-	require.NotEmpty(t, paths)
-	assert.Equal(t, "/my-bucket", paths[0])
-	assert.True(t, strings.Contains(auths[0], "Credential=config-key/"), "Authorization=%q", auths[0])
-	assert.True(t, strings.Contains(auths[0], "/eu-west-3/s3/"), "Authorization=%q", auths[0])
+	requests := s3.requests("/")
+	require.NotEmpty(t, requests)
+	assert.Equal(t, "/my-bucket", requests[0].path)
+	assert.True(t, strings.Contains(requests[0].authorization, "Credential=config-key/"), "Authorization=%q", requests[0].authorization)
+	assert.True(t, strings.Contains(requests[0].authorization, "/eu-west-3/s3/"), "Authorization=%q", requests[0].authorization)
+}
+
+// TestConnect_AzureEndpoint pins what a DriverAzure turns into on the wire: the
+// endpoint is the one configured, account path included, the container follows
+// it, and the request is signed with the driver's shared key, while every
+// AZURE_STORAGE_* variable names another account, key, SAS token and service.
+func TestConnect_AzureEndpoint(t *testing.T) {
+	setHostileAzureEnv(t)
+
+	azure := newFakeAzure(t)
+	svc, _ := servicetest.New(t)
+
+	_, err := Connect(t.Context(), svc, Config{
+		Bucket: "my-container",
+		Driver: azureDriver(azure.URL + "/configaccount"),
+	})
+	require.NoError(t, err)
+
+	requests := azure.requests("/")
+	require.NotEmpty(t, requests)
+	assert.Equal(t, "/configaccount/my-container", requests[0].path)
+	assert.True(t, strings.HasPrefix(requests[0].authorization, "SharedKey configaccount:"), "Authorization=%q", requests[0].authorization)
+	assert.NotContains(t, requests[0].query, "sig=", "a SAS token reached the request")
+}
+
+// TestConnect_GoogleEndpoint pins what a DriverGoogleCloud turns into on the
+// wire: the endpoint is the one configured, the bucket is in the JSON API path,
+// and the token is the one issued for the driver's own key, while Application
+// Default Credentials, the metadata server and STORAGE_EMULATOR_HOST name others.
+// The emulator variable takes the library down another path, so both are run.
+func TestConnect_GoogleEndpoint(t *testing.T) {
+	for _, emulator := range []bool{true, false} {
+		name := "emulator variable set"
+		if !emulator {
+			name = "emulator variable unset"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			setHostileGoogleEnv(t)
+			if !emulator {
+				t.Setenv("STORAGE_EMULATOR_HOST", "")
+			}
+
+			gcs := newFakeGCS(t)
+			svc, _ := servicetest.New(t)
+
+			_, err := Connect(t.Context(), svc, Config{Bucket: "my-bucket", Driver: googleDriver(t, gcs.URL)})
+			require.NoError(t, err)
+
+			requests := gcs.requests("/storage/v1/")
+			require.NotEmpty(t, requests)
+			assert.Equal(t, "/storage/v1/b/my-bucket/o", requests[0].path)
+			assert.Equal(t, "Bearer token-for-"+configServiceAccount, requests[0].authorization)
+		})
+	}
 }
 
 // TestConnect_SubfolderRoot pins the documented meaning of a "/" subfolder — the
 // bucket root — on a driver where it shows: S3 keys "/key" and "key" are two
 // different objects, and the first is what "/" used to produce.
 func TestConnect_SubfolderRoot(t *testing.T) {
-	setHostileAWSEnv(t)
+	setHostileS3Env(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	cfg := awsConfig(s3.URL)
-	cfg.Subfolder = "/"
-
-	b, err := Connect(t.Context(), svc, cfg)
+	b, err := Connect(t.Context(), svc, Config{
+		Bucket:    "my-bucket",
+		Subfolder: "/",
+		Driver:    s3Driver(s3.URL),
+	})
 	require.NoError(t, err)
 
 	exists, err := b.Exists(t.Context(), "key")
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	paths, _ := s3.requests()
-	assert.Equal(t, "/my-bucket/key", paths[len(paths)-1])
+	requests := s3.requests("/")
+	assert.Equal(t, "/my-bucket/key", requests[len(requests)-1].path)
 }
 
 func TestDependency_CheckHealth(t *testing.T) {
-	setHostileAWSEnv(t)
+	setHostileS3Env(t)
 
 	s3 := newFakeS3(t)
 	svc, _ := servicetest.New(t)
 
-	b, err := Connect(t.Context(), svc, awsConfig(s3.URL))
+	b, err := Connect(t.Context(), svc, Config{Bucket: "my-bucket", Driver: s3Driver(s3.URL)})
 	require.NoError(t, err)
 
 	dep := dependency{conn: b.(*connection)}
@@ -397,8 +404,8 @@ func TestDependency_CloseIsIdempotent(t *testing.T) {
 	svc, _ := servicetest.New(t)
 
 	b, err := Connect(t.Context(), svc, Config{
-		Driver: DriverLocal,
 		Bucket: t.TempDir(),
+		Driver: DriverLocal{},
 	})
 	require.NoError(t, err)
 
@@ -408,4 +415,62 @@ func TestDependency_CloseIsIdempotent(t *testing.T) {
 
 	// The Service closes it a third time when the test ends, which servicetest
 	// fails the test over if it errors.
+}
+
+// closeCounter stands for what a driver opens beside its bucket, counting how
+// often it is closed.
+type closeCounter struct {
+	calls atomic.Int32
+	err   error
+}
+
+// Close counts the call and returns the error the test set.
+func (c *closeCounter) Close() error {
+	c.calls.Add(1)
+	return c.err
+}
+
+// TestConnection_CloseReleasesOwned pins that what a driver opens beside its
+// bucket — the Cloud Storage client — is closed with the connection: once, after
+// the bucket, however often close runs, its error reported, and on a failed
+// Connect as well.
+func TestConnection_CloseReleasesOwned(t *testing.T) {
+	t.Run("close", func(t *testing.T) {
+		b, err := fileblob.OpenBucket(t.TempDir(), nil)
+		require.NoError(t, err)
+
+		owned := &closeCounter{err: errors.New("owned failed to close")}
+		conn := &connection{client: b, owned: owned}
+
+		assert.ErrorIs(t, conn.close(), owned.err)
+		assert.NoError(t, conn.close())
+
+		assertClosed(t, b)
+		assert.Equal(t, int32(1), owned.calls.Load())
+	})
+
+	t.Run("failed connect", func(t *testing.T) {
+		setHostileS3Env(t)
+
+		s3 := newFakeS3(t)
+		s3.status.Store(http.StatusForbidden)
+
+		owned := &closeCounter{}
+		opened := captureOpened(t)
+
+		withOwned := openBucket
+		openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, io.Closer, error) {
+			b, _, err := withOwned(ctx, cfg)
+			return b, owned, err
+		}
+
+		svc, _ := servicetest.New(t)
+
+		_, err := Connect(t.Context(), svc, Config{Bucket: "my-bucket", Driver: s3Driver(s3.URL)})
+
+		assertServiceUnavailable(t, err, "Failed to reach bucket")
+		require.Len(t, *opened, 1)
+		assertClosed(t, (*opened)[0])
+		assert.Equal(t, int32(1), owned.calls.Load())
+	})
 }

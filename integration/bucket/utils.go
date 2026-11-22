@@ -14,10 +14,12 @@ import (
 var attrKeyKey = integration.Key(identifier, "key")
 
 // instrumentAttributes returns the attributes every span of this connection
-// carries, derived from the sanitized Config.
+// carries, derived from the sanitized Config: the driver's name, the bucket, the
+// subfolder when set, then whatever the driver adds. A credential is never one of
+// them.
 func instrumentAttributes(cfg *Config) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
-		integration.Key(identifier, "driver").String(string(cfg.Driver)),
+		integration.Key(identifier, "driver").String(cfg.Driver.name()),
 		integration.Key(identifier, "bucket").String(cfg.Bucket),
 	}
 
@@ -25,13 +27,15 @@ func instrumentAttributes(cfg *Config) []attribute.KeyValue {
 		attrs = append(attrs, integration.Key(identifier, "subfolder").String(cfg.Subfolder))
 	}
 
-	if cfg.Region != "" {
-		attrs = append(attrs, integration.Key(identifier, "region").String(cfg.Region))
+	return append(attrs, cfg.Driver.attributes()...)
+}
+
+// endpointAttributes returns the attribute of a driver's endpoint, or none when it
+// is empty.
+func endpointAttributes(endpoint string) []attribute.KeyValue {
+	if endpoint == "" {
+		return nil
 	}
 
-	if cfg.Endpoint != "" {
-		attrs = append(attrs, integration.Key(identifier, "endpoint").String(cfg.Endpoint))
-	}
-
-	return attrs
+	return []attribute.KeyValue{integration.Key(identifier, "endpoint").String(endpoint)}
 }

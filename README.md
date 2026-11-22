@@ -294,8 +294,8 @@ to a single service.
   optimized for batch writes and columnar queries.
 - **[Valkey](./integration/valkey/README.md)** — In-memory key/value store for
   caching.
-- **[Bucket](./integration/bucket/README.md)** — Blob storage with drivers for AWS
-  S3, Azure Blob Storage, Google Cloud Storage.
+- **[Bucket](./integration/bucket/README.md)** — Blob storage with drivers for S3
+  (Amazon S3 and S3-compatible services), Azure Blob Storage, Google Cloud Storage.
 - **[HTTP Client](./integration/httpclient/README.md)** — Client for external HTTP
   APIs with round-robin across endpoints, failover that never replays a
   non-idempotent request, same-host redirects only, and opt-in per-endpoint health

@@ -2,70 +2,62 @@ package bucket
 
 import (
 	"context"
+	"io"
 	"net/url"
+	"reflect"
 	"regexp"
 
 	"github.com/mountayaapp/helix.go/errorstack"
 
+	"go.opentelemetry.io/otel/attribute"
 	"gocloud.dev/blob"
 )
 
-// Driver names the storage provider a Bucket is backed by: one of DriverAWS,
-// DriverAzure, DriverGoogleCloud or DriverLocal.
+// Driver is the storage provider a Bucket is backed by, together with everything
+// needed to reach it: one of DriverS3, DriverAzure, DriverGoogleCloud or
+// DriverLocal. Each holds the fields of its own provider and no other, so a Config
+// can neither name two providers nor configure one with another's fields.
 //
-// It is a string so that the drivers are constants nothing can reassign, and so
-// that a Config decodes from JSON, where a driver is written by its name: "aws",
-// "azure", "google" or "local".
-type Driver string
+// Its methods are unexported: a type outside this package implements it only by
+// embedding one of the four. A pointer to one of them implements it as well.
+type Driver interface {
 
-// driver is the behaviour behind a Driver.
-type driver interface {
+	// name returns the driver's name, which every span carries as
+	// "bucket.driver": "s3", "azure", "google" or "local".
+	name() string
 
-	// validate returns an entry for every Config field the driver cannot accept.
-	// It runs after the fields every driver shares have been checked, so it has
-	// nothing to say about an empty Bucket.
-	validate(cfg *Config) []errorstack.Entry
+	// validate returns an entry for every field the provider cannot accept, and
+	// for a bucket name that breaks the provider's naming rules. It runs after the
+	// fields every driver shares have been checked, so it has nothing to say about
+	// an empty bucket. An entry never quotes a value, a credential being one.
+	validate(bucket string) []errorstack.Entry
 
-	// open opens the bucket a valid cfg names, outside any Subfolder.
-	open(ctx context.Context, cfg *Config) (*blob.Bucket, error)
+	// attributes returns the attributes the driver adds to every span. A
+	// credential is never one of them.
+	attributes() []attribute.KeyValue
+
+	// open opens bucket, outside any Subfolder, through a driver whose validate
+	// returned no entry. Next to the bucket, it returns what the connection must
+	// close once the bucket is closed, or nil when there is nothing.
+	//
+	// ctx bounds the opening only: nothing open builds may keep it.
+	open(ctx context.Context, bucket string) (*blob.Bucket, io.Closer, error)
 }
 
-// urlDriver is a driver whose bucket is opened from a Go Cloud URL, through the
-// opener its Go Cloud package registers (openURL).
-type urlDriver interface {
-
-	// url returns the Go Cloud URL the bucket is opened from. It is a url.URL
-	// built from Config fields rather than a formatted string, so that no field
-	// can carry a query parameter of its own into it: a Bucket of
-	// "x?endpoint=https://elsewhere" names a bucket, it does not redirect one.
-	url(cfg *Config) (*url.URL, error)
-}
-
-// openURL opens the bucket d's URL for cfg names, through the drivers
-// registered with Go Cloud.
-func openURL(ctx context.Context, d urlDriver, cfg *Config) (*blob.Bucket, error) {
-	u, err := d.url(cfg)
-	if err != nil {
-		return nil, err
+// isNil reports whether d holds no driver: nil itself, or a nil pointer to one,
+// whose first method call would panic.
+func isNil(d Driver) bool {
+	if d == nil {
+		return true
 	}
 
-	return blob.DefaultURLMux().OpenBucketURL(ctx, u)
+	v := reflect.ValueOf(d)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
-// impl returns the behaviour behind d, or nil when d is not a supported Driver.
-func (d Driver) impl() driver {
-	switch d {
-	case DriverAWS:
-		return driverAWS{}
-	case DriverAzure:
-		return driverAzure{}
-	case DriverGoogleCloud:
-		return driverGoogleCloud{}
-	case DriverLocal:
-		return driverLocal{}
-	default:
-		return nil
-	}
+// driverPath returns the path of a driver field in a validation entry.
+func driverPath(field string) []any {
+	return []any{"config", "driver", field}
 }
 
 // validateName returns an entry when name is set and does not match the
@@ -81,7 +73,7 @@ func validateName(name string, rule *regexp.Regexp, message string) []errorstack
 	}}
 }
 
-// required returns an entry for a Config field the driver cannot work without,
+// required returns an entry for a driver field the provider cannot work without,
 // when it is empty. The entry never quotes a value, a credential being one.
 func required(field, value string) []errorstack.Entry {
 	if value != "" {
@@ -90,14 +82,14 @@ func required(field, value string) []errorstack.Entry {
 
 	return []errorstack.Entry{{
 		Message: "Must be set",
-		Path:    []any{"config", field},
+		Path:    driverPath(field),
 	}}
 }
 
 // parseEndpoint returns endpoint as a URL when it is an absolute http or https
-// URL, and false otherwise. Credentials, a query and a fragment are refused
-// rather than passed on: none of them means anything to a driver, and a query is
-// exactly the shape that smuggles parameters into the driver's URL.
+// URL, and false otherwise. Credentials, a query and a fragment are refused rather
+// than passed on: none of them means anything in the base URL of a storage
+// service, and a query would ride along on every request sent to it.
 func parseEndpoint(endpoint string) (*url.URL, bool) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
@@ -115,17 +107,38 @@ func parseEndpoint(endpoint string) (*url.URL, bool) {
 	return u, true
 }
 
-// unsupported returns an entry for a Config field that is set although the
-// driver has no use for it. It is refused rather than ignored: an Endpoint
-// silently dropped is a service talking to production while its author believes
-// it talks to an emulator.
-func unsupported(d Driver, field, value string) []errorstack.Entry {
-	if value == "" {
+// validateEndpoint returns an entry when endpoint is set and is not a URL a
+// request can be sent to: an absolute http or https URL, with no credentials,
+// query or fragment. A path is allowed.
+func validateEndpoint(endpoint string) []errorstack.Entry {
+	if endpoint == "" {
+		return nil
+	}
+
+	if _, ok := parseEndpoint(endpoint); ok {
 		return nil
 	}
 
 	return []errorstack.Entry{{
-		Message: "Must be empty for the " + string(d) + " driver",
-		Path:    []any{"config", field},
+		Message: "Must be an http or https URL without credentials, query or fragment",
+		Path:    driverPath("endpoint"),
+	}}
+}
+
+// validateServiceDomain returns an entry when endpoint is set and is not the
+// scheme and domain of a service alone: an absolute http or https URL, with no
+// path, credentials, query or fragment.
+func validateServiceDomain(endpoint string) []errorstack.Entry {
+	if endpoint == "" {
+		return nil
+	}
+
+	if u, ok := parseEndpoint(endpoint); ok && (u.Path == "" || u.Path == "/") {
+		return nil
+	}
+
+	return []errorstack.Entry{{
+		Message: "Must be an http or https URL of the service domain, without path, credentials, query or fragment",
+		Path:    driverPath("endpoint"),
 	}}
 }

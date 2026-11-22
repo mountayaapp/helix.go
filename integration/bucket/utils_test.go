@@ -20,7 +20,7 @@ func TestInstrumentAttributes(t *testing.T) {
 		{
 			name: "driver and bucket are always stamped",
 			cfg: Config{
-				Driver: DriverLocal,
+				Driver: DriverLocal{},
 				Bucket: "my-bucket",
 			},
 			attrs: []attribute.KeyValue{
@@ -31,7 +31,7 @@ func TestInstrumentAttributes(t *testing.T) {
 		{
 			name: "a subfolder adds one attribute",
 			cfg: Config{
-				Driver:    DriverLocal,
+				Driver:    DriverLocal{},
 				Bucket:    "my-bucket",
 				Subfolder: "prefix/",
 			},
@@ -42,20 +42,51 @@ func TestInstrumentAttributes(t *testing.T) {
 			},
 		},
 		{
-			name: "a region and an endpoint add one attribute each, the key pair none",
+			name: "s3 adds its region and endpoint, never its key pair",
 			cfg: Config{
-				Driver:          DriverAWS,
-				Bucket:          "my-bucket",
-				Region:          "us-east-1",
-				Endpoint:        "http://localhost:9000",
-				AccessKeyID:     "access-key",
-				SecretAccessKey: "secret-key",
+				Driver: s3Driver("http://localhost:9000"),
+				Bucket: "my-bucket",
 			},
 			attrs: []attribute.KeyValue{
-				attribute.String("bucket.driver", "aws"),
+				attribute.String("bucket.driver", "s3"),
 				attribute.String("bucket.bucket", "my-bucket"),
-				attribute.String("bucket.region", "us-east-1"),
+				attribute.String("bucket.region", "eu-west-3"),
 				attribute.String("bucket.endpoint", "http://localhost:9000"),
+			},
+		},
+		{
+			name: "azure adds its endpoint, never its account or key",
+			cfg: Config{
+				Driver: azureDriver("http://127.0.0.1:10000/devstoreaccount1"),
+				Bucket: "my-container",
+			},
+			attrs: []attribute.KeyValue{
+				attribute.String("bucket.driver", "azure"),
+				attribute.String("bucket.bucket", "my-container"),
+				attribute.String("bucket.endpoint", "http://127.0.0.1:10000/devstoreaccount1"),
+			},
+		},
+		{
+			name: "google adds its endpoint, never its key",
+			cfg: Config{
+				Driver: googleDriver(t, "http://localhost:4443"),
+				Bucket: "my-bucket",
+			},
+			attrs: []attribute.KeyValue{
+				attribute.String("bucket.driver", "google"),
+				attribute.String("bucket.bucket", "my-bucket"),
+				attribute.String("bucket.endpoint", "http://localhost:4443"),
+			},
+		},
+		{
+			name: "google without endpoint adds nothing",
+			cfg: Config{
+				Driver: googleDriver(t, ""),
+				Bucket: "my-bucket",
+			},
+			attrs: []attribute.KeyValue{
+				attribute.String("bucket.driver", "google"),
+				attribute.String("bucket.bucket", "my-bucket"),
 			},
 		},
 	}

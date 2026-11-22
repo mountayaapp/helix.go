@@ -2,6 +2,7 @@ package bucket
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 
@@ -65,11 +66,11 @@ type Bucket interface {
 	Delete(ctx context.Context, key string) error
 }
 
-// openBucket opens the bucket a valid Config names through its driver. It is a
-// variable so that a test can observe the bucket a failed Connect opened, which
-// nothing else hands back.
-var openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
-	return cfg.Driver.impl().open(ctx, cfg)
+// openBucket opens the bucket a valid Config names through its driver, along with
+// what the connection must close after it. It is a variable so that a test can
+// observe the bucket a failed Connect opened, which nothing else hands back.
+var openBucket = func(ctx context.Context, cfg *Config) (*blob.Bucket, io.Closer, error) {
+	return cfg.Driver.open(ctx, cfg.Bucket)
 }
 
 // connection is the Bucket handed to the caller. Its lifecycle is reachable only
@@ -83,6 +84,10 @@ type connection struct {
 
 	// client is the connection made with the Bucket client.
 	client *blob.Bucket
+
+	// owned is what the driver opened beside the bucket and the connection closes
+	// after it — the Cloud Storage client — or nil when there is nothing.
+	owned io.Closer
 
 	// closeOnce makes close idempotent. The driver reports a second Close as an
 	// error, and a bucket closed by a failed Connect must not then fail the
@@ -118,7 +123,7 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (Bucket, err
 		return nil, err
 	}
 
-	client, err := open(ctx, &cfg)
+	client, owned, err := open(ctx, &cfg)
 	if err != nil {
 		return nil, errorstack.Wrap(err, "Failed to open bucket",
 			errorstack.WithCode(errorstack.CodeServiceUnavailable),
@@ -126,18 +131,18 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (Bucket, err
 		)
 	}
 
+	conn := &connection{inst: inst, client: client, owned: owned}
+
 	// Opening a bucket makes no request for most drivers, so this is the first
 	// moment a wrong name or a refused credential can show.
 	if err := accessible(ctx, client); err != nil {
-		_ = client.Close()
+		_ = conn.close()
 
 		return nil, errorstack.Wrap(err, "Failed to reach bucket",
 			errorstack.WithCode(errorstack.CodeServiceUnavailable),
 			errorstack.WithExtension("reason", integration.NormalizeErrorMessage(err)),
 		)
 	}
-
-	conn := &connection{inst: inst, client: client}
 
 	// Hand the connection to the Service, which owns its lifecycle from here. A
 	// Service that refuses it owns nothing, so the bucket is closed here.
@@ -150,18 +155,18 @@ func Connect(ctx context.Context, svc *service.Service, cfg Config) (Bucket, err
 }
 
 // open opens the bucket through the driver cfg names, inside Subfolder when it
-// is set.
-func open(ctx context.Context, cfg *Config) (*blob.Bucket, error) {
-	client, err := openBucket(ctx, cfg)
+// is set, along with what the connection must close after it.
+func open(ctx context.Context, cfg *Config) (*blob.Bucket, io.Closer, error) {
+	client, owned, err := openBucket(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if cfg.Subfolder != "" {
 		client = blob.PrefixedBucket(client, cfg.Subfolder)
 	}
 
-	return client, nil
+	return client, owned, nil
 }
 
 // accessible returns nil when the bucket can be listed, and why not otherwise.
@@ -177,12 +182,15 @@ func accessible(ctx context.Context, client *blob.Bucket) error {
 	}
 }
 
-// close closes the bucket. Only the first call reaches the driver; a later one
-// returns nil.
+// close closes the bucket, then what the driver opened beside it. Only the first
+// call reaches the driver; a later one returns nil.
 func (conn *connection) close() error {
 	var err error
 	conn.closeOnce.Do(func() {
 		err = conn.client.Close()
+		if conn.owned != nil {
+			err = errors.Join(err, conn.owned.Close())
+		}
 	})
 
 	return err

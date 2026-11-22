@@ -16,13 +16,18 @@ type Config struct {
 	// "bucket", when left empty.
 	Name string `json:"name"`
 
-	// Driver sets the storage provider.
+	// Driver is the storage provider, with everything needed to reach it: one of
+	// DriverS3, DriverAzure, DriverGoogleCloud or DriverLocal, each holding the
+	// fields of its own provider and no other.
+	//
+	// It is set in code, along with the credentials it holds: a "driver" in JSON
+	// fails to decode. Encoded, it carries its own fields, never a credential.
 	//
 	// Required.
 	//
 	// Example:
 	//
-	//   bucket.DriverAWS
+	//   bucket.DriverLocal{}
 	Driver Driver `json:"driver"`
 
 	// Bucket is the name of the bucket: the container for DriverAzure, and the
@@ -51,45 +56,6 @@ type Config struct {
 	//
 	//   "my/subfolder/"
 	Subfolder string `json:"subfolder,omitempty"`
-
-	// Region is the region the bucket lives in, which every request is signed
-	// for. DriverAWS only. It is never read from the environment. An
-	// S3-compatible service names its own: "us-east-1" for MinIO, "auto" for
-	// Cloudflare R2.
-	//
-	// Required for DriverAWS.
-	//
-	// Example:
-	//
-	//   "eu-west-1"
-	Region string `json:"region,omitempty"`
-
-	// Endpoint is the URL of the storage service, when it is not the provider's
-	// public one. For DriverAWS, it is the service the requests go to — an
-	// S3-compatible one, a VPC endpoint — addressed path-style. For DriverAzure,
-	// it is the scheme and domain of the Blob service. DriverGoogleCloud and
-	// DriverLocal refuse it.
-	//
-	// Examples:
-	//
-	//   "http://localhost:9000"
-	//   "https://<account-id>.r2.cloudflarestorage.com"
-	//   "http://127.0.0.1:10000"
-	Endpoint string `json:"endpoint,omitempty"`
-
-	// AccessKeyID is the access key of the static key pair the requests are
-	// signed with. DriverAWS only, which reads no credential from anywhere else.
-	// It is never encoded to JSON, nor quoted in a validation error.
-	//
-	// Required for DriverAWS.
-	AccessKeyID string `json:"-"`
-
-	// SecretAccessKey is the secret key of the static key pair the requests are
-	// signed with. DriverAWS only. It is never encoded to JSON, nor quoted in a
-	// validation error.
-	//
-	// Required for DriverAWS.
-	SecretAccessKey string `json:"-"`
 }
 
 // sanitize sets default values - when applicable - and validates the configuration.
@@ -97,16 +63,10 @@ type Config struct {
 func (cfg *Config) sanitize() error {
 	var entries []errorstack.Entry
 
-	impl := cfg.Driver.impl()
-	switch {
-	case cfg.Driver == "":
+	noDriver := isNil(cfg.Driver)
+	if noDriver {
 		entries = append(entries, errorstack.Entry{
 			Message: "Must be set",
-			Path:    []any{"config", "driver"},
-		})
-	case impl == nil:
-		entries = append(entries, errorstack.Entry{
-			Message: "Must be one of: aws, azure, google, local",
 			Path:    []any{"config", "driver"},
 		})
 	}
@@ -118,8 +78,8 @@ func (cfg *Config) sanitize() error {
 		})
 	}
 
-	if impl != nil {
-		entries = append(entries, impl.validate(cfg)...)
+	if !noDriver {
+		entries = append(entries, cfg.Driver.validate(cfg.Bucket)...)
 	}
 
 	cfg.Subfolder = normalizeSubfolder(cfg.Subfolder)

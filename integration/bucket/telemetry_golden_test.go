@@ -24,7 +24,7 @@ func TestTelemetryGolden(t *testing.T) {
 
 	b, err := Connect(t.Context(), svc, Config{
 		Name:      "golden",
-		Driver:    DriverLocal,
+		Driver:    DriverLocal{},
 		Bucket:    t.TempDir(),
 		Subfolder: "prefix/",
 	})

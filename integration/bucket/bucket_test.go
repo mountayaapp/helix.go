@@ -26,7 +26,7 @@ func connectLocal(t *testing.T, cfg Config) (Bucket, *servicetest.Recorder) {
 
 	svc, rec := servicetest.New(t)
 
-	cfg.Driver = DriverLocal
+	cfg.Driver = DriverLocal{}
 	cfg.Bucket = t.TempDir()
 
 	b, err := Connect(t.Context(), svc, cfg)
@@ -218,7 +218,7 @@ func TestSubfolder(t *testing.T) {
 			dir := t.TempDir()
 
 			b, err := Connect(t.Context(), svc, Config{
-				Driver:    DriverLocal,
+				Driver:    DriverLocal{},
 				Bucket:    dir,
 				Subfolder: tc.subfolder,
 			})
@@ -227,7 +227,7 @@ func TestSubfolder(t *testing.T) {
 
 			root, err := Connect(t.Context(), svc, Config{
 				Name:   "root",
-				Driver: DriverLocal,
+				Driver: DriverLocal{},
 				Bucket: dir,
 			})
 			require.NoError(t, err)
