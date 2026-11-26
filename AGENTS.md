@@ -15,8 +15,9 @@ make lint       # the linters, across every module
 make test       # the tests, across every module (needs Docker)
 make vulncheck  # govulncheck, across every module
 mise run ci     # the gate: lint, test and vulncheck, exactly as CI runs them
-bash ./scripts/release.sh --dry-run v0.26.0   # maintainers: preview a release, changing nothing
-make release VERSION=v0.26.0   # maintainers: gate, tag, push the tags, restore the local replaces
+bash ./scripts/release.sh --dry-run v0.26.0   # maintainers: preview a release; nothing is tagged, committed or pushed
+make release VERSION=v0.26.0   # maintainers: tidy check, gate, tag the root, tidy and tag the integrations against it, restore the local replaces
+bash ./scripts/release.sh --resume v0.26.0    # maintainers: continue a release that stopped after publishing the root's tag
 ```
 
 `make lint`, `make test` and `make vulncheck` each run `scripts/modules.sh` with the check's

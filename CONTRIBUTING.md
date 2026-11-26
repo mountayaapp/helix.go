@@ -66,20 +66,46 @@ module straight from its tag, so the release script creates no GitHub release.
 ```sh
 bash ./scripts/release.sh --dry-run v0.26.0   # every check, and the commands it would run
 make release VERSION=v0.26.0                  # the release itself
+bash ./scripts/release.sh --resume v0.26.0    # continue a release stopped after the root's tag
 ```
 
 `scripts/release.sh` refuses to start unless the working tree is clean, untracked
 files included, `main` is checked out, `HEAD` is exactly `main` on `origin` (it
 fetches nothing, so pull or push first), and none of the version's tags exists
-yet. It then runs the gate, `mise run ci`, and stops if that fails. Only then does
-it commit the integrations pinned to the new root, push `main`, tag every module,
-push exactly those tags, and commit and push the restored local replaces. The
-person running it owns those commits and pushes. Last, it waits for the module
-proxy to serve each new version.
+yet. It then runs `scripts/mod-tidy.sh` and stops if that changes anything: the
+changes are left in the tree, to be committed as a change of their own before
+releasing. Then it runs the gate, `mise run ci`, and stops if that fails. So the
+root is released exactly as it was gated.
 
-The dry run runs every check above, the gate included, and prints each command
-that would tidy, edit, commit, tag, push or ask the module proxy instead of
-running it.
+Only then does it release, the root first, since each integration is tidied
+against the root's new tag and no integration requires another:
+
+1. It tags the root at `HEAD`, pushes that tag alone, and waits until the module
+   proxy serves it.
+2. In each integration, it swaps the local `replace` for a requirement on the
+   root's new tag, then runs `go mod tidy` and `go vet ./...` with `GOWORK=off`.
+   Each integration's `go.sum` is then complete, and the integration builds on
+   its own, as it does for a consumer.
+3. It commits that as `version: Release vX.Y.Z`, pushes `main`, tags every
+   integration at that commit, and pushes exactly those tags.
+4. It restores the local replaces, tidies again, and commits and pushes that as
+   the post-release. Last, it asks the module proxy for each integration's new
+   version, so that the first consumer to resolve one does not meet a cached 404.
+
+The person running it owns those commits and pushes.
+
+If the module proxy still does not serve the root's tag after ten minutes, the
+release stops there: that tag is public, and nothing else has changed. Once the
+proxy serves it, `--resume` continues the release. It runs the same checks, the
+gate included, requires the root's tag at `HEAD` here and on `origin` and no
+integration tag, and goes on from the wait. A release that stops later says what
+is already public and what is left to do.
+
+The dry run runs every check above, the tidy and the gate included, and prints
+each command that would tag, push, edit, tidy, vet, commit or ask the module
+proxy instead of running it. The integrations' tidy and vet are among the
+printed ones: they resolve the root's new tag, which does not exist until the
+release pushes it.
 
 ## Contribution Guidelines
 
@@ -90,7 +116,7 @@ contribution guidelines as light but rock-solid as possible.
 - Commit messages and pull requests must respect the
   [Conventional Commits Specification](https://www.conventionalcommits.org/).
   The types and scopes to follow can be found on the
-  [`semantic.yml` file](https://github.com/mountayaapp/helix.go/blob/main/.github/semantic.yml).
+  [`semantic.yml` file](https://github.com/mountaya/helix.go/blob/main/.github/semantic.yml).
 - You sign every Git commits using your real name and real email address. If you
   set your `user.name` and `user.email` git configs, you can sign your commit
   automatically using `git commit -s`. Example:
