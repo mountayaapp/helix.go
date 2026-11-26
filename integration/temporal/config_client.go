@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	"go.temporal.io/sdk/converter"
 )

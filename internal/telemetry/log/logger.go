@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/sanitize"
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/internal/telemetry/sanitize"
+	internaltrace "github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/otel/attribute"
@@ -129,7 +129,7 @@ func withContext(ctx context.Context, fields []zap.Field) []zap.Field {
 		return fields
 	}
 
-	return append(fields[:len(fields):len(fields)], zap.Field{
+	return append(slices.Clip(fields), zap.Field{
 		Key:       "context",
 		Type:      zapcore.SkipType,
 		Interface: ctx,
@@ -172,7 +172,7 @@ func (c traceCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 			break
 		}
 
-		fields = append(fields[:len(fields):len(fields)],
+		fields = append(slices.Clip(fields),
 			zap.String("trace_id", sc.TraceID().String()),
 			zap.String("span_id", sc.SpanID().String()),
 		)

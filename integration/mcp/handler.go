@@ -3,7 +3,7 @@ package mcp
 import (
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // handlerNotFound is the default handler function if the path is not found (error

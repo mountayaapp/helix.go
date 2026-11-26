@@ -70,7 +70,7 @@ func TestAddOrEditLanguage_NewLanguage(t *testing.T) {
 	defer mu.RUnlock()
 	assert.Equal(t, "Requête invalide", catalog[language.French][http.StatusBadRequest])
 	assert.Equal(t, "Erreur interne du serveur", catalog[language.French][http.StatusInternalServerError])
-	assert.Equal(t, originalLen+1, len(languages))
+	assert.Len(t, languages, originalLen+1)
 }
 
 func TestAddOrEditLanguage_EditExistingLanguage(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

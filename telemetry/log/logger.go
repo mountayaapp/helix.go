@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/internal/telemetry/log"
 
 	"go.uber.org/zap"
 )

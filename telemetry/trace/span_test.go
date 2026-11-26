@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	internaltrace "github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

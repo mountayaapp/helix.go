@@ -2,7 +2,7 @@ type: object
 x-internal: true
 x-go-type: event.Event
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/event
+  path: github.com/mountaya/helix.go/event
 
 properties:
   id:

@@ -3,7 +3,7 @@ package clickhouse
 import (
 	"testing"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/stretchr/testify/assert"
 )

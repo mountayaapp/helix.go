@@ -2,12 +2,12 @@ package graphql
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/errcode"

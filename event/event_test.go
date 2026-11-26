@@ -90,7 +90,7 @@ func TestEvent_JSONRoundTrip(t *testing.T) {
 		ID:             "evt_rt",
 		Name:           "round_trip",
 		Meta:           map[string]string{"key": "value"},
-		IsAnonymous:    BoolPtr(true),
+		IsAnonymous:    new(true),
 		UserID:         "user_rt",
 		OrganizationID: "org_rt",
 		TenantID:       "tenant_rt",

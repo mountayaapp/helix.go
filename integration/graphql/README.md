@@ -1,7 +1,7 @@
 # helix.go - GraphQL server integration
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/graphql)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go/integration/graphql)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The GraphQL server integration provides an opinionated way to build a GraphQL API
@@ -16,7 +16,7 @@ registered on one Service, each under its own `Name`.
 ## Installation
 
 ```sh
-$ go get github.com/mountayaapp/helix.go/integration/graphql
+$ go get github.com/mountaya/helix.go/integration/graphql
 ```
 
 ## About gqlgen
@@ -167,8 +167,8 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/integration/graphql"
-  "github.com/mountayaapp/helix.go/service"
+  "github.com/mountaya/helix.go/integration/graphql"
+  "github.com/mountaya/helix.go/service"
 
   "example.com/app/graph"
 )
@@ -213,8 +213,8 @@ Shared between replicas, through the valkey integration:
 
 ```go
 import (
-  "github.com/mountayaapp/helix.go/integration/graphql"
-  "github.com/mountayaapp/helix.go/integration/valkey"
+  "github.com/mountaya/helix.go/integration/graphql"
+  "github.com/mountaya/helix.go/integration/valkey"
 )
 
 v, err := valkey.Connect(ctx, svc, valkey.Config{

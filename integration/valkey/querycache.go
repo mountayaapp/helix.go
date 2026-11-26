@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/log"
 )
 
 // Defaults NewQueryCache applies to the fields OptionsQueryCache leaves unset.

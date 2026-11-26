@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/uptrace/bunrouter"
 	"go.opentelemetry.io/otel/attribute"
@@ -194,9 +194,8 @@ func (r *rest) chain(handler http.Handler, opts routeOptions) http.Handler {
 		next = r.middlewareRequestValidation(next, opts.undeclaredQuery)
 	}
 
-	preValidation := opts.preValidation
-	for i := len(preValidation) - 1; i >= 0; i-- {
-		next = preValidation[i](next)
+	for _, mw := range slices.Backward(opts.preValidation) {
+		next = mw(next)
 	}
 
 	if r.oapirouter != nil {

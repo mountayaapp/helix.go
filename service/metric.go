@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	otelmetric "go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"

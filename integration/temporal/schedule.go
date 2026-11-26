@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -131,8 +131,7 @@ func (c *Client) createSchedule(ctx context.Context, opts client.ScheduleOptions
 		return c.reconcileSchedule(ctx, handle, desc, opts)
 	}
 
-	var notFound *serviceerror.NotFound
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*serviceerror.NotFound](err); !ok {
 		return err
 	}
 
@@ -257,6 +256,12 @@ func schedulesMatch(desc *client.ScheduleDescription, opts client.ScheduleOption
 // DataConverter: a converter with an encrypting codec encodes the same value
 // differently every time, and a fingerprint that changes on every startup would
 // update the schedule on every startup.
+//
+// The encoder is the v1 encoding/json, on purpose. The fingerprint is compared
+// with the one an earlier release recorded, so encoding it differently would
+// update every schedule once, undoing what was changed in the Temporal UI. And
+// json/v2 has no default encoding for a time.Duration, which an input, encoded
+// for the workflow by the SDK's v1-based converter, is free to hold.
 func scheduleFingerprint(
 	workflowName, taskQueue string,
 	cron []string,

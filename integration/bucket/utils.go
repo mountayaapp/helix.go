@@ -1,7 +1,7 @@
 package bucket
 
 import (
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"go.opentelemetry.io/otel/attribute"
 )

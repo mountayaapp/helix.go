@@ -1,7 +1,7 @@
 # helix.go
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 helix is a Go library for building observable microservices. Every integration
@@ -52,7 +52,7 @@ boilerplate.
 ## Quick start
 
 ```sh
-$ go get github.com/mountayaapp/helix.go
+$ go get github.com/mountaya/helix.go
 ```
 
 ```go
@@ -66,9 +66,9 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/service"
-  "github.com/mountayaapp/helix.go/integration/postgres"
-  "github.com/mountayaapp/helix.go/integration/rest"
+  "github.com/mountaya/helix.go/service"
+  "github.com/mountaya/helix.go/integration/postgres"
+  "github.com/mountaya/helix.go/integration/rest"
 )
 
 func main() {
@@ -382,11 +382,11 @@ authorization decision.
     "os/signal"
     "syscall"
 
-    "github.com/mountayaapp/helix.go/integration/postgres"
-    "github.com/mountayaapp/helix.go/integration/rest"
-    "github.com/mountayaapp/helix.go/integration/valkey"
-    "github.com/mountayaapp/helix.go/service"
-    "github.com/mountayaapp/helix.go/telemetry/log"
+    "github.com/mountaya/helix.go/integration/postgres"
+    "github.com/mountaya/helix.go/integration/rest"
+    "github.com/mountaya/helix.go/integration/valkey"
+    "github.com/mountaya/helix.go/service"
+    "github.com/mountaya/helix.go/telemetry/log"
   )
 
   func main() {
@@ -465,8 +465,8 @@ authorization decision.
   import (
     "net/http"
 
-    "github.com/mountayaapp/helix.go/errorstack"
-    "github.com/mountayaapp/helix.go/integration/rest"
+    "github.com/mountaya/helix.go/errorstack"
+    "github.com/mountaya/helix.go/integration/rest"
   )
 
   type UserMetadata struct {
@@ -521,8 +521,8 @@ authorization decision.
   import (
     "net/http"
 
-    "github.com/mountayaapp/helix.go/event"
-    "github.com/mountayaapp/helix.go/integration/rest"
+    "github.com/mountaya/helix.go/event"
+    "github.com/mountaya/helix.go/integration/rest"
 
     "go.temporal.io/sdk/client"
   )
@@ -576,8 +576,8 @@ authorization decision.
     "os/signal"
     "syscall"
 
-    "github.com/mountayaapp/helix.go/service"
-    "github.com/mountayaapp/helix.go/integration/mcp"
+    "github.com/mountaya/helix.go/service"
+    "github.com/mountaya/helix.go/integration/mcp"
   )
 
   type GreetInput struct {
@@ -635,8 +635,8 @@ authorization decision.
   import (
     "net/http"
 
-    "github.com/mountayaapp/helix.go/integration/rest"
-    "github.com/mountayaapp/helix.go/telemetry/log"
+    "github.com/mountaya/helix.go/integration/rest"
+    "github.com/mountaya/helix.go/telemetry/log"
   )
 
   router.POST("/orders", func(rw http.ResponseWriter, req *http.Request) {
@@ -680,9 +680,9 @@ authorization decision.
   import (
     "net/http"
 
-    "github.com/mountayaapp/helix.go/integration/rest"
-    "github.com/mountayaapp/helix.go/telemetry/log"
-    "github.com/mountayaapp/helix.go/telemetry/trace"
+    "github.com/mountaya/helix.go/integration/rest"
+    "github.com/mountaya/helix.go/telemetry/log"
+    "github.com/mountaya/helix.go/telemetry/trace"
   )
 
   router.POST("/reports", func(rw http.ResponseWriter, req *http.Request) {
@@ -782,7 +782,7 @@ authorization decision.
 
   ```go
   import (
-    "github.com/mountayaapp/helix.go/errorstack"
+    "github.com/mountaya/helix.go/errorstack"
   )
 
   // Build a multi-entry validation error. Each entry is forced to

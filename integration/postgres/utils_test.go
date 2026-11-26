@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"

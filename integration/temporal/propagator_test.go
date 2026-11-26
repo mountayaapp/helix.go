@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/event"
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/event"
+	internallog "github.com/mountaya/helix.go/internal/telemetry/log"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +65,7 @@ func fullEvent() event.Event {
 		Locale:         "en-US",
 		Timezone:       "UTC",
 		Timestamp:      time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC),
-		IsAnonymous:    event.BoolPtr(false),
+		IsAnonymous:    new(false),
 		Meta:           map[string]string{"source": "api"},
 		App:            event.App{Name: "storefront", Version: "2.0.0", BuildID: "b42"},
 		Device:         event.Device{ID: "dev_1", Type: "mobile"},

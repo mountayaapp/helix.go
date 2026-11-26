@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,9 +94,9 @@ func TestTelemetryGolden(t *testing.T) {
 	//
 	// They end innermost first, each nested inside the one that carried it.
 	want := []string{
-		"github.com/mountayaapp/helix.go | internal | GraphQL: Query.name | graphql.field,graphql.name,graphql.object",
-		"github.com/mountayaapp/helix.go | internal | GraphQL: Query | graphql.name,graphql.operation.name,graphql.operation.type",
-		"github.com/mountayaapp/helix.go | server | GraphQL: POST | graphql.method,graphql.name,graphql.path,graphql.request.size,graphql.response.size,graphql.status_code",
+		"github.com/mountaya/helix.go | internal | GraphQL: Query.name | graphql.field,graphql.name,graphql.object",
+		"github.com/mountaya/helix.go | internal | GraphQL: Query | graphql.name,graphql.operation.name,graphql.operation.type",
+		"github.com/mountaya/helix.go | server | GraphQL: POST | graphql.method,graphql.name,graphql.path,graphql.request.size,graphql.response.size,graphql.status_code",
 	}
 
 	assert.Equal(t, want, got)

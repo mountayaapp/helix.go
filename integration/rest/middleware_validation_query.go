@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"

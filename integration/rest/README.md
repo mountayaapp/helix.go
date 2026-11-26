@@ -1,7 +1,7 @@
 # helix.go - REST API integration
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/rest)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go/integration/rest)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The REST API integration provides an opinionated way to build an HTTP REST API
@@ -16,7 +16,7 @@ tests. It carries no lifecycle: only the `Service` starts and stops the server.
 ## Installation
 
 ```sh
-$ go get github.com/mountayaapp/helix.go/integration/rest
+$ go get github.com/mountaya/helix.go/integration/rest
 ```
 
 ## About bunrouter
@@ -108,8 +108,8 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/service"
-  "github.com/mountayaapp/helix.go/integration/rest"
+  "github.com/mountaya/helix.go/service"
+  "github.com/mountaya/helix.go/integration/rest"
 )
 
 func main() {
@@ -349,8 +349,9 @@ explicit `null` must reach the client, such as an optional-and-nullable wrapper,
 is tagged `omitzero` instead, which leaves out only the zero value (a nil
 wrapper) and writes a `null` as `null`.
 
-A payload that cannot be marshaled (a `NaN`, invalid UTF-8 in a string, a value
-whose own `MarshalJSON` fails) is answered as a `500` with the error envelope
+A payload that cannot be marshaled (a `NaN`, invalid UTF-8 in a string, a
+`time.Duration`, which `encoding/json/v2` has no default representation for, a
+value whose own `MarshalJSON` fails) is answered as a `500` with the error envelope
 instead, `INTERNAL_ERROR`, and the marshal error is recorded on the request's
 span.
 
@@ -505,7 +506,7 @@ components and headers under `documents/openapi`) by their raw URL at a tag, a
 branch or a commit:
 
 ```yaml
-$ref: https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/<tag>/documents/openapi/components/responses/500.yaml
+$ref: https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/<tag>/documents/openapi/components/responses/500.yaml
 ```
 
 Those are never fetched: they are read from the copy embedded in the module the

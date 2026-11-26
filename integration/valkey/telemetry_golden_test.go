@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,31 +107,31 @@ func TestTelemetryGolden(t *testing.T) {
 	// command is given — valkey.key, valkey.keys, valkey.pattern, valkey.channel —
 	// is only there because RecordKeys is on.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | Valkey: Set | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Get | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Exists | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Increment | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Decrement | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: IncrementTTL | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: CompareAndSet | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: CompareAndDelete | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Expire | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Scan | valkey.address,valkey.database,valkey.name,valkey.pattern",
-		"github.com/mountayaapp/helix.go | client | Valkey: MGet | valkey.address,valkey.database,valkey.keys,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: SetNX | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | producer | Valkey: Publish | valkey.address,valkey.channel,valkey.database,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: XAdd | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: XRange | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Do | valkey.address,valkey.command,valkey.database,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: SAdd | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: SMembers | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: SScan | valkey.address,valkey.database,valkey.key,valkey.name,valkey.pattern",
-		"github.com/mountayaapp/helix.go | client | Valkey: SCard | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: SRem | valkey.address,valkey.database,valkey.key,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Delete | valkey.address,valkey.database,valkey.keys,valkey.name",
-		"github.com/mountayaapp/helix.go | client | Valkey: Subscribe | valkey.address,valkey.channel,valkey.database,valkey.name",
-		"github.com/mountayaapp/helix.go | producer | Valkey: Publish | valkey.address,valkey.channel,valkey.database,valkey.name",
-		"github.com/mountayaapp/helix.go | consumer | Valkey: Receive | valkey.address,valkey.channel,valkey.database,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Set | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Get | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Exists | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Increment | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Decrement | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: IncrementTTL | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: CompareAndSet | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: CompareAndDelete | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Expire | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Scan | valkey.address,valkey.database,valkey.name,valkey.pattern",
+		"github.com/mountaya/helix.go | client | Valkey: MGet | valkey.address,valkey.database,valkey.keys,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: SetNX | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | producer | Valkey: Publish | valkey.address,valkey.channel,valkey.database,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: XAdd | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: XRange | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Do | valkey.address,valkey.command,valkey.database,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: SAdd | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: SMembers | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: SScan | valkey.address,valkey.database,valkey.key,valkey.name,valkey.pattern",
+		"github.com/mountaya/helix.go | client | Valkey: SCard | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: SRem | valkey.address,valkey.database,valkey.key,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Delete | valkey.address,valkey.database,valkey.keys,valkey.name",
+		"github.com/mountaya/helix.go | client | Valkey: Subscribe | valkey.address,valkey.channel,valkey.database,valkey.name",
+		"github.com/mountaya/helix.go | producer | Valkey: Publish | valkey.address,valkey.channel,valkey.database,valkey.name",
+		"github.com/mountaya/helix.go | consumer | Valkey: Receive | valkey.address,valkey.channel,valkey.database,valkey.name",
 	}
 
 	assert.Equal(t, want, got)

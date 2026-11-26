@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"io"
 	"net/url"
 	"regexp"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"cloud.google.com/go/storage"
 	"go.opentelemetry.io/otel/attribute"
@@ -98,6 +98,9 @@ func (d DriverGoogleCloud) validate(bucket string) []errorstack.Entry {
 // key as a PEM-encoded RSA key. The token exchange needs all three, and checking
 // them here makes a malformed key a validation error rather than a failure at the
 // first request.
+//
+// The key is decoded strictly, as Google issues it: member names must match
+// exactly, and a key naming a member twice or holding invalid UTF-8 is refused.
 func isServiceAccountKey(key string) bool {
 	var fields struct {
 		Type        string `json:"type"`

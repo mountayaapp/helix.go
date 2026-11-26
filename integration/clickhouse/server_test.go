@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/stretchr/testify/assert"

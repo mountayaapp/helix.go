@@ -5,8 +5,8 @@ import (
 	"maps"
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/internal/locales"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/internal/locales"
 )
 
 var _ json.Marshaler = (*ResponseError[any])(nil)

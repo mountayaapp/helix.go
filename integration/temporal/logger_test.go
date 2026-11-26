@@ -3,9 +3,9 @@ package temporal
 import (
 	"testing"
 
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/service/servicetest"
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	internallog "github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/telemetry/log"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

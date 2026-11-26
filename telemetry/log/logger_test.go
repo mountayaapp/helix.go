@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
+	internallog "github.com/mountaya/helix.go/internal/telemetry/log"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap/zapcore"

@@ -3,8 +3,8 @@ package clickhouse
 import (
 	"testing"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,17 +86,17 @@ func TestTelemetryGolden(t *testing.T) {
 	// Query ends when its rows have been read, which is why it carries the
 	// counters of the whole result rather than of its first block.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Exec | clickhouse.database,clickhouse.name,clickhouse.query",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Batch / Begin | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Batch / Send | clickhouse.database,clickhouse.inserted.bytes,clickhouse.inserted.rows,clickhouse.name,clickhouse.selected.bytes,clickhouse.selected.rows,clickhouse.table",
-		"github.com/mountayaapp/helix.go | internal | ClickHouse: Batch | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Batch / Begin | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Batch / Abort | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | internal | ClickHouse: Batch | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Async Insert | clickhouse.database,clickhouse.name,clickhouse.table",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Select | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: Query | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
-		"github.com/mountayaapp/helix.go | client | ClickHouse: QueryRow | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
+		"github.com/mountaya/helix.go | client | ClickHouse: Exec | clickhouse.database,clickhouse.name,clickhouse.query",
+		"github.com/mountaya/helix.go | client | ClickHouse: Batch / Begin | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | client | ClickHouse: Batch / Send | clickhouse.database,clickhouse.inserted.bytes,clickhouse.inserted.rows,clickhouse.name,clickhouse.selected.bytes,clickhouse.selected.rows,clickhouse.table",
+		"github.com/mountaya/helix.go | internal | ClickHouse: Batch | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | client | ClickHouse: Batch / Begin | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | client | ClickHouse: Batch / Abort | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | internal | ClickHouse: Batch | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | client | ClickHouse: Async Insert | clickhouse.database,clickhouse.name,clickhouse.table",
+		"github.com/mountaya/helix.go | client | ClickHouse: Select | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
+		"github.com/mountaya/helix.go | client | ClickHouse: Query | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
+		"github.com/mountaya/helix.go | client | ClickHouse: QueryRow | clickhouse.database,clickhouse.name,clickhouse.query,clickhouse.selected.bytes,clickhouse.selected.rows",
 	}
 
 	assert.Equal(t, want, got)

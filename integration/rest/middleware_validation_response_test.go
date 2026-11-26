@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/stretchr/testify/assert"

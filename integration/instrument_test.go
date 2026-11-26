@@ -146,8 +146,7 @@ func BenchmarkInstrument_Start(b *testing.B) {
 	ctx := b.Context()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, span := i.Start(ctx, oteltrace.SpanKindClient, "Exec")
 		span.End()
 	}

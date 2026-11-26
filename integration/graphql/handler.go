@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 )
@@ -42,6 +42,11 @@ func (g *graphql) handlerMethodNotAllowed(rw http.ResponseWriter, req *http.Requ
 // The body is decoded here with the decoder the transport uses, so a body this
 // accepts is one the transport decodes too, and none of its error paths is
 // reachable. The cost is a second decode of a body already bounded in size.
+//
+// That decoder is the v1 encoding/json, with UseNumber, and has to stay so for as
+// long as the transport's is. encoding/json/v2 matches member names exactly where
+// v1 ignores their case: it would accept {"Query": 42}, which the transport then
+// fails to decode, and echoes.
 func (g *graphql) handleGraphQL(rw http.ResponseWriter, req *http.Request) {
 	if !g.post.Supports(req) {
 		integration.WriteError(rw, req, http.StatusBadRequest)

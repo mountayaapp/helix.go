@@ -3,7 +3,7 @@ package mcp
 import (
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // buildHandler builds the handler chain the HTTP server serves, outermost first:

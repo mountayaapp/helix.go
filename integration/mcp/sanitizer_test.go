@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/codes"
@@ -22,8 +22,7 @@ func TestMCP_OAuth_ValidateTokenErrorGoesThroughTheSanitizer(t *testing.T) {
 	redacted := errors.New("request to idp.internal failed")
 
 	previous := trace.SetErrorSanitizer(func(err error) error {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
+		if _, ok := errors.AsType[*url.Error](err); ok {
 			return redacted
 		}
 

@@ -5,10 +5,10 @@ import (
 	"encoding/json/v2"
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/internal/locales"
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/internal/locales"
+	"github.com/mountaya/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 )

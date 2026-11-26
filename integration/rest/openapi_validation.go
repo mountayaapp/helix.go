@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -150,8 +150,8 @@ func undecodableBody(reqErr *openapi3filter.RequestError) bool {
 		return false
 	}
 
-	var schemaErr *openapi3.SchemaError
-	return !errors.As(reqErr.Err, &schemaErr)
+	_, ok := errors.AsType[*openapi3.SchemaError](reqErr.Err)
+	return !ok
 }
 
 // schemaErrorEntries converts one validation failure of a parameter or a body into
@@ -177,8 +177,7 @@ func undecodableBody(reqErr *openapi3filter.RequestError) bool {
 // are already one per problem; they are converted as they always were
 // (schemaErrorEntry).
 func schemaErrorEntries(err error, prefix []any) []errorstack.Entry {
-	var report *jsonschema.ValidationError
-	if !errors.As(err, &report) {
+	if _, ok := errors.AsType[*jsonschema.ValidationError](err); !ok {
 		return []errorstack.Entry{schemaErrorEntry(err, prefix)}
 	}
 
@@ -231,8 +230,8 @@ func jsonSchemaFindings(err error) []jsonSchemaFinding {
 
 	case *openapi3.SchemaError:
 		if typed.Origin == nil {
-			var leaf *jsonschema.ValidationError
-			if !errors.As(typed, &leaf) {
+			leaf, ok := errors.AsType[*jsonschema.ValidationError](typed)
+			if !ok {
 				return []jsonSchemaFinding{{location: typed.JSONPointer(), message: requestValidationFallback}}
 			}
 			return []jsonSchemaFinding{{location: leaf.InstanceLocation, message: jsonSchemaMessage(leaf)}}
@@ -275,8 +274,7 @@ func alternativesFailed(schemaErr *openapi3.SchemaError) (string, bool) {
 		return "", false
 	}
 
-	var causes openapi3.MultiError
-	if errors.As(schemaErr.Origin, &causes) && len(causes) == 1 {
+	if causes, ok := errors.AsType[openapi3.MultiError](schemaErr.Origin); ok && len(causes) == 1 {
 		if cause, ok := causes[0].(*openapi3.SchemaError); ok && cause.SchemaField == schemaErr.SchemaField { //nolint:errorlint // A node of the walk, never wrapped.
 			return "", false
 		}

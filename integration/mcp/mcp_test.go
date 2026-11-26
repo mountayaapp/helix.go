@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"

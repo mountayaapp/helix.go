@@ -2,7 +2,8 @@ package graphql
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/handler"
@@ -84,7 +85,7 @@ func testSchema(resolvers map[string]resolverFunc) gqlgen.ExecutableSchema {
 
 // resolveRoot resolves the root fields of the operation concurrently, and
 // returns the data they produced.
-func resolveRoot(ctx context.Context, opCtx *gqlgen.OperationContext, resolvers map[string]resolverFunc) json.RawMessage {
+func resolveRoot(ctx context.Context, opCtx *gqlgen.OperationContext, resolvers map[string]resolverFunc) jsontext.Value {
 	object := "Query"
 	if opCtx.Operation.Operation == ast.Mutation {
 		object = "Mutation"
@@ -380,12 +381,17 @@ func TestGraphQL_BodyLimit(t *testing.T) {
 
 // TestGraphQL_UndecodableBody_IsNotEchoed pins the P0: gqlgen answers a body it
 // cannot decode with an error message embedding the whole body.
+//
+// "member in another case" pins that the body is decoded the way the transport
+// decodes it: the v1 encoding/json reads "Query" into the query and refuses the
+// number, where json/v2 would skip the member and hand the body on to be echoed.
 func TestGraphQL_UndecodableBody_IsNotEchoed(t *testing.T) {
 	h, _ := newTestHandler(t, testConfig(nil))
 
 	for name, body := range map[string]string{
-		"invalid JSON":     `{"query": "{ name }", "secret": "s3cr3t-value"`,
-		"wrong field type": `{"query": 42, "secret": "s3cr3t-value"}`,
+		"invalid JSON":           `{"query": "{ name }", "secret": "s3cr3t-value"`,
+		"wrong field type":       `{"query": 42, "secret": "s3cr3t-value"}`,
+		"member in another case": `{"Query": 42, "secret": "s3cr3t-value"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			rw := postGraphQL(h, body)

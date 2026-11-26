@@ -7,7 +7,7 @@ description: >-
   concurrency, and the errors/panic/recover contract.
 metadata:
   author: mountaya
-  version: "1.0"
+  version: "1.1"
   source: https://go.dev/doc/effective_go
 ---
 
@@ -27,6 +27,11 @@ covers naming and API decisions in more depth.
 Never argue about formatting — run `gofmt` (and `goimports`). Tabs for indent,
 no line-length limit, no manual alignment. If a construct looks bad after
 `gofmt`, the construct is usually wrong, not the formatter.
+
+The same goes for idioms a newer Go superseded: since Go 1.26, `go fix`
+rewrites code to the current ones (`errors.AsType`, `new(expr)`, `for range n`,
+`maps.Copy`, …). Run it after raising a module's `go` line, and review what it
+changed.
 
 ## Commentary
 
@@ -85,8 +90,10 @@ if err != nil {
 // f is in scope and valid from here on — no else, no extra nesting.
 ```
 
-Use `range` for slices, maps, strings and channels. Range over a string decodes
-UTF-8 runes; range over a slice with only the index is `for i := range v`.
+Use `range` for slices, maps, strings and channels, and since Go 1.22–1.23 for
+integers (`for i := range n`) and iterator functions (`iter.Seq`). Range over a
+string decodes UTF-8 runes; range over a slice with only the index is
+`for i := range v`.
 
 Go's `switch` has no fallthrough by default; cases may be comma-separated lists
 and may be expressionless (a cleaner `if/else` chain). Type switches declare the
@@ -121,7 +128,10 @@ defer f.Close()
 
 ## Data: allocation
 
-- `new(T)` — zeroes storage, returns `*T`. No initialization.
+- `new(T)` — zeroes storage, returns `*T`. Since Go 1.26 it also takes a value,
+  `new(expr)`, and returns a pointer to a copy of it: `new(true)`,
+  `new(30 * time.Second)`. A pointer helper such as `func BoolPtr(v bool) *bool`
+  is no longer needed.
 - `make(T, ...)` — slices, maps and channels **only**; returns an initialized
   `T` (not a pointer).
 
@@ -151,14 +161,26 @@ Beware capturing the loop variable in a closure. (Since Go 1.22 each iteration
 has a fresh variable, so this is no longer a bug — but be explicit when the
 goroutine's input matters.)
 
+To start goroutines and wait for all of them, `wg.Go(f)` (Go 1.25) does in one
+call what `wg.Add(1)`, `go` and `defer wg.Done()` did in three.
+
 ## Errors, panic, recover
 
 Errors are values; return them, don't panic. Error strings should be lowercase
 and unpunctuated because they get wrapped into larger messages.
 
 Provide structured error types when callers need to discriminate, and let them
-test with `errors.Is` / `errors.As` (post-Effective Go, but the correct modern
-form). Wrap with `%w` to preserve the chain.
+test with `errors.Is` / `errors.AsType` (post-Effective Go, but the correct modern
+form). `errors.AsType[*T](err)` (Go 1.26) returns the match, where `errors.As`
+needs a variable declared to fill:
+
+```go
+if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+    return pathErr.Path
+}
+```
+
+Wrap with `%w` to preserve the chain.
 
 `panic` is for genuinely unrecoverable situations — chiefly impossible states
 during initialization. A library should not let a panic escape its API boundary:
@@ -167,6 +189,7 @@ recover at the package edge and convert to an error.
 ## Checklist
 
 - [ ] `gofmt`/`goimports` clean
+- [ ] `go fix` clean: no idiom a newer Go replaced
 - [ ] Exported symbols have doc comments starting with the symbol name
 - [ ] No stutter (`pkg.PkgThing`), no `Get` prefixes
 - [ ] Errors returned, not panicked; lowercase unpunctuated strings; wrapped with `%w`

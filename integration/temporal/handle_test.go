@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -53,7 +53,7 @@ func TestHandles_NameRoundTrip(t *testing.T) {
 
 func TestHandles_ZeroValueIsUsableAsAHandle(t *testing.T) {
 	var wf Workflow[orderInput, orderResult]
-	assert.Equal(t, "", wf.Name())
+	assert.Empty(t, wf.Name())
 }
 
 func TestWorkflowRun_MetadataOnNilReceiver(t *testing.T) {

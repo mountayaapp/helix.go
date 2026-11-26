@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/service/servicetest"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"

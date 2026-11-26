@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"gocloud.dev/blob"
 )

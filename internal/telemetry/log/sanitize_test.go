@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/sanitize"
+	"github.com/mountaya/helix.go/internal/telemetry/sanitize"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

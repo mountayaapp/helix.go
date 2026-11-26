@@ -4,10 +4,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/internal/cloudprovider"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider/kubernetes"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider/nomad"
-	"github.com/mountayaapp/helix.go/internal/cloudprovider/unknown"
+	"github.com/mountaya/helix.go/internal/cloudprovider"
+	"github.com/mountaya/helix.go/internal/cloudprovider/kubernetes"
+	"github.com/mountaya/helix.go/internal/cloudprovider/nomad"
+	"github.com/mountaya/helix.go/internal/cloudprovider/unknown"
 
 	"go.opentelemetry.io/otel/attribute"
 )

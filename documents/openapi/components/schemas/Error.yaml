@@ -1,7 +1,7 @@
 type: object
 x-go-type: errorstack.Entry
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/errorstack
+  path: github.com/mountaya/helix.go/errorstack
 
 properties:
   message:

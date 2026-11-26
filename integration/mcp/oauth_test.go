@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/stretchr/testify/assert"

@@ -3,9 +3,9 @@ package integration
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/errorstack"
+	internaltrace "github.com/mountaya/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"go.temporal.io/sdk/worker"
 )

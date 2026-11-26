@@ -1,7 +1,7 @@
 package rest
 
 import (
-	"github.com/mountayaapp/helix.go/internal/locales"
+	"github.com/mountaya/helix.go/internal/locales"
 
 	"golang.org/x/text/language"
 )

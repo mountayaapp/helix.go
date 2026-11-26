@@ -3,10 +3,9 @@ package integration
 import (
 	"bytes"
 	"crypto/tls"
-	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -317,8 +316,8 @@ func TestConfigTLS_ToStandardTLS_WithLiteralNewlines(t *testing.T) {
 	mangledKey := bytes.ReplaceAll(testKeyPEM, []byte("\n"), []byte(`\n`))
 
 	// Ensure we actually mangled the data (no real newlines remain).
-	require.False(t, strings.Contains(string(mangledCert), "\n"))
-	require.False(t, strings.Contains(string(mangledKey), "\n"))
+	require.NotContains(t, string(mangledCert), "\n")
+	require.NotContains(t, string(mangledKey), "\n")
 
 	cfg := ConfigTLS{
 		Enabled:    true,

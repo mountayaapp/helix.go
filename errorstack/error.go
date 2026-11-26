@@ -296,9 +296,7 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 	for i, entry := range entries {
 		if _, ok := entry.Extensions["code"].(string); !ok || entry.Extensions["code"] == "" {
 			ext := make(map[string]any, len(entry.Extensions)+1)
-			for k, v := range entry.Extensions {
-				ext[k] = v
-			}
+			maps.Copy(ext, entry.Extensions)
 			ext["code"] = CodeInternalError
 			entry.Extensions = ext
 		}
@@ -323,8 +321,7 @@ func EntriesOf(err error) []Entry {
 		return nil
 	}
 
-	var inner *Error
-	if errors.As(err, &inner) {
+	if inner, ok := errors.AsType[*Error](err); ok {
 		if inner == nil {
 			return nil
 		}

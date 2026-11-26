@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // errNotAccessible reports a bucket the driver found not accessible — mostly, one

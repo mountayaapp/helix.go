@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/event"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/service/servicetest"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/event"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

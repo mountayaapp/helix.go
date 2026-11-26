@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -97,10 +97,10 @@ func TestTelemetryGolden(t *testing.T) {
 	// Each inner span ends before the POST that carried it, which is what nesting
 	// looks like once sorted by end time.
 	want := []string{
-		"github.com/mountayaapp/helix.go | internal | MCP: server/discover | mcp.name,mcp.rpc.method",
-		"github.com/mountayaapp/helix.go | server | MCP: POST | mcp.method,mcp.name,mcp.path,mcp.request.size,mcp.response.size,mcp.status_code",
-		"github.com/mountayaapp/helix.go | internal | MCP: tools/call | mcp.name,mcp.rpc.method,mcp.tool",
-		"github.com/mountayaapp/helix.go | server | MCP: POST | mcp.method,mcp.name,mcp.path,mcp.request.size,mcp.response.size,mcp.status_code",
+		"github.com/mountaya/helix.go | internal | MCP: server/discover | mcp.name,mcp.rpc.method",
+		"github.com/mountaya/helix.go | server | MCP: POST | mcp.method,mcp.name,mcp.path,mcp.request.size,mcp.response.size,mcp.status_code",
+		"github.com/mountaya/helix.go | internal | MCP: tools/call | mcp.name,mcp.rpc.method,mcp.tool",
+		"github.com/mountaya/helix.go | server | MCP: POST | mcp.method,mcp.name,mcp.path,mcp.request.size,mcp.response.size,mcp.status_code",
 	}
 
 	assert.Equal(t, want, got)

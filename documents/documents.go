@@ -4,7 +4,7 @@
 //
 // A description references them by their raw URL at a tag:
 //
-//	$ref: https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/<tag>/documents/openapi/components/responses/500.yaml
+//	$ref: https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/<tag>/documents/openapi/components/responses/500.yaml
 //
 // which is what a reader of the description, a bundler or a documentation site
 // resolves. A running server does not: the REST integration reads them from

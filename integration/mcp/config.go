@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

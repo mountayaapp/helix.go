@@ -1,7 +1,7 @@
 # helix.go - Temporal integration
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/temporal)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go/integration/temporal)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The Temporal integration provides an opinionated, type-safe way to interact with
@@ -28,7 +28,7 @@ back start workflows and register implementations, and carry no lifecycle method
 ## Installation
 
 ```sh
-$ go get github.com/mountayaapp/helix.go/integration/temporal
+$ go get github.com/mountaya/helix.go/integration/temporal
 ```
 
 ## Configuration
@@ -128,7 +128,7 @@ share them between the client and the worker side.
 import (
   "time"
 
-  "github.com/mountayaapp/helix.go/integration/temporal"
+  "github.com/mountaya/helix.go/integration/temporal"
 
   "go.temporal.io/sdk/workflow"
 )
@@ -188,8 +188,8 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/integration/temporal"
-  "github.com/mountayaapp/helix.go/service"
+  "github.com/mountaya/helix.go/integration/temporal"
+  "github.com/mountaya/helix.go/service"
 )
 
 func run() error {
@@ -353,8 +353,8 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/integration/temporal"
-  "github.com/mountayaapp/helix.go/service"
+  "github.com/mountaya/helix.go/integration/temporal"
+  "github.com/mountaya/helix.go/service"
 
   "go.temporal.io/sdk/workflow"
 )
@@ -565,8 +565,8 @@ dedicated `event` header, not as baggage.
 
 ```go
 import (
-  "github.com/mountayaapp/helix.go/event"
-  "github.com/mountayaapp/helix.go/integration/temporal"
+  "github.com/mountaya/helix.go/event"
+  "github.com/mountaya/helix.go/integration/temporal"
 )
 
 // In a REST handler — attach an event before executing a workflow.

@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -132,8 +132,8 @@ func admin(fn func(ctx context.Context, conn *pgx.Conn) error) error {
 // codeOf returns the extensions.code of err's first entry, or "" when err is not
 // an *errorstack.Error.
 func codeOf(err error) string {
-	var e *errorstack.Error
-	if !errors.As(err, &e) || len(e.Entries) == 0 {
+	e, ok := errors.AsType[*errorstack.Error](err)
+	if !ok || len(e.Entries) == 0 {
 		return ""
 	}
 

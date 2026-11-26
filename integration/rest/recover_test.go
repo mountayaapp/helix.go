@@ -252,6 +252,6 @@ func TestRecover_APanicIsRecordedUnderItsType(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "github.com/mountayaapp/helix.go/integration/rest.panicError", panicType)
+	assert.Equal(t, "github.com/mountaya/helix.go/integration/rest.panicError", panicType)
 	assert.Contains(t, stack, "recover_test.go")
 }

@@ -2,13 +2,12 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
@@ -189,7 +188,7 @@ func TestListener_ServiceStop(t *testing.T) {
 
 	select {
 	case err := <-waited:
-		assert.True(t, errors.Is(err, ErrClosed), "got %v", err)
+		assert.ErrorIs(t, err, ErrClosed)
 	case <-time.After(10 * time.Second):
 		t.Fatal("stopping the Service did not close the Listener")
 	}

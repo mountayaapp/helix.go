@@ -2,7 +2,6 @@ package valkey
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -11,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -329,7 +328,7 @@ func TestValkey_IncrementTTL(t *testing.T) {
 		value, err := conn.IncrementTTL(ctx, "window:immortal", 1, time.Minute)
 		require.NoError(t, err)
 		assert.Equal(t, int64(2), value)
-		assert.Greater(t, pttl(t, conn, "window:immortal"), int64(0))
+		assert.Positive(t, pttl(t, conn, "window:immortal"))
 	})
 
 	t.Run("the window ends with the key", func(t *testing.T) {
@@ -1056,5 +1055,5 @@ func TestValkey_CheckHealthAndClose(t *testing.T) {
 	err := dep.CheckHealth(t.Context())
 	require.Error(t, err)
 	assert.Equal(t, errorstack.CodeServiceUnavailable, codeOf(t, err))
-	assert.True(t, errors.Is(err, valkey.ErrClosing))
+	assert.ErrorIs(t, err, valkey.ErrClosing)
 }

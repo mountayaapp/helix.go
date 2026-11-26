@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	internallog "github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/telemetry/log"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	sdklog "go.temporal.io/sdk/log"

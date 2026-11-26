@@ -3,7 +3,7 @@ package postgres
 import (
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -116,35 +116,35 @@ func TestTelemetryGolden(t *testing.T) {
 	// postgres.name, so two pools are told apart in a trace the way they already
 	// are in health output.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Query | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: QueryRow | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Batch | postgres.batch.size,postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Copy From | postgres.columns,postgres.database,postgres.name,postgres.rows,postgres.table",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Begin | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Query | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / QueryRow | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Batch | postgres.batch.size,postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Copy From | postgres.columns,postgres.database,postgres.name,postgres.rows,postgres.table",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Begin | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Rollback | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Transaction / Commit | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Connect | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Listen | postgres.database,postgres.name,postgres.query,postgres.rows",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
-		"github.com/mountayaapp/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Query | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: QueryRow | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Batch | postgres.batch.size,postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Copy From | postgres.columns,postgres.database,postgres.name,postgres.rows,postgres.table",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Begin | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Prepare | postgres.already_prepared,postgres.database,postgres.name,postgres.query,postgres.statement",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Query | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / QueryRow | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Batch | postgres.batch.size,postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Copy From | postgres.columns,postgres.database,postgres.name,postgres.rows,postgres.table",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Begin | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Rollback | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Transaction / Commit | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Connect | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Listen | postgres.database,postgres.name,postgres.query,postgres.rows",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Pool / Acquire | postgres.database,postgres.name",
+		"github.com/mountaya/helix.go | client | PostgreSQL: Exec | postgres.database,postgres.name,postgres.query,postgres.rows",
 	}
 
 	assert.Equal(t, want, got)

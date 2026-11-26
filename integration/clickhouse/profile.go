@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"go.opentelemetry.io/otel/attribute"

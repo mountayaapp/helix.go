@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -99,13 +99,12 @@ func hasIdempotencyKey(h http.Header) bool {
 // Anything else — a timeout, a connection reset — may have happened after the
 // endpoint read the request, and possibly acted on it.
 func unsent(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && (opErr.Op == "dial" || opErr.Op == "proxyconnect") {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok && (opErr.Op == "dial" || opErr.Op == "proxyconnect") {
 		return true
 	}
 
-	var dnsErr *net.DNSError
-	return errors.As(err, &dnsErr)
+	_, ok := errors.AsType[*net.DNSError](err)
+	return ok
 }
 
 // malformedLocation starts the text net/http gives a redirect whose Location
@@ -135,8 +134,8 @@ const malformedLocation = "failed to parse Location header "
 // can hold the same: the text is cut where the quote begins, and the sentence
 // naming what was refused kept (withoutAnswer).
 func redact(err error) error {
-	var urlErr *url.Error
-	if !errors.As(err, &urlErr) {
+	urlErr, ok := errors.AsType[*url.Error](err)
+	if !ok {
 		return err
 	}
 

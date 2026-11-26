@@ -1,7 +1,7 @@
 type: object
 x-go-type: temporalrest.Metadata
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/integration/temporal/temporalrest
+  path: github.com/mountaya/helix.go/integration/temporal/temporalrest
 
 properties:
   workflow:

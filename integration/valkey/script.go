@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/valkey-io/valkey-go"
 )

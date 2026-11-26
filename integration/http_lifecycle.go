@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/telemetry/log"
 )
 
 // Defaults an HTTPLifecycle applies to the timeouts of the server it runs, when

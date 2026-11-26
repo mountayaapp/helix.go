@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"regexp"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"go.opentelemetry.io/otel/attribute"

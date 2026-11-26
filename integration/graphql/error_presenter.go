@@ -6,8 +6,8 @@ import (
 	"maps"
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/internal/locales"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/internal/locales"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/errcode"
@@ -57,8 +57,7 @@ func errorPresenter(ctx context.Context, err error) *gqlerror.Error {
 
 	path, locations := position(ctx, err)
 
-	var stack *errorstack.Error
-	if errors.As(err, &stack) && len(stack.Entries) > 0 {
+	if stack, ok := errors.AsType[*errorstack.Error](err); ok && len(stack.Entries) > 0 {
 		first := stack.Entries[0]
 		presented := &gqlerror.Error{
 			Message:    first.Message,
@@ -82,8 +81,7 @@ func errorPresenter(ctx context.Context, err error) *gqlerror.Error {
 		return presented
 	}
 
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) && gqlErr.Err == nil {
+	if gqlErr, ok := errors.AsType[*gqlerror.Error](err); ok && gqlErr.Err == nil {
 
 		// Outside a field, an error refuses the request before anything executed.
 		// gqlgen gives most of those a code, but not the ones its APQ extension
@@ -110,8 +108,7 @@ func errorPresenter(ctx context.Context, err error) *gqlerror.Error {
 // path and location; anything presented outside a resolver falls back to the
 // path of ctx, which is empty there.
 func position(ctx context.Context, err error) (ast.Path, []gqlerror.Location) {
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) {
+	if gqlErr, ok := errors.AsType[*gqlerror.Error](err); ok {
 		return gqlErr.Path, gqlErr.Locations
 	}
 
@@ -122,8 +119,7 @@ func position(ctx context.Context, err error) (ast.Path, []gqlerror.Location) {
 // *gqlerror.Error gqlgen wraps it in to carry a path. It is what the operation
 // span records, and gqlgen's wrapper adds nothing to it but noise.
 func cause(err error) error {
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) && gqlErr.Err != nil {
+	if gqlErr, ok := errors.AsType[*gqlerror.Error](err); ok && gqlErr.Err != nil {
 		return gqlErr.Err
 	}
 

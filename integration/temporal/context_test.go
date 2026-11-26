@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/event"
+	"github.com/mountaya/helix.go/event"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace"

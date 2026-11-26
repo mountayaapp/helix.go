@@ -3,8 +3,8 @@ package clickhouse
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // Ensure dependency complies to the integration.Dependency type.

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

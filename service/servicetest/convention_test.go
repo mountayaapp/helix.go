@@ -49,14 +49,14 @@ func TestAssertConvention(t *testing.T) {
 	}{
 		{
 			name: "conforming span passes",
-			span: emit(t, "github.com/mountayaapp/helix.go", "PostgreSQL: Exec",
+			span: emit(t, "github.com/mountaya/helix.go", "PostgreSQL: Exec",
 				attribute.String("postgres.name", "primary"),
 				attribute.String("postgres.query", "SELECT 1"),
 			),
 		},
 		{
 			name: "event attributes are allowed alongside an integration's own",
-			span: emit(t, "github.com/mountayaapp/helix.go", "REST: Request",
+			span: emit(t, "github.com/mountaya/helix.go", "REST: Request",
 				attribute.String("rest.route", "/things/:id"),
 				attribute.String("event.id", "evt_1"),
 				attribute.String("enduser.id", "usr_1"),
@@ -72,7 +72,7 @@ func TestAssertConvention(t *testing.T) {
 		},
 		{
 			name: "span with no attributes passes",
-			span: emit(t, "github.com/mountayaapp/helix.go", "Bucket: Write"),
+			span: emit(t, "github.com/mountaya/helix.go", "Bucket: Write"),
 		},
 		{
 			name:  "otelhttp's span name does not follow the convention",
@@ -81,7 +81,7 @@ func TestAssertConvention(t *testing.T) {
 		},
 		{
 			name:  "a name with no operation does not follow the convention",
-			span:  emit(t, "github.com/mountayaapp/helix.go", "PostgreSQL: "),
+			span:  emit(t, "github.com/mountaya/helix.go", "PostgreSQL: "),
 			fails: 1,
 		},
 		{
@@ -91,7 +91,7 @@ func TestAssertConvention(t *testing.T) {
 		},
 		{
 			name: "a foreign vocabulary is rejected even when it is internally consistent",
-			span: emit(t, "github.com/mountayaapp/helix.go", "REST: Request",
+			span: emit(t, "github.com/mountaya/helix.go", "REST: Request",
 				attribute.String("http.route", "/thing"),
 				attribute.String("http.target", "/thing"),
 			),
@@ -99,7 +99,7 @@ func TestAssertConvention(t *testing.T) {
 		},
 		{
 			name: "mixing two namespaces is rejected",
-			span: emit(t, "github.com/mountayaapp/helix.go", "REST: Request",
+			span: emit(t, "github.com/mountaya/helix.go", "REST: Request",
 				attribute.String("rest.route", "/thing"),
 				attribute.String("graphql.operation", "Query"),
 			),
@@ -120,10 +120,10 @@ func TestAssertConvention(t *testing.T) {
 func TestScopes(t *testing.T) {
 	var spans []sdktrace.ReadOnlySpan
 	spans = append(spans, emit(t, "gocloud.dev/blob", "Bucket: Write")...)
-	spans = append(spans, emit(t, "github.com/mountayaapp/helix.go", "Bucket: Write")...)
-	spans = append(spans, emit(t, "github.com/mountayaapp/helix.go", "Bucket: Read")...)
+	spans = append(spans, emit(t, "github.com/mountaya/helix.go", "Bucket: Write")...)
+	spans = append(spans, emit(t, "github.com/mountaya/helix.go", "Bucket: Read")...)
 
-	assert.Equal(t, []string{"github.com/mountayaapp/helix.go", "gocloud.dev/blob"}, Scopes(spans))
+	assert.Equal(t, []string{"github.com/mountaya/helix.go", "gocloud.dev/blob"}, Scopes(spans))
 	assert.Empty(t, Scopes(nil))
 }
 
@@ -131,8 +131,8 @@ func TestScopes(t *testing.T) {
 // golden test uses: whatever the Service produced, all of it conforms.
 func TestAssertConventionAcrossEveryEmittedSpan(t *testing.T) {
 	var spans []sdktrace.ReadOnlySpan
-	spans = append(spans, emit(t, "github.com/mountayaapp/helix.go", "Valkey: Get", attribute.String("valkey.key", "k"))...)
-	spans = append(spans, emit(t, "github.com/mountayaapp/helix.go", "ClickHouse: Select", attribute.String("clickhouse.database", "default"))...)
+	spans = append(spans, emit(t, "github.com/mountaya/helix.go", "Valkey: Get", attribute.String("valkey.key", "k"))...)
+	spans = append(spans, emit(t, "github.com/mountaya/helix.go", "ClickHouse: Select", attribute.String("clickhouse.database", "default"))...)
 	require.Len(t, spans, 2)
 
 	AssertConvention(t, spans)

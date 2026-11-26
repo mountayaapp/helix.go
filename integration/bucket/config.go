@@ -3,7 +3,7 @@ package bucket
 import (
 	"strings"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 )
 
 // Config is used to configure the Bucket integration.

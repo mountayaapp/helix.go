@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/event"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/event"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,10 +132,10 @@ func TestTelemetryGolden(t *testing.T) {
 	// because that is all the client put in the header: the user ID, the address
 	// and the user agent the handler had never leave the client's process.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | Temporal: Start Workflow | temporal.name,temporal.namespace,temporal.server.address,temporal.workflow.id,temporal.workflow.type",
-		"github.com/mountayaapp/helix.go | client | Temporal: Start Activity | temporal.activity.type,temporal.name,temporal.namespace,temporal.server.address,temporal.workflow.id,temporal.workflow.run_id",
-		"github.com/mountayaapp/helix.go | server | Temporal: Run Activity | event.id,event.name,event.tenant_id,temporal.activity.attempt,temporal.activity.id,temporal.activity.type,temporal.name,temporal.namespace,temporal.server.address,temporal.worker.task_queue,temporal.workflow.id,temporal.workflow.run_id,temporal.workflow.type",
-		"github.com/mountayaapp/helix.go | server | Temporal: Run Workflow | event.id,event.name,event.tenant_id,temporal.name,temporal.namespace,temporal.server.address,temporal.worker.task_queue,temporal.workflow.attempt,temporal.workflow.id,temporal.workflow.run_id,temporal.workflow.type",
+		"github.com/mountaya/helix.go | client | Temporal: Start Workflow | temporal.name,temporal.namespace,temporal.server.address,temporal.workflow.id,temporal.workflow.type",
+		"github.com/mountaya/helix.go | client | Temporal: Start Activity | temporal.activity.type,temporal.name,temporal.namespace,temporal.server.address,temporal.workflow.id,temporal.workflow.run_id",
+		"github.com/mountaya/helix.go | server | Temporal: Run Activity | event.id,event.name,event.tenant_id,temporal.activity.attempt,temporal.activity.id,temporal.activity.type,temporal.name,temporal.namespace,temporal.server.address,temporal.worker.task_queue,temporal.workflow.id,temporal.workflow.run_id,temporal.workflow.type",
+		"github.com/mountaya/helix.go | server | Temporal: Run Workflow | event.id,event.name,event.tenant_id,temporal.name,temporal.namespace,temporal.server.address,temporal.worker.task_queue,temporal.workflow.attempt,temporal.workflow.id,temporal.workflow.run_id,temporal.workflow.type",
 	}
 
 	assert.Equal(t, want, got)

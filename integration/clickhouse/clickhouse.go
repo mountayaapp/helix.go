@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -284,8 +284,8 @@ func tolerated(pingErr error, optional bool) bool {
 // raised, "local error", each wrapping the alert, a "tls: " error of an
 // unexported type. tls.AlertError is what QUIC reports instead.
 func tlsAlert(err error) bool {
-	var op *net.OpError
-	if !errors.As(err, &op) || (op.Op != "remote error" && op.Op != "local error") || op.Err == nil {
+	op, ok := errors.AsType[*net.OpError](err)
+	if !ok || (op.Op != "remote error" && op.Op != "local error") || op.Err == nil {
 		return false
 	}
 

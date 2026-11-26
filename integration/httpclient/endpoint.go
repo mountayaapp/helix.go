@@ -54,7 +54,7 @@ func newEndpoints(urls []*url.URL) []*endpoint {
 // relative has already refused a ref that carries either, and ref is only ever
 // appended to a path. No path a caller passes can reach another host.
 func (e *endpoint) resolve(ref *url.URL) *url.URL {
-	u := *e.url
+	u := e.url.Clone()
 	u.Path = e.url.Path + ref.Path
 	u.RawPath = ""
 	if e.url.RawPath != "" || ref.RawPath != "" {
@@ -64,7 +64,7 @@ func (e *endpoint) resolve(ref *url.URL) *url.URL {
 	u.RawQuery = ref.RawQuery
 	u.ForceQuery = ref.ForceQuery
 
-	return &u
+	return u
 }
 
 // paused reports whether the endpoint asked, at now, to be left alone.

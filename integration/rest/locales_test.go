@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/internal/locales"
+	"github.com/mountaya/helix.go/internal/locales"
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/text/language"

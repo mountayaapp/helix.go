@@ -48,13 +48,13 @@ func TestToFlatMap_IsAnonymous(t *testing.T) {
 	})
 
 	t.Run("true", func(t *testing.T) {
-		m := ToFlatMap(Event{Name: "test", IsAnonymous: BoolPtr(true)})
+		m := ToFlatMap(Event{Name: "test", IsAnonymous: new(true)})
 
 		assert.Equal(t, "true", m["event.is_anonymous"])
 	})
 
 	t.Run("false", func(t *testing.T) {
-		m := ToFlatMap(Event{Name: "test", IsAnonymous: BoolPtr(false)})
+		m := ToFlatMap(Event{Name: "test", IsAnonymous: new(false)})
 
 		assert.Equal(t, "false", m["event.is_anonymous"])
 	})
@@ -304,7 +304,7 @@ func TestFlatMapRoundTrip(t *testing.T) {
 		Locale:         "fr-FR",
 		Timezone:       "Europe/Paris",
 		Timestamp:      ts,
-		IsAnonymous:    BoolPtr(true),
+		IsAnonymous:    new(true),
 		Meta:           map[string]string{"key": "value"},
 		App:            App{Name: "my-app", Version: "2.0.0", BuildID: "abc"},
 		Campaign:       Campaign{Name: "summer", Source: "google"},
@@ -402,7 +402,7 @@ func TestFromFlatMap_SparseSubscriptionIndices(t *testing.T) {
 	// Slice length is maxIdx+1, so index 1 is a zero-value Subscription.
 	assert.Len(t, e.Subscriptions, 3)
 	assert.Equal(t, "sub_0", e.Subscriptions[0].ID)
-	assert.Equal(t, "", e.Subscriptions[1].ID)
+	assert.Empty(t, e.Subscriptions[1].ID)
 	assert.Equal(t, "sub_2", e.Subscriptions[2].ID)
 }
 

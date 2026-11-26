@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-export GOPRIVATE="github.com/mountayaapp/*"
+export GOPRIVATE="github.com/mountaya/*"
 
 # The tools come from mise.toml, at the versions CI runs.
 for tool in go jq; do

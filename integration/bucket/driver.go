@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"regexp"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"go.opentelemetry.io/otel/attribute"
 	"gocloud.dev/blob"

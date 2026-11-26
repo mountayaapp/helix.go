@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -490,7 +490,7 @@ func TestConnect_TLSFailureIsARefusal(t *testing.T) {
 				TLS:         tc.tls,
 			})
 			require.Error(t, err)
-			assert.True(t, db == nil, "Connect handed back a connection holding nothing")
+			assert.True(t, db == nil, "Connect handed back a connection holding nothing") //nolint:testifylint // An interface holding a nil connection must fail this; assert.Nil would let it pass.
 		})
 	}
 }
@@ -527,7 +527,7 @@ func TestConnect_FailureHandsBackNothing(t *testing.T) {
 
 	db, err := Connect(t.Context(), svc, Config{Address: "127.0.0.1:1", DialTimeout: time.Second})
 	require.Error(t, err)
-	assert.True(t, db == nil, "Connect handed back %#v", db)
+	assert.True(t, db == nil, "Connect handed back %#v", db) //nolint:testifylint // An interface holding a nil connection must fail this; assert.Nil would let it pass.
 }
 
 // TestBatchColumns pins what the batch options name, as NewBatchInsert reads them:

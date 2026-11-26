@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,8 +42,8 @@ func assertNothingDialed(t *testing.T, ln *net.TCPListener) {
 		conn.Close()
 	}
 
-	var netErr net.Error
-	assert.True(t, errors.As(err, &netErr) && netErr.Timeout(), "a connection was dialed; err=%v", err)
+	netErr, ok := errors.AsType[net.Error](err)
+	assert.True(t, ok && netErr.Timeout(), "a connection was dialed; err=%v", err)
 }
 
 // TestConnect_InvalidTLSDoesNotDial pins that a TLS configuration that does not

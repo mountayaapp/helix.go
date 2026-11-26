@@ -6,7 +6,7 @@ import (
 
 // Activity is the type-safe handle for a Temporal activity definition. Generics
 // [Input, Result] enforce the data contract end-to-end, abstracting away Temporal's
-// reliance on interface{} for arguments and results.
+// reliance on untyped (any) arguments and results.
 //
 // An Activity carries no connection state, so handles are meant to be declared as
 // package-level variables:
@@ -44,7 +44,7 @@ func (a Activity[Input, Result]) Name() string {
 
 // Execute wraps workflow.ExecuteActivity. The [Input] type constraint on input
 // prevents runtime errors from passing incorrectly typed arguments to the activity
-// via interface{}.
+// via any.
 //
 // The options the activity was declared with are defaults. Options already on ctx,
 // set with workflow.WithActivityOptions, take precedence field by field, which is

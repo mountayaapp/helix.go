@@ -3,7 +3,7 @@ package trace
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/event"
+	"github.com/mountaya/helix.go/event"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
@@ -16,7 +16,7 @@ import (
 // library rather than one per integration or per signal: the vocabulary is the
 // same everywhere, so a backend filtering on the scope gets all of helix's
 // telemetry and none of anybody else's.
-const ScopeName = "github.com/mountayaapp/helix.go"
+const ScopeName = "github.com/mountaya/helix.go"
 
 // Tracer wraps an OpenTelemetry TracerProvider. Created by service.New, stored in
 // context, and used by the public telemetry/trace package-level functions.

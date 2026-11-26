@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	otelmetric "go.opentelemetry.io/otel/metric"

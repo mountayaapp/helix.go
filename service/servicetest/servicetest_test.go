@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

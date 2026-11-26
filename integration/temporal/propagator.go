@@ -4,9 +4,9 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/mountayaapp/helix.go/event"
-	internallog "github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/event"
+	internallog "github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/log"
 
 	"go.opentelemetry.io/otel/baggage"
 	"go.temporal.io/sdk/converter"

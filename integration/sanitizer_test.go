@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +26,7 @@ func registerSanitizer(t *testing.T) {
 	t.Helper()
 
 	previous := trace.SetErrorSanitizer(func(err error) error {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
+		if _, ok := errors.AsType[*url.Error](err); ok {
 			return errRedacted
 		}
 

@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	otelmetric "go.opentelemetry.io/otel/metric"

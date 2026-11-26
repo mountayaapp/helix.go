@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"runtime/debug"
+	"slices"
 
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -61,7 +63,7 @@ func RecordPanic(ctx context.Context, logged string, recorded string, v any, fie
 func recordPanic(ctx context.Context, logged string, recorded string, panicked error, fields []log.Field) {
 	stack := string(debug.Stack())
 
-	log.Error(ctx, logged, append(fields[:len(fields):len(fields)],
+	log.Error(ctx, logged, append(slices.Clip(fields),
 		log.Err(panicked),
 		log.String("stack", stack),
 	)...)
@@ -141,9 +143,7 @@ func restoreHeaders(header http.Header, before http.Header) {
 		}
 	}
 
-	for key, values := range before {
-		header[key] = values
-	}
+	maps.Copy(header, before)
 }
 
 // panicAwareWriter records whether any of the response has been sent, which

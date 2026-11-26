@@ -3,15 +3,13 @@ package temporal
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
-	workflowpb "go.temporal.io/api/workflow/v1"
-	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/mocks"
@@ -243,18 +241,19 @@ func TestScheduleOptions(t *testing.T) {
 		}
 
 		base := ScheduleOptions{TaskQueue: "orders", CronExpressions: []string{"0 1 * * *"}}
-		assert.Equal(t, fingerprint(base, orderInput{}), fingerprint(base, orderInput{}))
-		assert.NotEqual(t, fingerprint(base, orderInput{}), fingerprint(base, orderInput{OrderID: "o1"}))
-		assert.NotEqual(t, fingerprint(base, orderInput{}), fingerprint(ScheduleOptions{TaskQueue: "other", CronExpressions: base.CronExpressions}, orderInput{}))
-		assert.NotEqual(t, fingerprint(base, orderInput{}), fingerprint(ScheduleOptions{TaskQueue: "orders"}, orderInput{}))
-		assert.NotEqual(t, fingerprint(base, orderInput{}), fingerprint(ScheduleOptions{
+		baseline := fingerprint(base, orderInput{})
+		assert.Equal(t, baseline, fingerprint(base, orderInput{}), "the same request has the same fingerprint")
+		assert.NotEqual(t, baseline, fingerprint(base, orderInput{OrderID: "o1"}))
+		assert.NotEqual(t, baseline, fingerprint(ScheduleOptions{TaskQueue: "other", CronExpressions: base.CronExpressions}, orderInput{}))
+		assert.NotEqual(t, baseline, fingerprint(ScheduleOptions{TaskQueue: "orders"}, orderInput{}))
+		assert.NotEqual(t, baseline, fingerprint(ScheduleOptions{
 			TaskQueue:       "orders",
 			CronExpressions: base.CronExpressions,
 			OverlapPolicy:   enumspb.SCHEDULE_OVERLAP_POLICY_ALLOW_ALL,
 		}, orderInput{}))
 
 		// Unspecified is the server's skip: the two are the same request.
-		assert.Equal(t, fingerprint(base, orderInput{}), fingerprint(ScheduleOptions{
+		assert.Equal(t, baseline, fingerprint(ScheduleOptions{
 			TaskQueue:       "orders",
 			CronExpressions: base.CronExpressions,
 			OverlapPolicy:   enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,
@@ -264,6 +263,22 @@ func TestScheduleOptions(t *testing.T) {
 	t.Run("an input that cannot be encoded is a validation error", func(t *testing.T) {
 		_, err := c.scheduleOptions("process-order", ScheduleOptions{}, make(chan int))
 		assert.ErrorContains(t, err, "Must be serializable as JSON")
+	})
+
+	// Every schedule carries the fingerprint the release that created it recorded,
+	// so a change to how it is computed updates every schedule once, undoing what
+	// was changed in the Temporal UI. The input holds what json/v2 would encode
+	// differently or not at all: a duration, a map, characters v1 escapes for
+	// HTML, and a nil slice.
+	t.Run("the fingerprint is the one earlier releases recorded", func(t *testing.T) {
+		got, err := scheduleFingerprint("process-order", "orders", []string{"0 1 * * *"}, enumspb.SCHEDULE_OVERLAP_POLICY_SKIP, map[string]any{
+			"order_id": "o1",
+			"timeout":  30 * time.Second,
+			"note":     "<b>&</b>",
+			"tags":     []string(nil),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "16ff198ebe2ea09da92eb5c739aca4858a4a136c05f74218f08ae003c8104213", got)
 	})
 }
 
@@ -339,12 +354,10 @@ func TestSchedulesMatch(t *testing.T) {
 }
 
 // describedWithStatus returns a description of the run "my-run" in status.
-func describedWithStatus(status enumspb.WorkflowExecutionStatus) *workflowservice.DescribeWorkflowExecutionResponse {
-	return &workflowservice.DescribeWorkflowExecutionResponse{
-		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
-			Execution: &commonpb.WorkflowExecution{WorkflowId: "my-workflow", RunId: "my-run"},
-			Status:    status,
-		},
+func describedWithStatus(status enumspb.WorkflowExecutionStatus) *client.WorkflowExecutionDescription {
+	return &client.WorkflowExecutionDescription{
+		WorkflowExecution: workflow.Execution{ID: "my-workflow", RunID: "my-run"},
+		Status:            status,
 	}
 }
 
@@ -362,7 +375,7 @@ func TestClosedWorkflowResult_OpenRunsAreNotRead(t *testing.T) {
 	} {
 		t.Run(status.String(), func(t *testing.T) {
 			c, mockClient := newTestClient(t)
-			mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "").Return(describedWithStatus(status), nil)
+			mockClient.On("DescribeWorkflow", mock.Anything, "my-workflow", "").Return(describedWithStatus(status), nil)
 
 			var got string
 			closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "", &got)
@@ -381,7 +394,7 @@ func TestClosedWorkflowResult_Completed(t *testing.T) {
 
 	// The run is read by the ID Describe returned, not the empty one it was asked
 	// about: a new run may have started in between.
-	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "").
+	mockClient.On("DescribeWorkflow", mock.Anything, "my-workflow", "").
 		Return(describedWithStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED), nil)
 	mockClient.On("GetWorkflow", mock.Anything, "my-workflow", "my-run").Return(mockRun)
 	mockRun.On("GetWithOptions", mock.Anything, mock.Anything, noFollowing).Run(func(args mock.Arguments) {
@@ -402,7 +415,7 @@ func TestClosedWorkflowResult_ContinuedAsNewIsNotFollowed(t *testing.T) {
 
 	continued := &workflow.ContinueAsNewError{}
 
-	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").
+	mockClient.On("DescribeWorkflow", mock.Anything, "my-workflow", "my-run").
 		Return(describedWithStatus(enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW), nil)
 	mockClient.On("GetWorkflow", mock.Anything, "my-workflow", "my-run").Return(mockRun)
 	mockRun.On("GetWithOptions", mock.Anything, mock.Anything, noFollowing).Return(continued)
@@ -420,7 +433,7 @@ func TestClosedWorkflowResult_ContinuedAsNewIsNotFollowed(t *testing.T) {
 func TestClosedWorkflowResult_NotFound(t *testing.T) {
 	c, mockClient := newTestClient(t)
 
-	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").
+	mockClient.On("DescribeWorkflow", mock.Anything, "my-workflow", "my-run").
 		Return(nil, serviceerror.NewNotFound("workflow not found"))
 
 	var got string
@@ -434,7 +447,7 @@ func TestClosedWorkflowResult_NotFound(t *testing.T) {
 func TestClosedWorkflowResult_DescribeFails(t *testing.T) {
 	c, mockClient := newTestClient(t)
 
-	mockClient.On("DescribeWorkflowExecution", mock.Anything, "my-workflow", "my-run").
+	mockClient.On("DescribeWorkflow", mock.Anything, "my-workflow", "my-run").
 		Return(nil, serviceerror.NewUnavailable("try later"))
 
 	closed, err := c.closedWorkflowResult(t.Context(), "my-workflow", "my-run", new(string))

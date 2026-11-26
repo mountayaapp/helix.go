@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
-	helixlog "github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
+	helixlog "github.com/mountaya/helix.go/telemetry/log"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
@@ -559,8 +559,7 @@ func startFailure(name string, err error) error {
 
 	wrapped := errorstack.Wrap(err, fmt.Sprintf("Failed to start server %q", name))
 
-	var e *errorstack.Error
-	if errors.As(wrapped, &e) {
+	if e, ok := errors.AsType[*errorstack.Error](wrapped); ok {
 		e.Append(errorstack.Nest(err, "server", name)...)
 	}
 

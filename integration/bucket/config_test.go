@@ -2,10 +2,11 @@ package bucket
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -269,9 +270,29 @@ func TestConfig_SanitizeReadsNoCredentials(t *testing.T) {
 	}
 }
 
+// jsonCodecs are the codecs a Config may meet: encoding/json/v2, and the v1
+// encoding/json that zap still logs a reflected field with. What the tests below
+// pin must hold for both.
+var jsonCodecs = []struct {
+	name      string
+	marshal   func(any) ([]byte, error)
+	unmarshal func([]byte, any) error
+}{
+	{
+		name:      "v2",
+		marshal:   func(v any) ([]byte, error) { return json.Marshal(v) },
+		unmarshal: func(b []byte, v any) error { return json.Unmarshal(b, v) },
+	},
+	{
+		name:      "v1",
+		marshal:   jsonv1.Marshal,
+		unmarshal: jsonv1.Unmarshal,
+	},
+}
+
 // TestConfig_CredentialsAreNeverEncoded pins that a Config encoded to JSON —
 // logged, or written to a file — carries its driver's fields but no part of a
-// credential, whichever the driver.
+// credential, whichever the driver and whichever the codec.
 func TestConfig_CredentialsAreNeverEncoded(t *testing.T) {
 	testcases := []struct {
 		name    string
@@ -299,27 +320,34 @@ func TestConfig_CredentialsAreNeverEncoded(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			encoded, err := json.Marshal(Config{Bucket: "my-bucket", Driver: tc.driver})
-			require.NoError(t, err)
+	for _, codec := range jsonCodecs {
+		for _, tc := range testcases {
+			t.Run(codec.name+"/"+tc.name, func(t *testing.T) {
+				encoded, err := codec.marshal(Config{Bucket: "my-bucket", Driver: tc.driver})
+				require.NoError(t, err)
 
-			for _, secret := range tc.secrets {
-				assert.NotContains(t, string(encoded), secret)
-			}
+				for _, secret := range tc.secrets {
+					assert.NotContains(t, string(encoded), secret)
+				}
 
-			assert.Contains(t, string(encoded), tc.encoded)
-		})
+				assert.Contains(t, string(encoded), tc.encoded)
+			})
+		}
 	}
 }
 
-// TestConfig_DriverIsNotDecoded pins that a driver cannot come from JSON: it is
-// set in code, along with the credentials it holds. A Config without one decodes.
+// TestConfig_DriverIsNotDecoded pins that a driver cannot come from JSON, with
+// either codec: it is set in code, along with the credentials it holds. A Config
+// without one decodes.
 func TestConfig_DriverIsNotDecoded(t *testing.T) {
-	var cfg Config
-	assert.Error(t, json.Unmarshal([]byte(`{"bucket":"my-bucket","driver":{"region":"eu-west-1"}}`), &cfg))
+	for _, codec := range jsonCodecs {
+		t.Run(codec.name, func(t *testing.T) {
+			var cfg Config
+			assert.Error(t, codec.unmarshal([]byte(`{"bucket":"my-bucket","driver":{"region":"eu-west-1"}}`), &cfg))
 
-	cfg = Config{}
-	require.NoError(t, json.Unmarshal([]byte(`{"name":"uploads","bucket":"my-bucket","subfolder":"a/"}`), &cfg))
-	assert.Equal(t, Config{Name: "uploads", Bucket: "my-bucket", Subfolder: "a/"}, cfg)
+			cfg = Config{}
+			require.NoError(t, codec.unmarshal([]byte(`{"name":"uploads","bucket":"my-bucket","subfolder":"a/"}`), &cfg))
+			assert.Equal(t, Config{Name: "uploads", Bucket: "my-bucket", Subfolder: "a/"}, cfg)
+		})
+	}
 }

@@ -4,8 +4,8 @@ import (
 	"maps"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )

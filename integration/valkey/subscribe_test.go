@@ -3,7 +3,6 @@ package valkey
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -281,7 +280,7 @@ func TestValkey_SubscribeReportsALostConnection(t *testing.T) {
 
 	err := awaitResult(t, done)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrSubscriptionInterrupted), "err = %v, want ErrSubscriptionInterrupted", err)
+	assert.ErrorIs(t, err, ErrSubscriptionInterrupted)
 
 	require.Never(t, func() bool {
 		return serverSubscribers(t, conn, "events:lost") != 0

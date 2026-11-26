@@ -9,8 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // Pre-computed attribute keys to avoid allocations on every call.
@@ -115,8 +115,7 @@ func reflectStructInfo(t reflect.Type) (*structInfo, error) {
 	}
 
 	info := &structInfo{}
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		if f.Anonymous && (f.IsExported() || promotesExported(f.Type)) {
 			return nil, errorstack.NewValidation(errorstack.Entry{
 				Message: fmt.Sprintf("Must not be an embedded struct; %s does not recurse into %q", identifier, f.Name),

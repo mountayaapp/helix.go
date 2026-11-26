@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -447,9 +448,7 @@ func newBoundsREST(t *testing.T, version string) (*rest, *int) {
 // refuse sends request through api and returns what it answered.
 func refuse(api *rest, request refusalRequest) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, request.target, request.body)
-	for key, values := range request.header {
-		req.Header[key] = values
-	}
+	maps.Copy(req.Header, request.header)
 
 	if request.contentType != "" {
 		req.Header.Set("Content-Type", request.contentType)

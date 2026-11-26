@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,8 +121,8 @@ func TestActivityRun_AwaitIntoNilDestination(t *testing.T) {
 	env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
 		err := charge.Execute(ctx, orderInput{}).AwaitInto(ctx, nil)
 
-		var e *errorstack.Error
-		if !errors.As(err, &e) {
+		e, ok := errors.AsType[*errorstack.Error](err)
+		if !ok {
 			return "no validation error", nil
 		}
 

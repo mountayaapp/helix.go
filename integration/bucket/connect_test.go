@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -289,8 +289,8 @@ func TestConnect_S3Endpoint(t *testing.T) {
 	requests := s3.requests("/")
 	require.NotEmpty(t, requests)
 	assert.Equal(t, "/my-bucket", requests[0].path)
-	assert.True(t, strings.Contains(requests[0].authorization, "Credential=config-key/"), "Authorization=%q", requests[0].authorization)
-	assert.True(t, strings.Contains(requests[0].authorization, "/eu-west-3/s3/"), "Authorization=%q", requests[0].authorization)
+	assert.Contains(t, requests[0].authorization, "Credential=config-key/")
+	assert.Contains(t, requests[0].authorization, "/eu-west-3/s3/")
 }
 
 // TestConnect_AzureEndpoint pins what a DriverAzure turns into on the wire: the

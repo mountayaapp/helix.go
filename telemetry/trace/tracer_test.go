@@ -3,8 +3,8 @@ package trace
 import (
 	"testing"
 
-	"github.com/mountayaapp/helix.go/event"
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/event"
+	internaltrace "github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

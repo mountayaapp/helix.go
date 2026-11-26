@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 )
 
 // undecodablePathMessage is the message of the entry refusing a path parameter

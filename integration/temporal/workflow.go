@@ -3,8 +3,8 @@ package temporal
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration/temporal/temporalrest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration/temporal/temporalrest"
 
 	"go.temporal.io/sdk/client"
 )

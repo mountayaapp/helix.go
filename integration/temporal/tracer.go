@@ -6,10 +6,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/mountayaapp/helix.go/integration"
-	internaltrace "github.com/mountayaapp/helix.go/internal/telemetry/trace"
-	"github.com/mountayaapp/helix.go/service"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	internaltrace "github.com/mountaya/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/service"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/contrib/opentelemetry"

@@ -8,12 +8,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/documents"
+	"github.com/mountaya/helix.go/documents"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,7 +66,7 @@ func helixResponseStatuses(t *testing.T) []string {
 		statuses = append(statuses, strings.TrimSuffix(entry.Name(), ".yaml"))
 	}
 
-	sort.Strings(statuses)
+	slices.Sort(statuses)
 	require.NotEmpty(t, statuses)
 
 	return statuses
@@ -80,9 +80,9 @@ func TestLoadOpenAPIDescriptions_HelixDocumentsLoadWithoutTheNetwork(t *testing.
 	refusing := withoutNetwork(t)
 
 	refs := []string{
-		"https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.1.0/documents/openapi/components/responses/%s.yaml",
-		"https://raw.githubusercontent.com/mountayaapp/helix.go/refs/heads/main/documents/openapi/components/responses/%s.yaml",
-		"https://raw.githubusercontent.com/mountayaapp/helix.go/v9.9.9/documents/openapi/components/responses/%s.yaml",
+		"https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.1.0/documents/openapi/components/responses/%s.yaml",
+		"https://raw.githubusercontent.com/mountaya/helix.go/refs/heads/main/documents/openapi/components/responses/%s.yaml",
+		"https://raw.githubusercontent.com/mountaya/helix.go/v9.9.9/documents/openapi/components/responses/%s.yaml",
 	}
 
 	for _, ref := range refs {
@@ -133,7 +133,7 @@ paths:
     get:
       responses:
         "418":
-          $ref: https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.1.0/documents/openapi/components/responses/418.yaml
+          $ref: https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.1.0/documents/openapi/components/responses/418.yaml
 `)
 
 	_, err := LoadOpenAPIDescriptions(t.Context(), description)
@@ -173,45 +173,45 @@ func TestHelixDocumentPath(t *testing.T) {
 	}{
 		{
 			name:     "a tag under refs/tags",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
 			path:     "openapi/components/responses/500.yaml",
 			ok:       true,
 		},
 		{
 			name:     "a branch under refs/heads",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/refs/heads/main/documents/openapi/components/schemas/Errors.yaml",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/refs/heads/main/documents/openapi/components/schemas/Errors.yaml",
 			path:     "openapi/components/schemas/Errors.yaml",
 			ok:       true,
 		},
 		{
 			name:     "a bare tag or commit",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/0771365/documents/openapi/components/headers/X-Request-Id.yaml",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/0771365/documents/openapi/components/headers/X-Request-Id.yaml",
 			path:     "openapi/components/headers/X-Request-Id.yaml",
 			ok:       true,
 		},
 		{
 			name:     "another repository",
-			location: "https://raw.githubusercontent.com/mountayaapp/other/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
+			location: "https://raw.githubusercontent.com/mountaya/other/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
 		},
 		{
 			name:     "another host",
-			location: "https://example.com/mountayaapp/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
+			location: "https://example.com/mountaya/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
 		},
 		{
 			name:     "plain HTTP",
-			location: "http://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
+			location: "http://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.28.0/documents/openapi/components/responses/500.yaml",
 		},
 		{
 			name:     "outside documents",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.28.0/go.mod",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.28.0/go.mod",
 		},
 		{
 			name:     "a reference with no path after it",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.28.0",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.28.0",
 		},
 		{
 			name:     "a path climbing out of documents",
-			location: "https://raw.githubusercontent.com/mountayaapp/helix.go/refs/tags/v0.28.0/documents/../go.mod",
+			location: "https://raw.githubusercontent.com/mountaya/helix.go/refs/tags/v0.28.0/documents/../go.mod",
 		},
 	}
 

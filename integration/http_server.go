@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"

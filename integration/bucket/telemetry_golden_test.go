@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,19 +65,19 @@ func TestTelemetryGolden(t *testing.T) {
 	//
 	// The streamed operations end when their reader or writer is closed.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | Bucket: Write | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
-		"github.com/mountayaapp/helix.go | client | Bucket: Read | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
-		"github.com/mountayaapp/helix.go | client | Bucket: NewWriter | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
-		"github.com/mountayaapp/helix.go | client | Bucket: NewReader | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
-		"github.com/mountayaapp/helix.go | client | Bucket: Exists | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
-		"github.com/mountayaapp/helix.go | client | Bucket: Delete | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: Write | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: Read | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: NewWriter | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: NewReader | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: Exists | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
+		"github.com/mountaya/helix.go | client | Bucket: Delete | bucket.bucket,bucket.driver,bucket.key,bucket.name,bucket.subfolder",
 	}
 
 	assert.Equal(t, want, got)
 
 	// The suppression is what the span count above depends on, so it is asserted
 	// directly rather than left implied: no gocloud scope may reach the exporter.
-	assert.Equal(t, []string{"github.com/mountayaapp/helix.go"}, servicetest.Scopes(rec.Spans()))
+	assert.Equal(t, []string{"github.com/mountaya/helix.go"}, servicetest.Scopes(rec.Spans()))
 
 	servicetest.AssertConvention(t, rec.Spans())
 

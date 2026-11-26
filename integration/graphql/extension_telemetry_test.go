@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/assert"

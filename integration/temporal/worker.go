@@ -3,7 +3,7 @@ package temporal
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountaya/helix.go/service"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/worker"

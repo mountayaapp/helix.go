@@ -4,7 +4,7 @@ import (
 	"encoding/json/v2"
 	"net/http"
 
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 )

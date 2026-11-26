@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mountayaapp/helix.go/telemetry/log"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -160,13 +160,15 @@ type gateAnswer struct {
 func (g *gateAnswer) answerLater(status int, err error) {
 	g.status = status
 
-	var limited *TooManyRequestsError
-	var unavailable *ServiceUnavailableError
-	switch {
-	case status == http.StatusTooManyRequests && errors.As(err, &limited):
-		g.retryAfter = limited.RetryAfter
-	case status == http.StatusServiceUnavailable && errors.As(err, &unavailable):
-		g.retryAfter = unavailable.RetryAfter
+	switch status {
+	case http.StatusTooManyRequests:
+		if limited, ok := errors.AsType[*TooManyRequestsError](err); ok {
+			g.retryAfter = limited.RetryAfter
+		}
+	case http.StatusServiceUnavailable:
+		if unavailable, ok := errors.AsType[*ServiceUnavailableError](err); ok {
+			g.retryAfter = unavailable.RetryAfter
+		}
 	}
 }
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	gqlgen "github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/errcode"
@@ -292,14 +292,12 @@ func serverErrors(list gqlerror.List) error {
 // with: that of the first entry of an *errorstack.Error in its chain, or else that
 // of a *gqlerror.Error.
 func errorCode(err error) string {
-	var stack *errorstack.Error
-	if errors.As(err, &stack) && len(stack.Entries) > 0 {
+	if stack, ok := errors.AsType[*errorstack.Error](err); ok && len(stack.Entries) > 0 {
 		code, _ := stack.Entries[0].Extensions["code"].(string)
 		return code
 	}
 
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) {
+	if gqlErr, ok := errors.AsType[*gqlerror.Error](err); ok {
 		code, _ := gqlErr.Extensions["code"].(string)
 		return code
 	}

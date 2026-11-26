@@ -12,9 +12,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/documents"
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/documents"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
@@ -289,10 +289,10 @@ func invalidDescription(err error, path ...any) error {
 }
 
 // helixDocumentsHost and helixDocumentsRepository locate helix's own documents on
-// the web: https://raw.githubusercontent.com/mountayaapp/helix.go/<ref>/documents/...
+// the web: https://raw.githubusercontent.com/mountaya/helix.go/<ref>/documents/...
 const (
 	helixDocumentsHost       = "raw.githubusercontent.com"
-	helixDocumentsRepository = "/mountayaapp/helix.go/"
+	helixDocumentsRepository = "/mountaya/helix.go/"
 )
 
 // readFromHelixDocuments reads a document of helix's own, one a description

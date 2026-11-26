@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/telemetry/log"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/telemetry/log"
 )
 
 // panicError is a recovered panic, as an error.

@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/internal/cloudprovider"
+	"github.com/mountaya/helix.go/internal/cloudprovider"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"

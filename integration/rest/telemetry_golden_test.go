@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,9 +145,9 @@ func TestTelemetryGolden(t *testing.T) {
 	// The 404 is traced too, and carries no route, which is exactly why "/nowhere"
 	// did not become a span name.
 	want := []string{
-		"github.com/mountayaapp/helix.go | server | REST: GET /thing | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
-		"github.com/mountayaapp/helix.go | server | REST: GET /things/:id | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
-		"github.com/mountayaapp/helix.go | server | REST: GET | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.status_code",
+		"github.com/mountaya/helix.go | server | REST: GET /thing | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
+		"github.com/mountaya/helix.go | server | REST: GET /things/:id | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
+		"github.com/mountaya/helix.go | server | REST: GET | rest.method,rest.name,rest.path,rest.request.size,rest.response.size,rest.status_code",
 	}
 
 	assert.Equal(t, want, goldenSpans(rec))
@@ -207,10 +207,10 @@ func TestTelemetryGolden_OpenAPI(t *testing.T) {
 	// never validated. Neither validation failed, and the probes — which no
 	// description declares — were never matched against one.
 	want := []string{
-		"github.com/mountayaapp/helix.go | internal | REST: OpenAPI / Request Validation | rest.name",
-		"github.com/mountayaapp/helix.go | internal | REST: OpenAPI / Response Validation | rest.name",
-		"github.com/mountayaapp/helix.go | server | REST: GET /things/:id | rest.method,rest.name,rest.openapi.validated,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
-		"github.com/mountayaapp/helix.go | server | REST: GET /undescribed | rest.method,rest.name,rest.openapi.validated,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
+		"github.com/mountaya/helix.go | internal | REST: OpenAPI / Request Validation | rest.name",
+		"github.com/mountaya/helix.go | internal | REST: OpenAPI / Response Validation | rest.name",
+		"github.com/mountaya/helix.go | server | REST: GET /things/:id | rest.method,rest.name,rest.openapi.validated,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
+		"github.com/mountaya/helix.go | server | REST: GET /undescribed | rest.method,rest.name,rest.openapi.validated,rest.path,rest.request.size,rest.response.size,rest.route,rest.status_code",
 	}
 
 	assert.Equal(t, want, goldenSpans(rec))

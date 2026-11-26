@@ -3,8 +3,8 @@ package valkey
 import (
 	"time"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
 )
 
 // Config is used to configure the Valkey integration.

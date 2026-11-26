@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountaya/helix.go/service"
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
@@ -240,13 +240,12 @@ func (c *Client) WorkflowResultIfClosed[Input, Result any](
 // or the returned error carrying why there is none (in which case valuePtr is
 // unreliable).
 func (c *Client) closedWorkflowResult(ctx context.Context, workflowID, runID string, valuePtr any) (bool, error) {
-	desc, err := c.client.DescribeWorkflowExecution(ctx, workflowID, runID)
+	desc, err := c.client.DescribeWorkflow(ctx, workflowID, runID)
 	if err != nil {
 
 		// An unknown or history-expired run is not an error for a best-effort terminal
 		// read: report it as not-closed so the caller proceeds rather than failing.
-		var notFound *serviceerror.NotFound
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*serviceerror.NotFound](err); ok {
 			return false, nil
 		}
 
@@ -256,15 +255,14 @@ func (c *Client) closedWorkflowResult(ctx context.Context, workflowID, runID str
 	// Only a run in a terminal state can be read without blocking: reading any other
 	// waits for it to close. The statuses are allow-listed rather than "not running",
 	// because a paused run is not running either, and has not closed.
-	info := desc.GetWorkflowExecutionInfo()
-	if !closedStatus(info.GetStatus()) {
+	if !closedStatus(desc.Status) {
 		return false, nil
 	}
 
 	// Read the run that was described rather than whichever is latest by now: an
 	// empty runID resolves to the latest run on every request, and a retry or a cron
 	// run may have started in between.
-	if described := info.GetExecution().GetRunId(); described != "" {
+	if described := desc.WorkflowExecution.RunID; described != "" {
 		runID = described
 	}
 

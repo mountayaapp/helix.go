@@ -22,14 +22,47 @@ linters:
     # bodyclose catches an HTTP response body that is never closed, which leaks
     # the pooled connection under it.
     - bodyclose
+
+    # modernize runs the analyzers behind `go fix`, so that code written against
+    # an older Go — errors.As into a declared variable, a pointer helper where
+    # new(expr) does, a hand-written loop over a map or a slice — fails here
+    # rather than reaching review.
+    - modernize
+
+    # usetesting, usestdlibvars and exptostd point at what the standard library
+    # already has: t.Context, t.TempDir and t.Setenv in tests, http.MethodGet
+    # and its kin over literals, and the std package a golang.org/x/exp one
+    # became.
+    - usetesting
+    - usestdlibvars
+    - exptostd
+
+    # testifylint catches an assertion whose failure says less than another's
+    # would — assert.True(errors.Is(...)) over assert.ErrorIs — expected and
+    # actual swapped, and require called off the test's goroutine.
+    - testifylint
   settings:
     errcheck:
       # Builder-style methods on errorstack.Error, whose return value is the same
       # receiver. Named by their full receiver so that unrelated types with an
       # Append or SetExtension method still trip errcheck.
       exclude-functions:
-        - (*github.com/mountayaapp/helix.go/errorstack.Error).Append
-        - (*github.com/mountayaapp/helix.go/errorstack.Error).SetExtension
+        - (*github.com/mountaya/helix.go/errorstack.Error).Append
+        - (*github.com/mountaya/helix.go/errorstack.Error).SetExtension
+
+    testifylint:
+      disable:
+        # An error assertion is not always fatal to what follows it: whether a
+        # test can go on is the test's call.
+        - require-error
+
+        # The floats compared are exact round trips: a tolerance would hide a
+        # value that changed.
+        - float-compare
+
+        # A wire-format test pins exact bytes on purpose: assert.JSONEq would
+        # accept the same document reordered or escaped differently.
+        - encoded-compare
 
   exclusions:
     rules:
@@ -67,3 +100,14 @@ linters:
 formatters:
   enable:
     - gofmt
+
+    # gci checks the import blocks every file here is written with: the standard
+    # library, then helix.go's own packages, then everything else.
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - prefix(github.com/mountaya/helix.go)
+        - default
+      custom-order: true

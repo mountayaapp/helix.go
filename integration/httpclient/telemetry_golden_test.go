@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,8 +68,8 @@ func TestTelemetryGolden(t *testing.T) {
 	// their cardinality costs nothing and a golden can be pinned — a name carrying
 	// an ephemeral port would test the environment instead of the instrumentation.
 	want := []string{
-		"github.com/mountayaapp/helix.go | client | HTTP Client: GET / Attempt | httpclient.endpoint,httpclient.method,httpclient.name,httpclient.path,httpclient.request.size,httpclient.response.size,httpclient.status_code",
-		"github.com/mountayaapp/helix.go | internal | HTTP Client: GET | httpclient.attempts,httpclient.endpoint,httpclient.name,httpclient.status_code",
+		"github.com/mountaya/helix.go | client | HTTP Client: GET / Attempt | httpclient.endpoint,httpclient.method,httpclient.name,httpclient.path,httpclient.request.size,httpclient.response.size,httpclient.status_code",
+		"github.com/mountaya/helix.go | internal | HTTP Client: GET | httpclient.attempts,httpclient.endpoint,httpclient.name,httpclient.status_code",
 	}
 
 	assert.Equal(t, want, got)

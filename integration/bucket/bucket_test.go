@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,8 +133,8 @@ func TestIsNotFound(t *testing.T) {
 	assert.False(t, IsNotFound(nil))
 	assert.False(t, IsNotFound(errors.New("blob not found")))
 	assert.True(t, IsNotFound(ErrNotFound))
-	assert.Nil(t, asNotFound(nil))
-	assert.Nil(t, asNotFound(errors.New("other")))
+	assert.NoError(t, asNotFound(nil))
+	assert.NoError(t, asNotFound(errors.New("other")))
 }
 
 // TestStream pins that a streamed read or write is one operation lasting until

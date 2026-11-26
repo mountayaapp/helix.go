@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
-	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/service"
 
 	"go.opentelemetry.io/otel"
 	sdklog "go.opentelemetry.io/otel/sdk/log"

@@ -90,7 +90,7 @@ func TestEventPropagation_InboundDecodesAllowListOnly(t *testing.T) {
 		IP:             "10.0.0.1",
 		UserAgent:      "TestAgent/1.0",
 		Locale:         "fr-FR",
-		IsAnonymous:    BoolPtr(true),
+		IsAnonymous:    new(true),
 		Meta:           map[string]string{"env": "production"},
 		App:            App{Name: "my-app", Version: "3.0.0", BuildID: "abc123"},
 		Device:         Device{ID: "dev_1"},

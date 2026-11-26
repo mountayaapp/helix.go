@@ -3,7 +3,7 @@ package trace
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
 )
 
 // Start creates a Span and a context containing the newly-created Span.

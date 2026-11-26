@@ -3,7 +3,7 @@ package trace
 import (
 	"sync"
 
-	internalsanitize "github.com/mountayaapp/helix.go/internal/telemetry/sanitize"
+	internalsanitize "github.com/mountaya/helix.go/internal/telemetry/sanitize"
 
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"

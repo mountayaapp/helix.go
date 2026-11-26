@@ -2,13 +2,13 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -139,8 +139,8 @@ func TestRecover_APanickingPromptIsAnInternalError(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, holdsThePanic(err.Error()), "the error holds the panic: %v", err)
 
-	var wire *jsonrpc.Error
-	require.True(t, errors.As(err, &wire), "err = %v, want a JSON-RPC error", err)
+	wire, ok := errors.AsType[*jsonrpc.Error](err)
+	require.True(t, ok, "err = %v, want a JSON-RPC error", err)
 	assert.Equal(t, int64(jsonrpc.CodeInternalError), wire.Code)
 	assert.Equal(t, "Internal server error", wire.Message)
 

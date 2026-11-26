@@ -65,8 +65,13 @@ type Event struct {
 
 // BoolPtr returns a pointer to the given bool value. This is a convenience helper
 // for setting Event.IsAnonymous.
+//
+// Deprecated: Use new(v), which takes an expression since Go 1.26. Running
+// go fix rewrites every call.
+//
+//go:fix inline
 func BoolPtr(v bool) *bool {
-	return &v
+	return new(v)
 }
 
 // App holds the details about the client application executing the event.

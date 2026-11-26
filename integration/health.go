@@ -1,7 +1,7 @@
 package integration
 
 import (
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 )
 
 // Unhealthy returns the error a Dependency or a Server reports from CheckHealth

@@ -3,7 +3,7 @@ package valkey
 import (
 	"time"
 
-	"github.com/mountayaapp/helix.go/integration"
+	"github.com/mountaya/helix.go/integration"
 
 	"github.com/valkey-io/valkey-go"
 )

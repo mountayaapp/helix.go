@@ -7,7 +7,7 @@ description: >-
   test structure, and which deviations here are deliberate.
 metadata:
   author: mountaya
-  version: "1.0"
+  version: "1.1"
   source: https://google.github.io/styleguide/go/
 ---
 
@@ -90,8 +90,9 @@ The *displayed* message is different and typically capitalized:
 `log.Errorf("Operation aborted: %v", err)`.
 
 Wrap with `%w` when callers should be able to unwrap; use `errors.Is` /
-`errors.As` to inspect. Use `errors.New` when there is nothing to format —
-`fmt.Errorf` with no verbs is a smell.
+`errors.AsType` to inspect — `errors.AsType[*T](err)` (Go 1.26) returns the
+match, where `errors.As` needs a variable declared to fill. Use `errors.New`
+when there is nothing to format — `fmt.Errorf` with no verbs is a smell.
 
 ## Contexts
 
@@ -136,6 +137,9 @@ breaking call sites. Export it only if the function is exported.
 - Failure messages state what was called, what came back, and what was wanted:
   `t.Errorf("Op(%q) failed unexpectedly; err=%v", args, err)`.
 - Prefer testing through the real implementation's public API over test doubles.
+- Benchmarks loop with `for b.Loop()` (Go 1.24), not `for range b.N`: setup
+  before the loop stays out of the timing without `b.ResetTimer`, and the body
+  is not optimized away.
 
 ---
 
@@ -149,8 +153,17 @@ opening with `Package <name> ...`. Several encode architectural invariants — e
 package in this ecosystem. Respect that constraint.
 
 **Imports are grouped in three blocks**: stdlib, then
-`github.com/mountayaapp/helix.go/...`, then third-party. This is stricter than
-`gofmt`/`goimports` enforces and is applied uniformly.
+`github.com/mountaya/helix.go/...`, then third-party. This is stricter than
+`gofmt`/`goimports` enforces; `make lint` checks it, with golangci-lint's `gci`.
+
+**JSON is `encoding/json/v2`.** Its `omitempty` drops a member that encodes as
+empty JSON (`null`, `""`, `[]`, `{}`), so a number or a bool that must not be
+written when zero is tagged `omitzero`. It has no default encoding for a
+`time.Duration`, and its `format` tag option is not available yet. The v1
+`encoding/json` stays only where the bytes must match a v1 reader or writer,
+and says why where it is used: the GraphQL handler decodes a body the way
+gqlgen's transport will, and the Temporal schedule fingerprint must match the
+one earlier releases recorded.
 
 **Error message casing is bimodal and deliberate**, documented at
 `errorstack/error.go`:

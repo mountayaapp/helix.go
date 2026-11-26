@@ -90,7 +90,7 @@ func TestValidation_EmptyFallsBackToInternalError(t *testing.T) {
 }
 
 func TestWrap_NilReturnsNil(t *testing.T) {
-	assert.Nil(t, Wrap(nil, "Failed to validate configuration"))
+	assert.NoError(t, Wrap(nil, "Failed to validate configuration"))
 }
 
 func TestWrap_NilThroughErrorInterface(t *testing.T) {
@@ -103,8 +103,7 @@ func TestWrap_NilThroughErrorInterface(t *testing.T) {
 		return Wrap(in, "Failed to start server")
 	}
 
-	assert.Nil(t, makeErr(nil))
-	assert.False(t, makeErr(nil) != nil, "Wrap(nil, …) must compare equal to nil through error interface")
+	assert.NoError(t, makeErr(nil), "Wrap(nil, …) must compare equal to nil through error interface")
 }
 
 func TestWrap_PreservesCause(t *testing.T) {
@@ -112,7 +111,7 @@ func TestWrap_PreservesCause(t *testing.T) {
 
 	wrapped := Wrap(sentinel, "Failed to initialize integration")
 
-	assert.True(t, errors.Is(wrapped, sentinel))
+	assert.ErrorIs(t, wrapped, sentinel)
 	assert.Equal(t, sentinel, errors.Unwrap(wrapped))
 }
 
@@ -120,8 +119,8 @@ func TestWrap_ErrorsAs(t *testing.T) {
 	inner := New("Failed to validate configuration")
 	wrapped := Wrap(inner, "Failed to initialize integration")
 
-	var target *Error
-	assert.True(t, errors.As(wrapped, &target))
+	target, ok := errors.AsType[*Error](wrapped)
+	require.True(t, ok)
 	assert.Equal(t, "Failed to initialize integration", target.Entries[0].Message)
 }
 
@@ -135,11 +134,11 @@ func TestWrap_MultiLevelChain(t *testing.T) {
 	l2 := Wrap(l1, "Failed to initialize integration")
 	l3 := Wrap(l2, "Failed to start service")
 
-	assert.True(t, errors.Is(l3, root), "errors.Is traverses the full Unwrap chain to the root cause")
+	assert.ErrorIs(t, l3, root, "errors.Is traverses the full Unwrap chain to the root cause")
 
-	var target *Error
-	require.True(t, errors.As(l3, &target))
-	assert.Equal(t, "Failed to start service", target.Entries[0].Message, "errors.As surfaces the outermost *Error")
+	target, ok := errors.AsType[*Error](l3)
+	require.True(t, ok)
+	assert.Equal(t, "Failed to start service", target.Entries[0].Message, "errors.AsType surfaces the outermost *Error")
 
 	assert.Contains(t, l3.Error(), "connection refused", "Error() includes the root cause text")
 }

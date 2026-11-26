@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/internal/telemetry/log"
-	"github.com/mountayaapp/helix.go/internal/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/internal/telemetry/log"
+	"github.com/mountaya/helix.go/internal/telemetry/trace"
 
 	otellog "go.opentelemetry.io/otel/log"
 	otelmetric "go.opentelemetry.io/otel/metric"

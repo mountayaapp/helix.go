@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"

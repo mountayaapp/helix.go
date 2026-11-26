@@ -3,7 +3,7 @@ package temporal
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/event"
+	"github.com/mountaya/helix.go/event"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/workflow"

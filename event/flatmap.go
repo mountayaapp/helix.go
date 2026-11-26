@@ -114,7 +114,7 @@ func flattenValue(v reflect.Value, prefix string, m map[string]string) {
 			}
 
 		case reflect.Struct:
-			if field.Type == reflect.TypeOf(time.Time{}) {
+			if field.Type == reflect.TypeFor[time.Time]() {
 				if ts := fv.Interface().(time.Time); !ts.IsZero() {
 					m[key] = ts.Format(time.RFC3339Nano)
 				}
@@ -204,7 +204,7 @@ func unflattenValue(v reflect.Value, prefix string, m map[string]string) {
 			}
 
 		case reflect.Struct:
-			if field.Type == reflect.TypeOf(time.Time{}) {
+			if field.Type == reflect.TypeFor[time.Time]() {
 				if val, ok := m[key]; ok {
 					ts, err := time.Parse(time.RFC3339Nano, val)
 					if err == nil {
@@ -225,15 +225,15 @@ func unflattenValue(v reflect.Value, prefix string, m map[string]string) {
 					}
 
 					rest := k[len(slicePrefix):]
-					dotIdx := strings.Index(rest, ".")
-					if dotIdx == -1 {
+					before, _, ok := strings.Cut(rest, ".")
+					if !ok {
 						continue
 					}
 
 					// An index past the cap is ignored rather than honoured: the slice is
 					// sized from the largest index seen, so an uncapped one would let a
 					// single key decide how much memory the decode allocates.
-					idx, err := strconv.Atoi(rest[:dotIdx])
+					idx, err := strconv.Atoi(before)
 					if err != nil || idx < 0 || idx >= maxFlatMapSliceLen {
 						continue
 					}

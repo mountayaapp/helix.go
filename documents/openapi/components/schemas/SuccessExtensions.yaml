@@ -1,7 +1,7 @@
 type: object
 x-go-type: rest.Response
 x-go-type-import:
-  path: github.com/mountayaapp/helix.go/integration/rest
+  path: github.com/mountaya/helix.go/integration/rest
 
 properties:
   extensions:

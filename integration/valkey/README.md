@@ -1,7 +1,7 @@
 # helix.go - Valkey integration
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/valkey)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go/integration/valkey)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The Valkey integration provides an opinionated way to interact with
@@ -20,7 +20,7 @@ commands spanning several keys are split by hash slot, and scans walk every node
 ## Installation
 
 ```sh
-$ go get github.com/mountayaapp/helix.go/integration/valkey
+$ go get github.com/mountaya/helix.go/integration/valkey
 ```
 
 ## Configuration
@@ -77,8 +77,8 @@ import (
   "os/signal"
   "syscall"
 
-  "github.com/mountayaapp/helix.go/integration/valkey"
-  "github.com/mountayaapp/helix.go/service"
+  "github.com/mountaya/helix.go/integration/valkey"
+  "github.com/mountaya/helix.go/service"
 )
 
 func run() error {

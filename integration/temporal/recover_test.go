@@ -3,13 +3,12 @@ package temporal
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,8 +169,8 @@ func TestActivityRecover_LeavesAnActivityThatReturnsAlone(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "out of stock")
 
-	var panicked *temporal.PanicError
-	assert.False(t, errors.As(err, &panicked))
+	_, panicked := errors.AsType[*temporal.PanicError](err)
+	assert.False(t, panicked)
 }
 
 // panicReport is what the workflow below returns of the error its activity
@@ -221,8 +220,8 @@ func TestActivityPanic_OnAWorker(t *testing.T) {
 	})
 
 	report := func(err error) panicReport {
-		var panicked *temporal.PanicError
-		if !errors.As(err, &panicked) {
+		panicked, ok := errors.AsType[*temporal.PanicError](err)
+		if !ok {
 			return panicReport{Message: err.Error()}
 		}
 
@@ -279,7 +278,7 @@ func TestActivityPanic_OnAWorker(t *testing.T) {
 				require.NoError(t, err)
 
 				for _, piece := range []string{"tok_", "refresh failed", "goroutine", "recover_test.go"} {
-					assert.False(t, strings.Contains(string(encoded), piece), "event %d of %s holds %q: %s", event.GetEventId(), id, piece, encoded)
+					assert.NotContains(t, string(encoded), piece, "event %d of %s holds %q", event.GetEventId(), id, piece)
 				}
 
 				if failed := event.GetActivityTaskFailedEventAttributes(); failed != nil {

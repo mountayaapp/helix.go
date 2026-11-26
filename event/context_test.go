@@ -152,7 +152,7 @@ func TestEventFromBaggage_EmptyName(t *testing.T) {
 	e, ok := eventFromBaggage(b)
 
 	assert.False(t, ok)
-	assert.Equal(t, "", e.Name)
+	assert.Empty(t, e.Name)
 }
 
 func TestEventFromBaggage_WithName(t *testing.T) {

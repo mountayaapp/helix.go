@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

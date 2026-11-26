@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mountayaapp/helix.go/errorstack"
+	"github.com/mountaya/helix.go/errorstack"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -135,7 +135,7 @@ func TestQuoteColumn(t *testing.T) {
 }
 
 func TestReflectStructInfo_ColumnsAndIndexes(t *testing.T) {
-	info, err := reflectStructInfo(reflect.TypeOf(testRow{}))
+	info, err := reflectStructInfo(reflect.TypeFor[testRow]())
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"date", "path", "count"}, info.columns)
@@ -143,48 +143,48 @@ func TestReflectStructInfo_ColumnsAndIndexes(t *testing.T) {
 }
 
 func TestReflectStructInfo_CachedAcrossCalls(t *testing.T) {
-	first, err := reflectStructInfo(reflect.TypeOf(testRow{}))
+	first, err := reflectStructInfo(reflect.TypeFor[testRow]())
 	require.NoError(t, err)
 
-	second, err := reflectStructInfo(reflect.TypeOf(testRow{}))
+	second, err := reflectStructInfo(reflect.TypeFor[testRow]())
 	require.NoError(t, err)
 
 	assert.Same(t, first, second)
 }
 
 func TestReflectStructInfo_RejectsEmbeddedField(t *testing.T) {
-	_, err := reflectStructInfo(reflect.TypeOf(testRowWithEmbedding{}))
+	_, err := reflectStructInfo(reflect.TypeFor[testRowWithEmbedding]())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Must not be an embedded struct")
 }
 
 func TestReflectStructInfo_SkipsUnexportedEmbedPromotingNothing(t *testing.T) {
-	info, err := reflectStructInfo(reflect.TypeOf(testRowWithUnexportedEmbed{}))
+	info, err := reflectStructInfo(reflect.TypeFor[testRowWithUnexportedEmbed]())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"id"}, info.columns)
 }
 
 func TestReflectStructInfo_QuotesUnusualColumns(t *testing.T) {
-	info, err := reflectStructInfo(reflect.TypeOf(testRowUnusualColumns{}))
+	info, err := reflectStructInfo(reflect.TypeFor[testRowUnusualColumns]())
 	require.NoError(t, err)
 	assert.Equal(t, " (`n.a`, `a``b`, `a\\\\`) VALUES (?, ?, ?)", info.suffix)
 }
 
 func TestReflectStructInfo_RejectsControlCharacterInColumn(t *testing.T) {
-	_, err := reflectStructInfo(reflect.TypeOf(testRowControlColumn{}))
+	_, err := reflectStructInfo(reflect.TypeFor[testRowControlColumn]())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "naming a column")
 }
 
 func TestReflectStructInfo_RejectsUntaggedExportedField(t *testing.T) {
-	_, err := reflectStructInfo(reflect.TypeOf(testRowUntaggedField{}))
+	_, err := reflectStructInfo(reflect.TypeFor[testRowUntaggedField]())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Must carry a \"ch\" struct tag")
 	assert.Contains(t, err.Error(), "Orphan")
 }
 
 func TestReflectStructInfo_AllFieldsSkipped(t *testing.T) {
-	info, err := reflectStructInfo(reflect.TypeOf(testRowAllSkipped{}))
+	info, err := reflectStructInfo(reflect.TypeFor[testRowAllSkipped]())
 	require.NoError(t, err)
 	assert.Empty(t, info.columns)
 	assert.Empty(t, info.indexes)

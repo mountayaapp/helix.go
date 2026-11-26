@@ -1,7 +1,7 @@
 # helix.go - HTTP Client integration
 
-[![Go API reference](https://pkg.go.dev/badge/github.com/mountayaapp/helix.go.svg)](https://pkg.go.dev/github.com/mountayaapp/helix.go/integration/httpclient)
-[![Latest version](https://img.shields.io/github/v/tag/mountayaapp/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountayaapp/helix.go/tags)
+[![Go API reference](https://pkg.go.dev/badge/github.com/mountaya/helix.go.svg)](https://pkg.go.dev/github.com/mountaya/helix.go/integration/httpclient)
+[![Latest version](https://img.shields.io/github/v/tag/mountaya/helix.go?filter=v*&sort=semver&label=version)](https://github.com/mountaya/helix.go/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The HTTP client integration provides an opinionated way to call an external HTTP
@@ -24,7 +24,7 @@ A single client can target one or more interchangeable endpoints:
 ## Installation
 
 ```sh
-$ go get github.com/mountayaapp/helix.go/integration/httpclient
+$ go get github.com/mountaya/helix.go/integration/httpclient
 ```
 
 ## Configuration
@@ -70,8 +70,8 @@ $ go get github.com/mountayaapp/helix.go/integration/httpclient
 
 ```go
 import (
-  "github.com/mountayaapp/helix.go/service"
-  "github.com/mountayaapp/helix.go/integration/httpclient"
+  "github.com/mountaya/helix.go/service"
+  "github.com/mountaya/helix.go/integration/httpclient"
 )
 
 svc, err := service.New(ctx, service.Config{})

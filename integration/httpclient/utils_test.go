@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/telemetry/trace"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/telemetry/trace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -393,8 +393,7 @@ func BenchmarkSetRequestAttributes(b *testing.B) {
 	e := newEndpoints([]*url.URL{{Scheme: "https", Host: "api.tld"}})[0]
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		setRequestAttributes(op, e, http.StatusOK, 1)
 	}
 }

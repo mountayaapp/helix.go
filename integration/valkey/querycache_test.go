@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mountayaapp/helix.go/service/servicetest"
+	"github.com/mountaya/helix.go/service/servicetest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,7 +74,7 @@ func TestQueryCache(t *testing.T) {
 		assert.Equal(t, "{ viewer { id } }", query)
 
 		ms := pttl(t, conn, "apq:hash")
-		assert.Greater(t, ms, int64(0))
+		assert.Positive(t, ms)
 		assert.LessOrEqual(t, ms, time.Minute.Milliseconds())
 	})
 

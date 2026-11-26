@@ -3,9 +3,9 @@ package temporal
 import (
 	"context"
 
-	"github.com/mountayaapp/helix.go/errorstack"
-	"github.com/mountayaapp/helix.go/integration"
-	"github.com/mountayaapp/helix.go/service"
+	"github.com/mountaya/helix.go/errorstack"
+	"github.com/mountaya/helix.go/integration"
+	"github.com/mountaya/helix.go/service"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.temporal.io/sdk/client"
